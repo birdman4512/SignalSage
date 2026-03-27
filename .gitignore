@@ -1,0 +1,54 @@
+# Secrets & local config — never commit these
+.env
+.env.*
+!.env.example
+
+# Personal config & watchlist — never commit these (may contain channel IDs, personal URLs)
+config/config.yaml
+config/watchlist.yaml
+# But DO commit the example templates:
+!config/config.example.yaml
+!config/watchlist.example.yaml
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+pip-wheel-metadata/
+*.whl
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Pytest / coverage
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Mypy
+.mypy_cache/
+
+# Ruff
+.ruff_cache/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db

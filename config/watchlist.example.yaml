@@ -1,0 +1,44 @@
+# Daily digest watchlist
+# Each topic is summarized independently on its own schedule.
+# 'schedule' is a standard 5-part cron expression (minute hour day month day_of_week).
+# If omitted, falls back to digest.default_schedule in config.yaml.
+
+topics:
+  - name: "Cybersecurity News"
+    schedule: "0 6 * * *"      # 6am daily
+    sources:
+      - name: "Krebs on Security"
+        url: "https://krebsonsecurity.com/feed/"
+      - name: "SANS Internet Storm Center"
+        url: "https://isc.sans.edu/rssfeed_full.xml"
+      - name: "ESET WeLiveSecurity"
+        url: "https://www.welivesecurity.com/feed/"
+      - name: "Schneier on Security"
+        url: "https://www.schneier.com/feed/atom/"
+
+  - name: "Vulnerability Alerts"
+    schedule: "0 7 * * 1-5"    # 7am weekdays
+    sources:
+      - name: "CISA Known Exploited Vulnerabilities"
+        url: "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
+      - name: "CISA Advisories"
+        url: "https://www.cisa.gov/cybersecurity-advisories/all.xml"
+      - name: "NVD Recent CVEs"
+        url: "https://nvd.nist.gov/feeds/xml/cve/misc/nvd-rss-analyzed.xml"
+
+  - name: "Threat Intelligence"
+    schedule: "0 6 * * 1"      # 6am every Monday
+    sources:
+      - name: "abuse.ch Blog"
+        url: "https://abuse.ch/blog/feed/"
+      - name: "MalwareBazaar Recent"
+        url: "https://bazaar.abuse.ch/export/csv/recent/"
+      - name: "URLhaus Recent Additions"
+        url: "https://urlhaus.abuse.ch/feeds/recent/"
+
+  # Example: add your own topic below
+  # - name: "My Custom Topic"
+  #   schedule: "0 8 * * *"
+  #   sources:
+  #     - name: "My Source"
+  #       url: "https://example.com/feed.xml"

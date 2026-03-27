@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Lint & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Lint (ruff)
+        run: ruff check signalsage/ tests/
+
+      - name: Format check (ruff)
+        run: ruff format --check signalsage/ tests/
+
+      - name: Type check (mypy)
+        run: mypy signalsage/ --ignore-missing-imports
+        continue-on-error: true   # informational until all stubs are in place
+
+      - name: Run tests
+        run: pytest tests/ --tb=short
