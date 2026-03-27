@@ -1,11 +1,10 @@
-"""LLM-powered digest summarizer using Claude via Anthropic SDK."""
+"""LLM-powered digest summarizer."""
 
 import logging
 from datetime import date
-from typing import Dict, List, Optional, Tuple
+from typing import List, Tuple, Dict
 
-import anthropic
-
+from signalsage.llm.base import BaseLLM
 from .fetcher import fetch_topic
 
 logger = logging.getLogger(__name__)
@@ -18,34 +17,21 @@ _SYSTEM_PROMPT = (
 
 
 class DigestSummarizer:
-    """Fetches topic sources and summarizes them using Claude."""
+    """Fetches topic sources and summarizes them using a configured LLM."""
 
-    def __init__(
-        self,
-        llm_model: str = "claude-haiku-4-5-20251001",
-        llm_api_key: str = "",
-        max_chars: int = 3000,
-    ) -> None:
-        self.llm_model = llm_model
+    def __init__(self, llm: BaseLLM, max_chars: int = 3000) -> None:
+        self.llm = llm
         self.max_chars = max_chars
-        self._client = anthropic.AsyncAnthropic(api_key=llm_api_key)
 
-    async def summarize_topic(
-        self,
-        topic_name: str,
-        sources: List[Dict],
-    ) -> str:
-        """Summarize content from a list of fetched sources for a topic."""
+    async def summarize_topic(self, topic_name: str, sources: List[Dict]) -> str:
         today = date.today().strftime("%B %d, %Y")
 
-        # Build source content blocks
         source_blocks: List[str] = []
         for src in sources:
             content = src.get("content", "").strip()
             if not content:
                 continue
-            block = f"### {src['name']}\n{content}\nSource: {src['url']}\n"
-            source_blocks.append(block)
+            source_blocks.append(f"### {src['name']}\n{content}\nSource: {src['url']}\n")
 
         if not source_blocks:
             return f"No content available for {topic_name} on {today}."
@@ -56,47 +42,26 @@ class DigestSummarizer:
         )
 
         try:
-            response = await self._client.messages.create(
-                model=self.llm_model,
-                max_tokens=1024,
-                system=_SYSTEM_PROMPT,
-                messages=[{"role": "user", "content": user_prompt}],
-            )
-            return response.content[0].text
-        except anthropic.APIStatusError as exc:
-            logger.error("Anthropic API error for topic %s: %s", topic_name, exc)
-            return f"Summary unavailable due to API error: {exc.status_code}"
+            return await self.llm.complete(system=_SYSTEM_PROMPT, user=user_prompt)
         except Exception as exc:
-            logger.exception("Failed to summarize topic %s", topic_name)
-            return f"Summary generation failed: {exc}"
+            logger.error("LLM error for topic %s: %s", topic_name, exc)
+            return f"Summary unavailable: {exc}"
 
-    async def summarize_all(
-        self,
-        watchlist: Dict,
-        timeout: int = 15,
-    ) -> List[Tuple[str, str]]:
-        """
-        Fetch and summarize all topics in the watchlist.
-
-        Returns:
-            list of (topic_name, summary) tuples
-        """
+    async def summarize_all(self, watchlist: Dict, timeout: int = 15) -> List[Tuple[str, str]]:
         topics = watchlist.get("topics", [])
         results: List[Tuple[str, str]] = []
 
         for topic in topics:
-            topic_name = topic.get("name", "Unknown")
-            sources_cfg = topic.get("sources", [])
-
-            logger.info("Fetching sources for topic: %s", topic_name)
+            name = topic.get("name", "Unknown")
+            logger.info("Fetching sources for topic: %s", name)
             try:
-                fetched = await fetch_topic(sources_cfg, self.max_chars, timeout)
+                fetched = await fetch_topic(topic.get("sources", []), self.max_chars, timeout)
             except Exception as exc:
-                logger.error("Failed to fetch topic %s: %s", topic_name, exc)
+                logger.error("Failed to fetch topic %s: %s", name, exc)
                 fetched = []
 
-            logger.info("Summarizing topic: %s", topic_name)
-            summary = await self.summarize_topic(topic_name, fetched)
-            results.append((topic_name, summary))
+            logger.info("Summarizing topic: %s", name)
+            summary = await self.summarize_topic(name, fetched)
+            results.append((name, summary))
 
         return results

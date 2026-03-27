@@ -12,11 +12,12 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-_ENV_VAR_RE = re.compile(r"\$\{([^}]+)\}")
+# Supports ${VAR} and ${VAR:-default} syntax
+_ENV_VAR_RE = re.compile(r"\$\{([^}:-]+)(?::-([^}]*))?\}")
 
 
 def _expand_env(value: Any) -> Any:
-    """Recursively walk dict/list/str and substitute ${VAR} patterns."""
+    """Recursively walk dict/list/str and substitute ${VAR} and ${VAR:-default} patterns."""
     if isinstance(value, dict):
         return {k: _expand_env(v) for k, v in value.items()}
     if isinstance(value, list):
@@ -24,10 +25,14 @@ def _expand_env(value: Any) -> Any:
     if isinstance(value, str):
         def replacer(match: re.Match) -> str:
             var_name = match.group(1)
+            default = match.group(2) if match.group(2) is not None else ""
             env_value = os.environ.get(var_name, "")
-            if not env_value:
-                logger.debug("Environment variable %s not set", var_name)
-            return env_value
+            if env_value:
+                return env_value
+            if default:
+                return default
+            logger.debug("Environment variable %s not set (no default)", var_name)
+            return ""
         return _ENV_VAR_RE.sub(replacer, value)
     return value
 

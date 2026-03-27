@@ -60,9 +60,14 @@ class SlackBot:
         async def on_error(error: Exception) -> None:
             logger.error("Slack bolt error: %s", error)
 
-    async def send_digest(self, text: str) -> None:
-        """Send a digest message to the configured digest channel."""
-        ch = self.cfg.get("digest_channel")
+    async def send_digest(self, text: str, channel: Optional[str] = None) -> None:
+        """Send a digest message to a channel.
+
+        Args:
+            text: The message to send.
+            channel: Channel name/ID override. Falls back to platforms.slack.digest_channel.
+        """
+        ch = channel or self.cfg.get("digest_channel")
         if not ch:
             logger.warning("No digest_channel configured for Slack")
             return

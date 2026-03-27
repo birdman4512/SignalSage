@@ -3,6 +3,7 @@ version: "3.9"
 services:
   signalsage:
     build: .
+    container_name: signalsage
     restart: unless-stopped
     env_file: .env
     volumes:
@@ -12,3 +13,31 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
+
+  # ── Optional: local Ollama LLM ─────────────────────────────────────────
+  # Enable with: docker-compose --profile ollama up -d
+  # Then set in .env:
+  #   LLM_PROVIDER=ollama
+  #   OLLAMA_BASE_URL=http://ollama:11434
+  # Pull a model after first start:
+  #   docker exec ollama ollama pull llama3.2
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    profiles: [ollama]
+    restart: unless-stopped
+    volumes:
+      - ollama_data:/root/.ollama
+    ports:
+      - "11434:11434"
+    # Uncomment for GPU support (NVIDIA):
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+volumes:
+  ollama_data:

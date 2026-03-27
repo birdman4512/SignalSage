@@ -55,9 +55,14 @@ class DiscordBot(discord.Client):
     async def on_error(self, event_method: str, *args, **kwargs) -> None:
         logger.exception("Discord error in %s", event_method)
 
-    async def send_digest(self, text: str) -> None:
-        """Send a digest message to the configured digest channel."""
-        ch_id = self.cfg.get("digest_channel")
+    async def send_digest(self, text: str, channel: Optional[str] = None) -> None:
+        """Send a digest message to a channel.
+
+        Args:
+            text: The message to send.
+            channel: Channel ID override (as string). Falls back to platforms.discord.digest_channel.
+        """
+        ch_id = channel or self.cfg.get("digest_channel")
         if not ch_id:
             logger.warning("No digest_channel configured for Discord")
             return

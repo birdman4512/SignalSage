@@ -78,23 +78,43 @@ async def main() -> None:
     )
 
     # ------------------------------------------------------------------ #
-    # Digest Summarizer                                                    #
+    # LLM + Digest Summarizer                                             #
     # ------------------------------------------------------------------ #
     digest_cfg = cfg.get("digest", {})
     summarizer = None
-    llm_api_key = digest_cfg.get("llm_api_key", "")
+    llm_provider = (digest_cfg.get("llm_provider") or "ollama").lower()
 
-    if llm_api_key:
+    try:
+        if llm_provider == "anthropic":
+            from signalsage.llm.anthropic_llm import AnthropicLLM
+            api_key = digest_cfg.get("anthropic_api_key", "")
+            if not api_key:
+                logger.warning("llm_provider=anthropic but ANTHROPIC_API_KEY not set — digest disabled")
+                llm = None
+            else:
+                llm = AnthropicLLM(
+                    api_key=api_key,
+                    model=digest_cfg.get("anthropic_model", "claude-haiku-4-5-20251001"),
+                )
+        else:
+            from signalsage.llm.ollama import OllamaLLM
+            llm = OllamaLLM(
+                base_url=digest_cfg.get("ollama_base_url") or "http://localhost:11434",
+                model=digest_cfg.get("ollama_model") or "llama3.2",
+            )
+    except Exception as exc:
+        logger.error("Failed to initialize LLM (%s): %s", llm_provider, exc)
+        llm = None
+
+    if llm:
         from signalsage.digest.summarizer import DigestSummarizer
-
         summarizer = DigestSummarizer(
-            llm_model=digest_cfg.get("llm_model", "claude-haiku-4-5-20251001"),
-            llm_api_key=llm_api_key,
+            llm=llm,
             max_chars=digest_cfg.get("max_chars_per_source", 3000),
         )
-        logger.info("Digest summarizer initialized with model %s", summarizer.llm_model)
+        logger.info("Digest summarizer ready (provider: %s)", llm_provider)
     else:
-        logger.warning("No ANTHROPIC_API_KEY set — daily digest summarizer disabled")
+        logger.warning("Digest summarizer not started — no LLM available")
 
     # ------------------------------------------------------------------ #
     # Bot initialization                                                   #
