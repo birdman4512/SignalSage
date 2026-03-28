@@ -52,6 +52,8 @@ class OllamaLLM(BaseLLM):
                     "Ensure Ollama is running: https://ollama.com/download"
                 )
             except httpx.HTTPStatusError as exc:
-                raise RuntimeError(f"Ollama API error {exc.response.status_code}: {exc.response.text}")
+                raise RuntimeError(
+                    f"Ollama API error {exc.response.status_code}: {exc.response.text}"
+                )
             except KeyError:
                 raise RuntimeError("Unexpected Ollama response format")

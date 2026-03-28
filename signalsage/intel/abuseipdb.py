@@ -1,11 +1,11 @@
 """AbuseIPDB threat intelligence provider."""
 
 import logging
-from typing import Optional
 
 import httpx
 
 from signalsage.ioc.models import IOC, IOCType
+
 from .base import BaseProvider, IntelResult
 
 logger = logging.getLogger(__name__)
@@ -18,7 +18,7 @@ class AbuseIPDBProvider(BaseProvider):
     supported_types = [IOCType.IPV4, IOCType.IPV6]
     requires_key = True
 
-    async def lookup(self, ioc: IOC) -> Optional[IntelResult]:
+    async def lookup(self, ioc: IOC) -> IntelResult | None:
         if not self.api_key:
             return self._error(ioc, "No API key configured")
 
@@ -33,9 +33,7 @@ class AbuseIPDBProvider(BaseProvider):
 
         try:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
-                resp = await client.get(
-                    f"{_BASE}/check", headers=headers, params=params
-                )
+                resp = await client.get(f"{_BASE}/check", headers=headers, params=params)
                 if resp.status_code == 422:
                     return self._error(ioc, "Invalid IP address")
                 if resp.status_code == 401:
@@ -56,10 +54,7 @@ class AbuseIPDBProvider(BaseProvider):
         isp: str = data.get("isp", "Unknown") or "Unknown"
         is_malicious = score > 50
 
-        summary = (
-            f"{score}% confidence | {total_reports} reports | "
-            f"{usage_type} | {country}"
-        )
+        summary = f"{score}% confidence | {total_reports} reports | {usage_type} | {country}"
         if isp:
             summary += f" | {isp}"
 

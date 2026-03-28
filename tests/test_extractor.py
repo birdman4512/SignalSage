@@ -1,13 +1,12 @@
 """Tests for the IOC extractor."""
 
-import pytest
 from signalsage.ioc.extractor import extract
 from signalsage.ioc.models import IOCType
-
 
 # ---------------------------------------------------------------------------
 # IPv4
 # ---------------------------------------------------------------------------
+
 
 def test_ipv4_standard():
     iocs = extract("Malicious IP observed: 8.8.4.4")
@@ -40,6 +39,7 @@ def test_multiple_ips():
 # Hashes
 # ---------------------------------------------------------------------------
 
+
 def test_md5():
     md5 = "d41d8cd98f00b204e9800998ecf8427e"
     iocs = extract(f"MD5: {md5}")
@@ -59,7 +59,10 @@ def test_sha256():
 
 
 def test_sha512():
-    sha512 = "cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e" + "0" * 1
+    sha512 = (
+        "cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e"
+        + "0" * 1
+    )
     # generate a proper 128-char hex
     sha512 = "a" * 128
     iocs = extract(f"Hash: {sha512}")
@@ -85,6 +88,7 @@ def test_hash_case_normalised():
 # CVE
 # ---------------------------------------------------------------------------
 
+
 def test_cve_standard():
     iocs = extract("Patch CVE-2023-12345 immediately")
     assert any(i.value == "CVE-2023-12345" and i.type == IOCType.CVE for i in iocs)
@@ -104,6 +108,7 @@ def test_cve_long_id():
 # URLs
 # ---------------------------------------------------------------------------
 
+
 def test_url_standard():
     iocs = extract("Payload at https://evil.example.org/malware.exe")
     assert any(i.type == IOCType.URL for i in iocs)
@@ -120,8 +125,11 @@ def test_url_defanged_hxxp():
 # Code block stripping
 # ---------------------------------------------------------------------------
 
+
 def test_code_block_stripped():
-    iocs = extract("```\n8.8.8.8\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\n```")
+    iocs = extract(
+        "```\n8.8.8.8\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\n```"
+    )
     assert not any(i.type == IOCType.IPV4 for i in iocs)
     assert not any(i.type == IOCType.SHA256 for i in iocs)
 
@@ -134,6 +142,7 @@ def test_inline_code_stripped():
 # ---------------------------------------------------------------------------
 # Benign domain filtering
 # ---------------------------------------------------------------------------
+
 
 def test_benign_domain_filtered():
     iocs = extract("See https://google.com/search?q=malware")
@@ -150,6 +159,7 @@ def test_non_benign_domain_kept():
 # Email
 # ---------------------------------------------------------------------------
 
+
 def test_email():
     iocs = extract("Contact attacker@evil.ru for ransom")
     assert any(i.value == "attacker@evil.ru" and i.type == IOCType.EMAIL for i in iocs)
@@ -158,6 +168,7 @@ def test_email():
 # ---------------------------------------------------------------------------
 # Deduplication
 # ---------------------------------------------------------------------------
+
 
 def test_no_duplicates():
     iocs = extract("IP 8.8.8.8 contacted 8.8.8.8 again")

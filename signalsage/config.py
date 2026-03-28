@@ -1,8 +1,8 @@
 """Configuration loading with environment variable substitution."""
 
+import logging
 import os
 import re
-import logging
 from typing import Any
 
 import yaml
@@ -23,6 +23,7 @@ def _expand_env(value: Any) -> Any:
     if isinstance(value, list):
         return [_expand_env(item) for item in value]
     if isinstance(value, str):
+
         def replacer(match: re.Match) -> str:
             var_name = match.group(1)
             default = match.group(2) if match.group(2) is not None else ""
@@ -33,6 +34,7 @@ def _expand_env(value: Any) -> Any:
                 return default
             logger.debug("Environment variable %s not set (no default)", var_name)
             return ""
+
         return _ENV_VAR_RE.sub(replacer, value)
     return value
 
@@ -40,7 +42,7 @@ def _expand_env(value: Any) -> Any:
 def load_config(path: str = "config/config.yaml") -> dict:
     """Load and expand the main configuration file."""
     try:
-        with open(path, "r", encoding="utf-8") as fh:
+        with open(path, encoding="utf-8") as fh:
             raw = yaml.safe_load(fh)
         return _expand_env(raw) or {}
     except FileNotFoundError:
@@ -54,7 +56,7 @@ def load_config(path: str = "config/config.yaml") -> dict:
 def load_watchlist(path: str = "config/watchlist.yaml") -> dict:
     """Load and expand the watchlist configuration file."""
     try:
-        with open(path, "r", encoding="utf-8") as fh:
+        with open(path, encoding="utf-8") as fh:
             raw = yaml.safe_load(fh)
         return _expand_env(raw) or {}
     except FileNotFoundError:

@@ -1,9 +1,8 @@
 """Custom regex-based IOC extractor with defanging support."""
 
-import re
 import ipaddress
 import logging
-from typing import List, Set, Tuple
+import re
 
 import tldextract
 
@@ -14,7 +13,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Benign domains to skip
 # ---------------------------------------------------------------------------
-BENIGN_DOMAINS: Set[str] = {
+BENIGN_DOMAINS: set[str] = {
     "google.com",
     "microsoft.com",
     "github.com",
@@ -76,16 +75,14 @@ _CVE_RE = re.compile(r"\b(CVE-\d{4}-\d{4,7})\b", re.IGNORECASE)
 
 # URLs (standard + defanged hxxp/hxxps, also [.] and (.) in domain)
 _URL_RE = re.compile(
-    r"(?:https?|hxxps?)"      # scheme (including defanged)
-    r"(?:://|://)?"           # optional ://
+    r"(?:https?|hxxps?)"  # scheme (including defanged)
+    r"(?:://|://)?"  # optional ://
     r"(?:\[?\.\]?|\(\.\)|[^\s<>\"'()[\]{}|\\^`]){3,}",
     re.IGNORECASE,
 )
 
 # Email
-_EMAIL_RE = re.compile(
-    r"\b[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}\b"
-)
+_EMAIL_RE = re.compile(r"\b[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}\b")
 
 # Domain (standalone, not part of URL/email)
 _DOMAIN_RE = re.compile(
@@ -99,11 +96,14 @@ _DOMAIN_RE = re.compile(
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _refang(value: str) -> str:
     """Remove common defanging patterns."""
-    value = value.replace("[.]", ".").replace("(.)",".")
+    value = value.replace("[.]", ".").replace("(.)", ".")
     value = value.replace("[", "").replace("]", "")
-    value = re.sub(r"^hxxps?", lambda m: m.group(0).replace("hxxp", "http"), value, flags=re.IGNORECASE)
+    value = re.sub(
+        r"^hxxps?", lambda m: m.group(0).replace("hxxp", "http"), value, flags=re.IGNORECASE
+    )
     return value
 
 
@@ -141,13 +141,14 @@ def _is_benign_domain(domain: str) -> bool:
 # Main extraction function
 # ---------------------------------------------------------------------------
 
-def extract(text: str) -> List[IOC]:
+
+def extract(text: str) -> list[IOC]:
     """Extract IOCs from text, handling defanging and filtering benign values."""
     # Strip code blocks first
     clean = _CODE_BLOCK_RE.sub(" ", text)
 
-    iocs: List[IOC] = []
-    used_spans: List[Tuple[int, int]] = []
+    iocs: list[IOC] = []
+    used_spans: list[tuple[int, int]] = []
 
     def _span_used(match: re.Match) -> bool:
         start, end = match.span()

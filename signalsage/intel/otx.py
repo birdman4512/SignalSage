@@ -1,11 +1,11 @@
 """AlienVault OTX threat intelligence provider."""
 
 import logging
-from typing import Optional
 
 import httpx
 
 from signalsage.ioc.models import IOC, IOCType
+
 from .base import BaseProvider, IntelResult
 
 logger = logging.getLogger(__name__)
@@ -26,7 +26,7 @@ class OTXProvider(BaseProvider):
     ]
     requires_key = False  # Works unauthenticated but with rate limits
 
-    async def lookup(self, ioc: IOC) -> Optional[IntelResult]:
+    async def lookup(self, ioc: IOC) -> IntelResult | None:
         url = self._build_url(ioc)
         if not url:
             return None
@@ -77,14 +77,12 @@ class OTXProvider(BaseProvider):
             details={
                 "pulse_count": pulse_count,
                 "reputation": reputation,
-                "pulses": [
-                    p.get("name", "") for p in pulse_info.get("pulses", [])[:5]
-                ],
+                "pulses": [p.get("name", "") for p in pulse_info.get("pulses", [])[:5]],
             },
             report_url=report_url,
         )
 
-    def _build_url(self, ioc: IOC) -> Optional[str]:
+    def _build_url(self, ioc: IOC) -> str | None:
         t = ioc.type
         v = ioc.value
         if t == IOCType.IPV4:

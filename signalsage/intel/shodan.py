@@ -1,11 +1,11 @@
 """Shodan threat intelligence provider."""
 
 import logging
-from typing import Optional
 
 import httpx
 
 from signalsage.ioc.models import IOC, IOCType
+
 from .base import BaseProvider, IntelResult
 
 logger = logging.getLogger(__name__)
@@ -18,7 +18,7 @@ class ShodanProvider(BaseProvider):
     supported_types = [IOCType.IPV4]
     requires_key = True
 
-    async def lookup(self, ioc: IOC) -> Optional[IntelResult]:
+    async def lookup(self, ioc: IOC) -> IntelResult | None:
         if not self.api_key:
             return self._error(ioc, "No API key configured")
 

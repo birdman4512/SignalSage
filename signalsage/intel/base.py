@@ -2,7 +2,7 @@
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, List, Optional
+from typing import Any
 
 from signalsage.ioc.models import IOC, IOCType
 
@@ -14,24 +14,24 @@ class IntelResult:
     provider: str
     ioc_value: str
     ioc_type: IOCType
-    malicious: Optional[bool] = None
-    score: Optional[int] = None  # 0-100
+    malicious: bool | None = None
+    score: int | None = None  # 0-100
     summary: str = ""
     details: dict[str, Any] = field(default_factory=dict)
-    error: Optional[str] = None
-    report_url: Optional[str] = None
+    error: str | None = None
+    report_url: str | None = None
 
 
 class BaseProvider(ABC):
     """Abstract base class for all threat intel providers."""
 
     name: str = ""
-    supported_types: List[IOCType] = []
+    supported_types: list[IOCType] = []
     requires_key: bool = True
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
+        api_key: str | None = None,
         timeout: int = 10,
     ) -> None:
         self.api_key = api_key or ""
@@ -43,7 +43,7 @@ class BaseProvider(ABC):
         return ioc_type in self.supported_types
 
     @abstractmethod
-    async def lookup(self, ioc: IOC) -> Optional[IntelResult]:
+    async def lookup(self, ioc: IOC) -> IntelResult | None:
         """Perform the actual lookup and return a result or None."""
 
     def _error(self, ioc: IOC, msg: str) -> IntelResult:

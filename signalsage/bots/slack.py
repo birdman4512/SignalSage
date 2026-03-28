@@ -1,13 +1,14 @@
 """Slack bot using Socket Mode (no public URL required)."""
 
 import logging
-from typing import Optional
 
-from slack_bolt.async_app import AsyncApp
 from slack_bolt.adapter.socket_mode.aiohttp import AsyncSocketModeHandler
+from slack_bolt.async_app import AsyncApp
 
 from signalsage.ioc.processor import IOCProcessor
-from .formatter import format_results, split_message, Platform
+
+from .commands import HELP_TEXT, handle_digest_command, parse_command
+from .formatter import Platform, format_results, split_message
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +20,8 @@ class SlackBot:
         self.cfg = config["platforms"]["slack"]
         self.ioc_processor = ioc_processor
         self.app = AsyncApp(token=self.cfg["bot_token"])
-        self._bot_user_id: Optional[str] = None
+        self._bot_user_id: str | None = None
+        self.scheduler = None  # set by main.py after scheduler creation
         self._register()
 
     def _register(self) -> None:
@@ -35,7 +37,6 @@ class SlackBot:
             monitor = self.cfg.get("monitor_channels") or []
 
             if monitor:
-                # Resolve channel name and check against the monitor list
                 try:
                     info = await client.conversations_info(channel=channel)
                     ch_name = f"#{info['channel']['name']}"
@@ -49,6 +50,21 @@ class SlackBot:
             if not text:
                 return
 
+            # --- Command handling ---
+            cmd = parse_command(text)
+            if cmd is not None:
+                cmd_name, cmd_args = cmd
+                if cmd_name == "digest":
+                    await handle_digest_command(
+                        cmd_args,
+                        self.scheduler,
+                        reply=lambda msg: say(text=msg),
+                    )
+                elif cmd_name in ("help", "?"):
+                    await say(text=HELP_TEXT)
+                return  # don't also process commands as IOCs
+
+            # --- IOC enrichment ---
             logger.debug("Processing message in channel %s", channel)
             results = await self.ioc_processor.process(text)
             for ioc, intel in results:
@@ -56,11 +72,27 @@ class SlackBot:
                 for chunk in split_message(msg, 3000):
                     await say(text=chunk)
 
+        @self.app.event("app_mention")
+        async def on_mention(event: dict, say) -> None:
+            """Handle @SignalSage mentions as commands."""
+            text = event.get("text", "")
+            cmd = parse_command(text)
+            if cmd is not None:
+                cmd_name, cmd_args = cmd
+                if cmd_name == "digest":
+                    await handle_digest_command(
+                        cmd_args,
+                        self.scheduler,
+                        reply=lambda msg: say(text=msg),
+                    )
+                    return
+            await say(text=HELP_TEXT)
+
         @self.app.error
         async def on_error(error: Exception) -> None:
             logger.error("Slack bolt error: %s", error)
 
-    async def send_digest(self, text: str, channel: Optional[str] = None) -> None:
+    async def send_digest(self, text: str, channel: str | None = None) -> None:
         """Send a digest message to a channel.
 
         Args:

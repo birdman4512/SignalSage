@@ -1,11 +1,10 @@
 """Tests for the IOC processor."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from signalsage.ioc.processor import IOCProcessor
+from signalsage.intel.base import BaseProvider, IntelResult
 from signalsage.ioc.models import IOCType
-from signalsage.intel.base import IntelResult, BaseProvider
+from signalsage.ioc.processor import IOCProcessor
 
 
 def _make_provider(name: str = "Mock", malicious: bool = True) -> MagicMock:
@@ -28,6 +27,7 @@ def _make_provider(name: str = "Mock", malicious: bool = True) -> MagicMock:
 # ---------------------------------------------------------------------------
 # Basic processing
 # ---------------------------------------------------------------------------
+
 
 async def test_process_no_iocs():
     processor = IOCProcessor([_make_provider()])
@@ -58,6 +58,7 @@ async def test_process_returns_intel_results():
 # IOC limit
 # ---------------------------------------------------------------------------
 
+
 async def test_max_iocs_per_message():
     provider = _make_provider()
     processor = IOCProcessor([provider], max_per_msg=2)
@@ -70,7 +71,15 @@ async def test_max_iocs_default_is_five():
     provider = _make_provider()
     processor = IOCProcessor([provider])
     # 7 distinct public IPs
-    ips = ["8.8.8.8", "1.1.1.1", "185.220.101.45", "91.108.4.1", "104.21.0.1", "172.217.0.1", "13.107.42.14"]
+    ips = [
+        "8.8.8.8",
+        "1.1.1.1",
+        "185.220.101.45",
+        "91.108.4.1",
+        "104.21.0.1",
+        "172.217.0.1",
+        "13.107.42.14",
+    ]
     text = " ".join(ips)
     results = await processor.process(text)
     assert len(results) <= 5
@@ -79,6 +88,7 @@ async def test_max_iocs_default_is_five():
 # ---------------------------------------------------------------------------
 # Caching
 # ---------------------------------------------------------------------------
+
 
 async def test_cache_avoids_duplicate_lookups():
     provider = _make_provider()
@@ -94,6 +104,7 @@ async def test_cache_avoids_duplicate_lookups():
 # ---------------------------------------------------------------------------
 # Provider errors are handled gracefully
 # ---------------------------------------------------------------------------
+
 
 async def test_provider_exception_handled():
     provider = _make_provider()
@@ -111,6 +122,7 @@ async def test_provider_exception_handled():
 # Disabled provider is skipped
 # ---------------------------------------------------------------------------
 
+
 async def test_disabled_provider_skipped():
     provider = _make_provider()
     provider.enabled = False
@@ -126,6 +138,7 @@ async def test_disabled_provider_skipped():
 # ---------------------------------------------------------------------------
 # Provider that doesn't support IOC type is skipped
 # ---------------------------------------------------------------------------
+
 
 async def test_provider_unsupported_type_skipped():
     provider = _make_provider()

@@ -1,8 +1,8 @@
 """Tests for config loading and env var expansion."""
 
 import os
-import textwrap
 import tempfile
+import textwrap
 from unittest.mock import patch
 
 import pytest
@@ -21,6 +21,7 @@ def _write_yaml(content: str) -> str:
 # ---------------------------------------------------------------------------
 # Env var expansion
 # ---------------------------------------------------------------------------
+
 
 def test_env_var_substituted():
     path = _write_yaml("""
@@ -77,6 +78,7 @@ def test_non_string_values_unchanged():
 # ---------------------------------------------------------------------------
 # Watchlist loading
 # ---------------------------------------------------------------------------
+
 
 def test_watchlist_topics_loaded():
     path = _write_yaml("""

@@ -1,12 +1,13 @@
 """Discord bot using discord.py v2 with message_content intent."""
 
 import logging
-from typing import Optional
 
 import discord
 
 from signalsage.ioc.processor import IOCProcessor
-from .formatter import format_results, split_message, Platform
+
+from .commands import HELP_TEXT, handle_digest_command, parse_command
+from .formatter import Platform, format_results, split_message
 
 logger = logging.getLogger(__name__)
 
@@ -20,12 +21,14 @@ class DiscordBot(discord.Client):
         super().__init__(intents=intents)
         self.cfg = config["platforms"]["discord"]
         self.ioc_processor = ioc_processor
+        self.scheduler = None  # set by main.py after scheduler creation
 
     async def on_ready(self) -> None:
-        logger.info("Discord bot ready as %s (ID: %s)", self.user, self.user.id if self.user else "unknown")
+        logger.info(
+            "Discord bot ready as %s (ID: %s)", self.user, self.user.id if self.user else "unknown"
+        )
 
     async def on_message(self, message: discord.Message) -> None:
-        # Ignore messages from bots (including ourselves)
         if message.author.bot:
             return
 
@@ -37,12 +40,26 @@ class DiscordBot(discord.Client):
         if not content:
             return
 
+        # --- Command handling ---
+        cmd = parse_command(content)
+        if cmd is not None:
+            cmd_name, cmd_args = cmd
+            if cmd_name == "digest":
+                await handle_digest_command(
+                    cmd_args,
+                    self.scheduler,
+                    reply=message.channel.send,
+                )
+            elif cmd_name in ("help", "?"):
+                await message.channel.send(HELP_TEXT)
+            return  # don't also process commands as IOCs
+
+        # --- IOC enrichment ---
         logger.debug(
             "Processing Discord message in channel %s from %s",
             message.channel.id,
             message.author,
         )
-
         results = await self.ioc_processor.process(content)
         for ioc, intel in results:
             msg = format_results(ioc, intel, Platform.DISCORD)
@@ -55,7 +72,7 @@ class DiscordBot(discord.Client):
     async def on_error(self, event_method: str, *args, **kwargs) -> None:
         logger.exception("Discord error in %s", event_method)
 
-    async def send_digest(self, text: str, channel: Optional[str] = None) -> None:
+    async def send_digest(self, text: str, channel: str | None = None) -> None:
         """Send a digest message to a channel.
 
         Args:

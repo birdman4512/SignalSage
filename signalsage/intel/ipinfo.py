@@ -1,11 +1,11 @@
 """IPInfo threat intelligence provider."""
 
 import logging
-from typing import Optional
 
 import httpx
 
 from signalsage.ioc.models import IOC, IOCType
+
 from .base import BaseProvider, IntelResult
 
 logger = logging.getLogger(__name__)
@@ -18,7 +18,7 @@ class IPInfoProvider(BaseProvider):
     supported_types = [IOCType.IPV4, IOCType.IPV6]
     requires_key = False  # Works without key, optional for higher rate limits
 
-    async def lookup(self, ioc: IOC) -> Optional[IntelResult]:
+    async def lookup(self, ioc: IOC) -> IntelResult | None:
         params = {}
         if self.api_key:
             params["token"] = self.api_key

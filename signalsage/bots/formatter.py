@@ -1,10 +1,9 @@
 """Message formatting for Slack and Discord platforms."""
 
 from enum import Enum
-from typing import List, Optional
 
-from signalsage.ioc.models import IOC, IOCType
 from signalsage.intel.base import IntelResult
+from signalsage.ioc.models import IOC, IOCType
 
 
 class Platform(Enum):
@@ -52,14 +51,14 @@ def _risk_emoji(result: IntelResult) -> str:
 
 def format_results(
     ioc: IOC,
-    results: List[IntelResult],
+    results: list[IntelResult],
     platform: Platform,
 ) -> str:
     """Format a list of IntelResults for a given IOC into a readable message."""
     label = IOC_TYPE_LABEL.get(ioc.type, ioc.type.value)
     separator = "━" * 35
 
-    lines: List[str] = [
+    lines: list[str] = [
         separator,
         f"🔍 `{ioc.value}` ({label})",
         "",
@@ -82,7 +81,7 @@ def format_results(
     return "\n".join(lines)
 
 
-def split_message(text: str, limit: int = 2000) -> List[str]:
+def split_message(text: str, limit: int = 2000) -> list[str]:
     """
     Split a long message into chunks that fit within the character limit.
 
@@ -91,8 +90,8 @@ def split_message(text: str, limit: int = 2000) -> List[str]:
     if len(text) <= limit:
         return [text]
 
-    chunks: List[str] = []
-    current_lines: List[str] = []
+    chunks: list[str] = []
+    current_lines: list[str] = []
     current_len = 0
 
     for line in text.split("\n"):

@@ -1,9 +1,8 @@
 """Tests for the message formatter."""
 
-import pytest
-from signalsage.ioc.models import IOC, IOCType
-from signalsage.intel.base import IntelResult
 from signalsage.bots.formatter import Platform, format_results, split_message
+from signalsage.intel.base import IntelResult
+from signalsage.ioc.models import IOC, IOCType
 
 
 def _ioc(value: str = "8.8.8.8", ioc_type: IOCType = IOCType.IPV4) -> IOC:
@@ -31,6 +30,7 @@ def _result(
 # Bold formatting
 # ---------------------------------------------------------------------------
 
+
 def test_slack_bold():
     msg = format_results(_ioc(), [_result()], Platform.SLACK)
     assert "*TestProvider*" in msg
@@ -44,6 +44,7 @@ def test_discord_bold():
 # ---------------------------------------------------------------------------
 # Link formatting
 # ---------------------------------------------------------------------------
+
 
 def test_slack_link():
     msg = format_results(_ioc(), [_result(report_url="https://vt.example/abc")], Platform.SLACK)
@@ -63,6 +64,7 @@ def test_no_link_when_url_absent():
 # ---------------------------------------------------------------------------
 # Risk emojis
 # ---------------------------------------------------------------------------
+
 
 def test_emoji_malicious():
     msg = format_results(_ioc(), [_result(malicious=True)], Platform.DISCORD)
@@ -88,6 +90,7 @@ def test_emoji_error():
 # IOC header in output
 # ---------------------------------------------------------------------------
 
+
 def test_ioc_value_in_output():
     msg = format_results(_ioc("8.8.8.8"), [_result()], Platform.DISCORD)
     assert "8.8.8.8" in msg
@@ -107,6 +110,7 @@ def test_cve_label():
 # Empty results
 # ---------------------------------------------------------------------------
 
+
 def test_empty_results_still_has_header():
     msg = format_results(_ioc("8.8.8.8"), [], Platform.DISCORD)
     assert "8.8.8.8" in msg
@@ -115,6 +119,7 @@ def test_empty_results_still_has_header():
 # ---------------------------------------------------------------------------
 # Multiple results
 # ---------------------------------------------------------------------------
+
 
 def test_multiple_results():
     results = [
@@ -135,6 +140,7 @@ def test_multiple_results():
 # ---------------------------------------------------------------------------
 # split_message
 # ---------------------------------------------------------------------------
+
 
 def test_split_short_no_split():
     chunks = split_message("hello", limit=100)

@@ -31,8 +31,4 @@ class IOC:
         return hash((self.value, self.type))
 
     def __eq__(self, other: object) -> bool:
-        return (
-            isinstance(other, IOC)
-            and self.value == other.value
-            and self.type == other.type
-        )
+        return isinstance(other, IOC) and self.value == other.value and self.type == other.type

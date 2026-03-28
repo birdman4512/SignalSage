@@ -1,11 +1,11 @@
 """URLhaus threat intelligence provider (abuse.ch)."""
 
 import logging
-from typing import Optional
 
 import httpx
 
 from signalsage.ioc.models import IOC, IOCType
+
 from .base import BaseProvider, IntelResult
 
 logger = logging.getLogger(__name__)
@@ -24,7 +24,7 @@ class URLhausProvider(BaseProvider):
     ]
     requires_key = False
 
-    async def lookup(self, ioc: IOC) -> Optional[IntelResult]:
+    async def lookup(self, ioc: IOC) -> IntelResult | None:
         try:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 if ioc.type == IOCType.URL:
@@ -39,12 +39,8 @@ class URLhausProvider(BaseProvider):
             logger.exception("URLhaus lookup failed for %s", ioc.value)
             return self._error(ioc, str(exc))
 
-    async def _lookup_url(
-        self, client: httpx.AsyncClient, ioc: IOC
-    ) -> IntelResult:
-        resp = await client.post(
-            f"{_BASE}/url/", data={"url": ioc.value}
-        )
+    async def _lookup_url(self, client: httpx.AsyncClient, ioc: IOC) -> IntelResult:
+        resp = await client.post(f"{_BASE}/url/", data={"url": ioc.value})
         resp.raise_for_status()
         data = resp.json()
 
@@ -77,12 +73,8 @@ class URLhausProvider(BaseProvider):
             report_url=data.get("urlhaus_reference", ""),
         )
 
-    async def _lookup_host(
-        self, client: httpx.AsyncClient, ioc: IOC
-    ) -> IntelResult:
-        resp = await client.post(
-            f"{_BASE}/host/", data={"host": ioc.value}
-        )
+    async def _lookup_host(self, client: httpx.AsyncClient, ioc: IOC) -> IntelResult:
+        resp = await client.post(f"{_BASE}/host/", data={"host": ioc.value})
         resp.raise_for_status()
         data = resp.json()
 
@@ -98,7 +90,7 @@ class URLhausProvider(BaseProvider):
 
         urls_count: int = data.get("urls_count", 0)
         url_list = data.get("urls", [])
-        first_threat = (url_list[0].get("threat", "") if url_list else "")
+        first_threat = url_list[0].get("threat", "") if url_list else ""
         summary = f"{urls_count} malicious URLs"
         if first_threat:
             summary += f" | Threat: {first_threat}"
@@ -114,9 +106,7 @@ class URLhausProvider(BaseProvider):
             report_url=data.get("urlhaus_reference", ""),
         )
 
-    async def _lookup_hash(
-        self, client: httpx.AsyncClient, ioc: IOC
-    ) -> IntelResult:
+    async def _lookup_hash(self, client: httpx.AsyncClient, ioc: IOC) -> IntelResult:
         if ioc.type == IOCType.MD5:
             form_data = {"md5_hash": ioc.value}
         else:

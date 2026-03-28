@@ -1,11 +1,11 @@
 """GreyNoise threat intelligence provider."""
 
 import logging
-from typing import Optional
 
 import httpx
 
 from signalsage.ioc.models import IOC, IOCType
+
 from .base import BaseProvider, IntelResult
 
 logger = logging.getLogger(__name__)
@@ -18,7 +18,7 @@ class GreyNoiseProvider(BaseProvider):
     supported_types = [IOCType.IPV4]
     requires_key = False  # Community API works without key (rate-limited)
 
-    async def lookup(self, ioc: IOC) -> Optional[IntelResult]:
+    async def lookup(self, ioc: IOC) -> IntelResult | None:
         url = f"{_COMMUNITY_BASE}/{ioc.value}"
         headers = {}
         if self.api_key:

@@ -2,11 +2,11 @@
 
 import base64
 import logging
-from typing import Optional
 
 import httpx
 
 from signalsage.ioc.models import IOC, IOCType
+
 from .base import BaseProvider, IntelResult
 
 logger = logging.getLogger(__name__)
@@ -29,7 +29,7 @@ class VirusTotalProvider(BaseProvider):
     ]
     requires_key = True
 
-    async def lookup(self, ioc: IOC) -> Optional[IntelResult]:
+    async def lookup(self, ioc: IOC) -> IntelResult | None:
         if not self.api_key:
             return self._error(ioc, "No API key configured")
 
@@ -50,9 +50,7 @@ class VirusTotalProvider(BaseProvider):
             logger.exception("VirusTotal lookup failed for %s", ioc.value)
             return self._error(ioc, str(exc))
 
-    async def _lookup_ip(
-        self, client: httpx.AsyncClient, ioc: IOC, headers: dict
-    ) -> IntelResult:
+    async def _lookup_ip(self, client: httpx.AsyncClient, ioc: IOC, headers: dict) -> IntelResult:
         resp = await client.get(f"{_BASE}/ip_addresses/{ioc.value}", headers=headers)
         if resp.status_code == 404:
             return self._error(ioc, "Not found")
@@ -86,9 +84,7 @@ class VirusTotalProvider(BaseProvider):
         }
         return result
 
-    async def _lookup_url(
-        self, client: httpx.AsyncClient, ioc: IOC, headers: dict
-    ) -> IntelResult:
+    async def _lookup_url(self, client: httpx.AsyncClient, ioc: IOC, headers: dict) -> IntelResult:
         url_id = base64.urlsafe_b64encode(ioc.value.encode()).decode().rstrip("=")
         resp = await client.get(f"{_BASE}/urls/{url_id}", headers=headers)
         if resp.status_code == 404:
@@ -100,9 +96,7 @@ class VirusTotalProvider(BaseProvider):
         result.report_url = f"{_GUI_BASE}/url/{url_id}"
         return result
 
-    async def _lookup_hash(
-        self, client: httpx.AsyncClient, ioc: IOC, headers: dict
-    ) -> IntelResult:
+    async def _lookup_hash(self, client: httpx.AsyncClient, ioc: IOC, headers: dict) -> IntelResult:
         resp = await client.get(f"{_BASE}/files/{ioc.value}", headers=headers)
         if resp.status_code == 404:
             return self._error(ioc, "Not found")
@@ -132,8 +126,7 @@ class VirusTotalProvider(BaseProvider):
             ioc_type=ioc.type,
             malicious=is_malicious,
             score=score,
-            summary=f"{malicious}/{total} detections" + (
-                f" ({suspicious} suspicious)" if suspicious else ""
-            ),
+            summary=f"{malicious}/{total} detections"
+            + (f" ({suspicious} suspicious)" if suspicious else ""),
             details={"stats": stats},
         )

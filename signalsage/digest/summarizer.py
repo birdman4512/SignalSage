@@ -2,9 +2,9 @@
 
 import logging
 from datetime import date
-from typing import List, Tuple, Dict
 
 from signalsage.llm.base import BaseLLM
+
 from .fetcher import fetch_topic
 
 logger = logging.getLogger(__name__)
@@ -23,10 +23,10 @@ class DigestSummarizer:
         self.llm = llm
         self.max_chars = max_chars
 
-    async def summarize_topic(self, topic_name: str, sources: List[Dict]) -> str:
+    async def summarize_topic(self, topic_name: str, sources: list[dict]) -> str:
         today = date.today().strftime("%B %d, %Y")
 
-        source_blocks: List[str] = []
+        source_blocks: list[str] = []
         for src in sources:
             content = src.get("content", "").strip()
             if not content:
@@ -36,9 +36,8 @@ class DigestSummarizer:
         if not source_blocks:
             return f"No content available for {topic_name} on {today}."
 
-        user_prompt = (
-            f"Summarize these {topic_name} sources for {today}:\n\n"
-            + "\n".join(source_blocks)
+        user_prompt = f"Summarize these {topic_name} sources for {today}:\n\n" + "\n".join(
+            source_blocks
         )
 
         try:
@@ -47,9 +46,9 @@ class DigestSummarizer:
             logger.error("LLM error for topic %s: %s", topic_name, exc)
             return f"Summary unavailable: {exc}"
 
-    async def summarize_all(self, watchlist: Dict, timeout: int = 15) -> List[Tuple[str, str]]:
+    async def summarize_all(self, watchlist: dict, timeout: int = 15) -> list[tuple[str, str]]:
         topics = watchlist.get("topics", [])
-        results: List[Tuple[str, str]] = []
+        results: list[tuple[str, str]] = []
 
         for topic in topics:
             name = topic.get("name", "Unknown")

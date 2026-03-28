@@ -1,7 +1,7 @@
 """APScheduler-based digest scheduler — one job registered per topic."""
 
 import logging
-from typing import Callable, Dict, List
+from collections.abc import Callable
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -34,8 +34,8 @@ class DigestScheduler:
     def __init__(
         self,
         summarizer,
-        watchlist: Dict,
-        notifiers: List[Callable],
+        watchlist: dict,
+        notifiers: list[Callable],
         default_schedule: str = "0 6 * * *",
         timezone: str = "UTC",
     ) -> None:
@@ -69,7 +69,7 @@ class DigestScheduler:
             )
             logger.info("Scheduled topic '%s' — cron '%s' (%s)", name, schedule, timezone)
 
-    async def _run_topic(self, topic: Dict) -> None:
+    async def _run_topic(self, topic: dict) -> None:
         """Fetch, summarize, and notify for a single topic."""
         name = topic.get("name", "Unknown")
         logger.info("Running digest for topic: %s", name)
@@ -101,19 +101,36 @@ class DigestScheduler:
                     exc,
                 )
 
-    async def run_topic_now(self, topic_name: str) -> None:
-        """Manually trigger a specific topic by name (for testing)."""
-        job_id = "digest_" + topic_name.lower().replace(" ", "_")
-        job = self._scheduler.get_job(job_id)
-        if job is None:
-            logger.error("No scheduled topic named '%s'", topic_name)
-            return
-        await job.func(*job.args)
+    def get_topic_names(self) -> list[str]:
+        """Return names of all scheduled digest topics."""
+        return [
+            job.args[0]["name"]
+            for job in self._scheduler.get_jobs()
+            if job.id.startswith("digest_")
+        ]
+
+    async def run_topic_now(self, topic_query: str) -> bool:
+        """Run a topic whose name contains *topic_query* (case-insensitive).
+
+        Returns True if a matching topic was found and triggered, False otherwise.
+        """
+        query = topic_query.strip().lower()
+        for job in self._scheduler.get_jobs():
+            if not job.id.startswith("digest_"):
+                continue
+            name: str = job.args[0]["name"]
+            if query in name.lower() or name.lower() in query:
+                logger.info("Triggering on-demand digest for topic '%s'", name)
+                await job.func(*job.args)
+                return True
+        logger.warning("No topic matching query '%s'", topic_query)
+        return False
 
     async def run_all_now(self) -> None:
-        """Manually trigger all topics immediately (for testing)."""
+        """Trigger all digest topics immediately."""
         for job in self._scheduler.get_jobs():
             if job.id.startswith("digest_"):
+                logger.info("Triggering on-demand digest for topic '%s'", job.args[0]["name"])
                 await job.func(*job.args)
 
     def start(self) -> None:

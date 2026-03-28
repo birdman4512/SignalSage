@@ -3,7 +3,7 @@
 import asyncio
 import logging
 import sys
-from typing import Callable, List, Optional
+from collections.abc import Callable
 
 logging.basicConfig(
     level=logging.INFO,
@@ -33,19 +33,19 @@ async def main() -> None:
     # ------------------------------------------------------------------ #
     # Intel providers                                                      #
     # ------------------------------------------------------------------ #
-    from signalsage.intel.virustotal import VirusTotalProvider
-    from signalsage.intel.shodan import ShodanProvider
-    from signalsage.intel.greynoise import GreyNoiseProvider
     from signalsage.intel.abuseipdb import AbuseIPDBProvider
-    from signalsage.intel.otx import OTXProvider
-    from signalsage.intel.urlhaus import URLhausProvider
-    from signalsage.intel.threatfox import ThreatFoxProvider
-    from signalsage.intel.malwarebazaar import MalwareBazaarProvider
-    from signalsage.intel.ipinfo import IPInfoProvider
-    from signalsage.intel.circl_cve import CIRCLCVEProvider
     from signalsage.intel.base import BaseProvider
+    from signalsage.intel.circl_cve import CIRCLCVEProvider
+    from signalsage.intel.greynoise import GreyNoiseProvider
+    from signalsage.intel.ipinfo import IPInfoProvider
+    from signalsage.intel.malwarebazaar import MalwareBazaarProvider
+    from signalsage.intel.otx import OTXProvider
+    from signalsage.intel.shodan import ShodanProvider
+    from signalsage.intel.threatfox import ThreatFoxProvider
+    from signalsage.intel.urlhaus import URLhausProvider
+    from signalsage.intel.virustotal import VirusTotalProvider
 
-    providers: List[BaseProvider] = []
+    providers: list[BaseProvider] = []
 
     def add_provider(cls, key: str) -> None:
         pcfg = providers_cfg.get(key, {})
@@ -87,9 +87,12 @@ async def main() -> None:
     try:
         if llm_provider == "anthropic":
             from signalsage.llm.anthropic_llm import AnthropicLLM
+
             api_key = digest_cfg.get("anthropic_api_key", "")
             if not api_key:
-                logger.warning("llm_provider=anthropic but ANTHROPIC_API_KEY not set — digest disabled")
+                logger.warning(
+                    "llm_provider=anthropic but ANTHROPIC_API_KEY not set — digest disabled"
+                )
                 llm = None
             else:
                 llm = AnthropicLLM(
@@ -98,6 +101,7 @@ async def main() -> None:
                 )
         else:
             from signalsage.llm.ollama import OllamaLLM
+
             llm = OllamaLLM(
                 base_url=digest_cfg.get("ollama_base_url") or "http://localhost:11434",
                 model=digest_cfg.get("ollama_model") or "llama3.2",
@@ -108,6 +112,7 @@ async def main() -> None:
 
     if llm:
         from signalsage.digest.summarizer import DigestSummarizer
+
         summarizer = DigestSummarizer(
             llm=llm,
             max_chars=digest_cfg.get("max_chars_per_source", 3000),
@@ -119,9 +124,11 @@ async def main() -> None:
     # ------------------------------------------------------------------ #
     # Bot initialization                                                   #
     # ------------------------------------------------------------------ #
-    tasks: List[asyncio.Task] = []
-    notifiers: List[Callable] = []
+    tasks: list[asyncio.Task] = []
+    notifiers: list[Callable] = []
     scheduler = None
+    slack_bot = None
+    discord_bot = None
 
     platforms_cfg = cfg.get("platforms", {})
 
@@ -150,9 +157,7 @@ async def main() -> None:
             logger.error("Failed to initialize Discord bot: %s", exc)
 
     if not tasks:
-        logger.error(
-            "No platforms enabled. Enable at least one platform in config/config.yaml."
-        )
+        logger.error("No platforms enabled. Enable at least one platform in config/config.yaml.")
         return
 
     # ------------------------------------------------------------------ #
@@ -170,6 +175,11 @@ async def main() -> None:
                 timezone=digest_cfg.get("timezone", "UTC"),
             )
             scheduler.start()
+            # Give bots a scheduler reference so !digest commands work
+            if slack_bot is not None:
+                slack_bot.scheduler = scheduler
+            if discord_bot is not None:
+                discord_bot.scheduler = scheduler
         except Exception as exc:
             logger.error("Failed to start digest scheduler: %s", exc)
     elif not summarizer:

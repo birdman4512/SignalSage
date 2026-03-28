@@ -1,11 +1,11 @@
 """CIRCL CVE Search threat intelligence provider."""
 
 import logging
-from typing import Optional
 
 import httpx
 
 from signalsage.ioc.models import IOC, IOCType
+
 from .base import BaseProvider, IntelResult
 
 logger = logging.getLogger(__name__)
@@ -18,7 +18,7 @@ class CIRCLCVEProvider(BaseProvider):
     supported_types = [IOCType.CVE]
     requires_key = False
 
-    async def lookup(self, ioc: IOC) -> Optional[IntelResult]:
+    async def lookup(self, ioc: IOC) -> IntelResult | None:
         url = f"{_BASE}/{ioc.value.upper()}"
 
         try:
@@ -50,7 +50,7 @@ class CIRCLCVEProvider(BaseProvider):
             )
 
         # Parse CVSS score — try CVSSv3 first, then CVSSv2
-        cvss_score: Optional[float] = None
+        cvss_score: float | None = None
         cvss_str = ""
         if data.get("cvss3"):
             cvss_score = float(data["cvss3"])
@@ -70,7 +70,7 @@ class CIRCLCVEProvider(BaseProvider):
         if not summary:
             summary = "No description available"
 
-        is_malicious = (cvss_score is not None and cvss_score >= 7.0)
+        is_malicious = cvss_score is not None and cvss_score >= 7.0
 
         return IntelResult(
             provider=self.name,

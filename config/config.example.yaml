@@ -57,7 +57,7 @@ digest:
   # Use http://ollama:11434 when running via docker-compose --profile ollama
   # Use http://localhost:11434 when running Ollama separately
   ollama_base_url: "${OLLAMA_BASE_URL:-http://localhost:11434}"
-  ollama_model: "${OLLAMA_MODEL:-llama3.2}"
+  ollama_model: "${OLLAMA_MODEL:-gemma2:2b}"
 
   # Anthropic Claude — paid API. Only used when llm_provider = "anthropic"
   anthropic_model: "claude-haiku-4-5-20251001"

@@ -3,7 +3,6 @@
 import asyncio
 import logging
 import re
-from typing import Dict, List, Optional, Tuple
 
 import feedparser
 import httpx
@@ -35,7 +34,7 @@ def _strip_html(html: str) -> str:
 
 def _extract_feed_content(feed_data: dict, max_chars: int) -> str:
     """Extract text content from a parsed feedparser feed."""
-    parts: List[str] = []
+    parts: list[str] = []
     for entry in feed_data.get("entries", [])[:5]:
         title = entry.get("title", "")
         summary = entry.get("summary", "") or entry.get("description", "")
@@ -88,7 +87,7 @@ async def fetch_source(
     url: str,
     max_chars: int = 3000,
     timeout: int = 15,
-) -> Tuple[str, str]:
+) -> tuple[str, str]:
     """
     Fetch content from a URL.
 
@@ -133,10 +132,10 @@ async def fetch_source(
 
 
 async def fetch_topic(
-    sources: List[Dict],
+    sources: list[dict],
     max_chars: int = 3000,
     timeout: int = 15,
-) -> List[Dict]:
+) -> list[dict]:
     """
     Fetch all sources for a topic concurrently.
 
@@ -148,6 +147,7 @@ async def fetch_topic(
     Returns:
         list of dicts: {name, url, content}
     """
+
     async def _fetch_one(source: dict) -> dict:
         name = source.get("name", "Unknown")
         url = source.get("url", "")
@@ -159,11 +159,13 @@ async def fetch_topic(
     tasks = [_fetch_one(s) for s in sources]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
-    output: List[Dict] = []
+    output: list[dict] = []
     for source, result in zip(sources, results):
         if isinstance(result, Exception):
             logger.warning("Failed to fetch %s: %s", source.get("url", ""), result)
-            output.append({"name": source.get("name", ""), "url": source.get("url", ""), "content": ""})
+            output.append(
+                {"name": source.get("name", ""), "url": source.get("url", ""), "content": ""}
+            )
         else:
             output.append(result)  # type: ignore[arg-type]
 

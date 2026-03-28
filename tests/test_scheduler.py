@@ -1,6 +1,5 @@
 """Tests for the digest scheduler."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from signalsage.scheduler import DigestScheduler
@@ -24,6 +23,7 @@ def _make_summarizer() -> MagicMock:
 # ---------------------------------------------------------------------------
 # Job registration
 # ---------------------------------------------------------------------------
+
 
 def test_one_job_per_topic():
     watchlist = _make_watchlist("0 6 * * *", "0 8 * * 1")
@@ -73,6 +73,7 @@ def test_topic_without_schedule_uses_default():
 def test_invalid_cron_skips_topic(caplog):
     watchlist = _make_watchlist("not a cron", "0 6 * * *")
     import logging
+
     with caplog.at_level(logging.ERROR):
         scheduler = DigestScheduler(
             summarizer=_make_summarizer(),
@@ -86,6 +87,7 @@ def test_invalid_cron_skips_topic(caplog):
 # ---------------------------------------------------------------------------
 # Notification
 # ---------------------------------------------------------------------------
+
 
 async def test_run_topic_calls_notifiers():
     notifier = AsyncMock()

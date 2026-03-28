@@ -1,11 +1,11 @@
 """ThreatFox threat intelligence provider (abuse.ch)."""
 
 import logging
-from typing import Optional
 
 import httpx
 
 from signalsage.ioc.models import IOC, IOCType
+
 from .base import BaseProvider, IntelResult
 
 logger = logging.getLogger(__name__)
@@ -26,7 +26,7 @@ class ThreatFoxProvider(BaseProvider):
     ]
     requires_key = False
 
-    async def lookup(self, ioc: IOC) -> Optional[IntelResult]:
+    async def lookup(self, ioc: IOC) -> IntelResult | None:
         # Format value for ThreatFox search
         search_term = self._format_value(ioc)
 
