@@ -25,8 +25,10 @@ topics:
       # ── News & analysis ─────────────────────────────────────────────────
       - name: "Reddit News"
         url: "https://www.reddit.com/news/new/"
-      - name: "ABC News"
+      - name: "ABC News Feed"
         url: "https://www.abc.net.au/news/feed/51120/rss.xml"
+      - name: "ABC News"
+        url: "https://www.abc.net.au/"
 
   
   - name: "Cybersecurity News"
