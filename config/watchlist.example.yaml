@@ -22,17 +22,42 @@ topics:
     lookback: "24h"                 # only items from the last 24 hours
     digest_channel: "#cyber-news"   # Slack: post to this specific channel
     sources:
-      - name: "Krebs on Security"
-        url: "https://krebsonsecurity.com/feed/"
+      # ── News & analysis ─────────────────────────────────────────────────
+      - name: "The Hacker News"
+        url: "https://feeds.feedburner.com/TheHackersNews"
+      - name: "BleepingComputer"
+        url: "https://www.bleepingcomputer.com/feed/"
+      - name: "Dark Reading"
+        url: "https://www.darkreading.com/rss.xml"
+      - name: "SecurityWeek"
+        url: "https://feeds.feedburner.com/securityweek"
+      # ── Threat intelligence & research ──────────────────────────────────
+      - name: "Mandiant Blog"
+        url: "https://www.mandiant.com/resources/blog/rss.xml"
+      - name: "CrowdStrike Blog"
+        url: "https://www.crowdstrike.com/blog/feed/"
+      - name: "Recorded Future"
+        url: "https://www.recordedfuture.com/feed"
+      - name: "SentinelOne Labs"
+        url: "https://www.sentinelone.com/labs/feed/"
+      - name: "Cisco Talos"
+        url: "https://blog.talosintelligence.com/feeds/posts/default"
+      - name: "Kaspersky Securelist"
+        url: "https://securelist.com/feed/"
+      # ── Government & advisories ──────────────────────────────────────────
+      - name: "CISA Advisories"
+        url: "https://www.cisa.gov/cybersecurity-advisories/all.xml"
+      - name: "NCSC (UK)"
+        url: "https://www.ncsc.gov.uk/feeds/all-content.xml"
+      - name: "ACSC (Australia)"
+        url: "https://www.cyber.gov.au/feeds/all-content.xml"
+      # ── SANS ────────────────────────────────────────────────────────────
       - name: "SANS Internet Storm Center"
         url: "https://isc.sans.edu/rssfeed_full.xml"
       - name: "SANS ISC Stormcast (podcast)"
         # Daily ~5-min security news podcast by Johannes Ullrich
         url: "https://isc.sans.edu/dailypodcast.xml"
-      - name: "ESET WeLiveSecurity"
-        url: "https://www.welivesecurity.com/feed/"
-      - name: "Schneier on Security"
-        url: "https://www.schneier.com/feed/atom/"
+      # ── Podcasts ────────────────────────────────────────────────────────
       - name: "Security Now (podcast)"
         # Weekly podcast by Steve Gibson & Leo Laporte — deep-dive security topics
         # Audio enclosures are transcribed by Whisper when whisper.enabled = true
