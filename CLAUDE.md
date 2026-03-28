@@ -103,12 +103,7 @@ topics:
     sources: [...]
 ```
 
-**These files are gitignored** — copy from the committed example templates on first setup:
-
-```bash
-cp config/config.example.yaml config/config.yaml
-cp config/watchlist.example.yaml config/watchlist.yaml
-```
+Both files are committed to the repository and can be edited directly.
 
 ---
 
@@ -315,10 +310,8 @@ SignalSage/
 │       ├── ci.yml           # Lint + test on push/PR
 │       └── docker.yml       # Docker build on push/PR
 ├── config/
-│   ├── config.yaml          # Main config (gitignored — copy from .example)
-│   ├── config.example.yaml  # Committed template
-│   ├── watchlist.yaml       # Digest sources (gitignored — copy from .example)
-│   └── watchlist.example.yaml  # Committed template
+│   ├── config.yaml          # Main config
+│   └── watchlist.yaml       # Digest sources
 ├── tests/
 │   ├── test_extractor.py
 │   ├── test_formatter.py

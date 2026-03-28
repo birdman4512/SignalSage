@@ -1,14 +1,7 @@
-# Secrets & local config — never commit these
+# Secrets — never commit these
 .env
 .env.*
 !.env.example
-
-# Personal config & watchlist — never commit these (may contain channel IDs, personal URLs)
-config/config.yaml
-config/watchlist.yaml
-# But DO commit the example templates:
-!config/config.example.yaml
-!config/watchlist.example.yaml
 
 # Python
 __pycache__/

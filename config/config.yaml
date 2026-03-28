@@ -4,7 +4,7 @@ platforms:
     bot_token: ${SLACK_BOT_TOKEN}
     app_token: ${SLACK_APP_TOKEN}
     monitor_channels: []   # empty = all channels bot is in
-    digest_channel: "#daily-digest"
+    digest_channel: "ioc-check"
   discord:
     enabled: false
     bot_token: ${DISCORD_BOT_TOKEN}
@@ -33,10 +33,10 @@ intel:
       api_key: ${OTX_API_KEY}
     urlhaus:
       enabled: true
-      api_key: ${ABUSECH_API_KEY}   # free at https://auth.abuse.ch
+      api_key: ${ABUSECH_API_KEY}
     threatfox:
       enabled: true
-      api_key: ${ABUSECH_API_KEY}   # same key as urlhaus
+      api_key: ${ABUSECH_API_KEY}
     malwarebazaar:
       enabled: true
     ipinfo:
@@ -51,8 +51,8 @@ intel:
 digest:
   # Fallback schedule for topics that don't define their own (5-part cron)
   default_schedule: "0 6 * * *"
-  timezone: "UTC"
-  max_chars_per_source: 800
+  timezone: "Australia/Brisbane"
+  max_chars_per_source: 3000
 
   # LLM backend: "ollama" (local, free) or "anthropic" (paid)
   llm_provider: "${LLM_PROVIDER:-ollama}"

@@ -5,9 +5,9 @@
 #   name           — display name used in the digest header
 #   schedule       — 5-part cron expression (optional, falls back to digest.default_schedule)
 #   lookback       — how far back to include content: "24h", "48h", "7d", etc.
-#                    RSS entries older than this are filtered before summarisation.
+#                    RSS entries older than this are filtered out before summarisation.
 #                    The LLM is also instructed to focus only on this window.
-#                    Omit to include all available content.
+#                    Omit (or leave blank) to include all available content.
 #   digest_channel — Slack: "#channel-name" or channel ID
 #                    Discord: channel ID (integer as string)
 #                    Omit to use the global platforms.slack/discord.digest_channel default
@@ -16,11 +16,24 @@
 #                    HTML pages are scraped with BeautifulSoup
 
 topics:
+  - name: "General News"
+    tags: [news]
+    schedule: "0 5 * * *"          # 5am daily
+    lookback: "24h"                 # only items from the last 24 hours
+    digest_channel: "#general"   # Slack: post to this specific channel
+    sources:
+      # ── News & analysis ─────────────────────────────────────────────────
+      - name: "Reddit News"
+        url: "https://www.reddit.com/news/new/"
+      - name: "ABC News"
+        url: "https://www.abc.net.au/news/feed/51120/rss.xml"
+
+  
   - name: "Cybersecurity News"
-    tags: [cyber, news, sec]
+    tags: [cyber, sec]
     schedule: "0 6 * * *"          # 6am daily
     lookback: "24h"                 # only items from the last 24 hours
-    digest_channel: "#cyber-news"   # Slack: post to this specific channel
+    digest_channel: "#general"   # Slack: post to this specific channel
     sources:
       # ── News & analysis ─────────────────────────────────────────────────
       - name: "The Hacker News"
@@ -60,7 +73,6 @@ topics:
       # ── Podcasts ────────────────────────────────────────────────────────
       - name: "Security Now (podcast)"
         # Weekly podcast by Steve Gibson & Leo Laporte — deep-dive security topics
-        # Audio enclosures are transcribed by Whisper when whisper.enabled = true
         url: "https://feeds.twit.tv/sn.xml"
       - name: "Risky Business (podcast)"
         # Weekly security news podcast with Patrick Gray
@@ -73,7 +85,7 @@ topics:
     tags: [vuln, cve, alerts]
     schedule: "0 7 * * 1-5"         # 7am weekdays only
     lookback: "24h"                  # only items from the last 24 hours
-    digest_channel: "#vuln-alerts"
+    digest_channel: "#general"
     sources:
       - name: "CISA Known Exploited Vulnerabilities"
         url: "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
@@ -86,7 +98,7 @@ topics:
     tags: [threat, intel, ti]
     schedule: "0 6 * * 1"           # 6am every Monday
     lookback: "7d"                   # weekly — cover the past 7 days
-    digest_channel: "#threat-intel"
+    digest_channel: "#general"
     sources:
       - name: "abuse.ch Blog"
         url: "https://abuse.ch/blog/feed/"
@@ -97,16 +109,14 @@ topics:
 
   - name: "HF Amateur Radio — Brisbane Propagation"
     tags: [ham, radio, hf, vk4]
-    # 6am Brisbane time (AEST = UTC+10). If you change digest.timezone to
-    # "Australia/Brisbane" in config.yaml you can use "0 6 * * *" instead.
-    schedule: "0 20 * * *"           # 20:00 UTC = 06:00 AEST next morning
+    schedule: "0 18 * * 4"           # 6pm Thursdays
     lookback: "24h"                  # daily propagation update
-    digest_channel: "#ham-radio"
+    digest_channel: "#general"
     sources:
       # ── Australian / local ─────────────────────────────────────────────
       - name: "WIA — Wireless Institute of Australia"
         # Australia's peak amateur radio body; national news and notices
-        url: "https://www.wia.org.au/feeds/"
+        url: "https://www.wia.org.au/members/broadcast/wianews/"
 
       - name: "Space Weather Australia (BoM)"
         # Australian Government Bureau of Meteorology space weather service
@@ -114,36 +124,41 @@ topics:
         # directly relevant to VK4 (Queensland) paths
         url: "https://www.sws.bom.gov.au/HF_Systems/6/5"
 
-      - name: "QARS — Queensland Amateur Radio Society"
-        # Brisbane-based club; local events, nets and operating news
-        url: "https://qars.org.au/"
+      - name: "Solar Terrestrial Activity Report"
+        # Daily solar and geomagnetic activity report from the Australian Space Forecast Centre
+        url: "https://solen.info/solar/index.html"
 
       # ── Solar & propagation data ────────────────────────────────────────
       - name: "NOAA Space Weather Center"
         # Daily solar flux (SFI), A-index, K-index alerts and geomagnetic storm warnings
-        url: "https://www.swpc.noaa.gov/news/rss.xml"
+        url: "https://www.swpc.noaa.gov/"
 
-      - name: "DX World — HF DX News"
-        # Current DX activity, expeditions and band openings relevant to
-        # paths out of VK4 (Asia-Pacific, trans-Pacific, long-path Europe)
-        url: "https://www.dxworld.net/feed/"
+      - name: "Radio Propagation Reports"
+        # User-submitted HF propagation reports from around the world, including Australia
+        url: "https://radio-propagation.net/"
 
       # ── International amateur radio news ───────────────────────────────
-      - name: "Southgate Amateur Radio News"
-        # High-volume global ham radio news aggregator; covers propagation
-        # conditions, regulatory news and technical articles
-        url: "https://southgatearc.org/feed"
+      - name: "DX-LOOK"
+        # Global DX (long-distance) amateur radio news, with a focus on HF propagation conditions and notable DXpeditions worldwide
+        url: "https://dxlook.com/"
 
-      - name: "ARRL — Amateur Radio Relay League"
-        # World's largest amateur radio organisation; technical articles,
-        # operating news and regulatory updates
-        url: "https://www.arrl.org/rss/arrl-news"
+      - name: "HamQSL Solar Data"
+        # Daily solar data and HF propagation forecasts, including SFI, A/K indices and geomagnetic conditions, with a focus on amateur radio operators worldwide
+        url: "https://www.hamqsl.com/solar.html"
+
+      - name: "QSL.net Propagation"
+        # Global HF propagation forecasts and solar data, including SFI, A/K indices and geom
+        url: "https://dx.qsl.net/propagation/propagation.html"
+
+      - name: "SpaceWeather Live"
+        # Real-time solar and geomagnetic data, including solar flares, CMEs and HF propagation conditions, with a focus on amateur radio operators worldwide
+        url: "https://www.spaceweatherlive.com/"
 
   - name: "Cybersecurity Community"
     tags: [reddit, community]
     schedule: "0 8 * * *"           # 8am daily
     lookback: "24h"
-    digest_channel: "#cyber-community"
+    digest_channel: "#general"
     sources:
       - name: "r/netsec"
         url: "https://www.reddit.com/r/netsec/.rss"
@@ -151,10 +166,17 @@ topics:
         url: "https://www.reddit.com/r/cybersecurity/.rss"
       - name: "r/AskNetsec"
         url: "https://www.reddit.com/r/AskNetsec/.rss"
+      - name: "r/dfir"
+        url: "https://www.reddit.com/r/dfir/.rss"
+      - name: "r/InfoSecNews"
+        url: "https://www.reddit.com/r/InfoSecNews/.rss"
+      - name: "r/Pwned"
+        url: "https://www.reddit.com/r/Pwned/.rss"
+      - name: "r/Security"
+        url: "https://www.reddit.com/r/Security/.rss"
 
   # Template — copy and customise:
   # - name: "My Custom Topic"
-  #   tags: [mytag, short]          # short aliases for !digest <tag>
   #   schedule: "0 8 * * *"
   #   lookback: "24h"
   #   digest_channel: "#my-channel"
