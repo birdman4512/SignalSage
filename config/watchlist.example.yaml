@@ -26,6 +26,9 @@ topics:
         url: "https://krebsonsecurity.com/feed/"
       - name: "SANS Internet Storm Center"
         url: "https://isc.sans.edu/rssfeed_full.xml"
+      - name: "SANS ISC Stormcast (podcast)"
+        # Daily ~5-min security news podcast by Johannes Ullrich
+        url: "https://isc.sans.edu/dailypodcast.xml"
       - name: "ESET WeLiveSecurity"
         url: "https://www.welivesecurity.com/feed/"
       - name: "Schneier on Security"
