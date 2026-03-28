@@ -140,13 +140,16 @@ async def _extract_feed_content(
     cutoff = time.time() - lookback_seconds if lookback_seconds else None
     parts: list[str] = []
 
-    for entry in feed_data.get("entries", [])[:20]:
+    entries = feed_data.get("entries", [])[:20]
+    logger.info("Feed has %d entries (cutoff=%s)", len(entries), "set" if cutoff else "none")
+    for entry in entries:
         # Filter by publish date when lookback is set
         if cutoff is not None:
             published = entry.get("published_parsed") or entry.get("updated_parsed")
             if published:
                 entry_ts = calendar.timegm(published)
                 if entry_ts < cutoff:
+                    logger.info("Skipping entry (too old): %r", entry.get("title", ""))
                     continue  # too old
 
         title = entry.get("title", "")
