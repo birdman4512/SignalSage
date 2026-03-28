@@ -12,12 +12,20 @@ from .fetcher import fetch_topic
 logger = logging.getLogger(__name__)
 
 _SYSTEM_PROMPT = (
-    "You are an analyst producing a digest summary. "
+    "You are an analyst producing a structured news digest. "
     "The content below has already been fetched from the sources and is provided to you directly — "
     "you do not need to access the internet or any external URLs. "
-    "Summarize the provided content concisely using bullet points. "
-    "Include source names and key details. "
-    "If no useful content is provided, say so briefly."
+    "Extract the most noteworthy items and return them as a JSON array. "
+    "Each element must have exactly these four fields:\n"
+    '  "icon": a single emoji that best represents the story type. '
+    "Choose from: 🔴 critical/severe, 🛡️ patch/fix/defence, 🦠 malware/ransomware, "
+    "🔗 phishing/scam, 📢 news/announcement, 🔍 research/report, ⚠️ warning/advisory, "
+    "📡 threat intel, 🏛️ policy/legal/government, 📻 radio/propagation, ☀️ solar/space weather\n"
+    '  "headline": a short, clear title (max 80 characters)\n'
+    '  "blurb": 1-2 sentences explaining what happened and why it matters\n'
+    '  "url": the direct URL to the original article or item (null if not available)\n'
+    "Return ONLY the JSON array with no other text, no markdown fences, no explanation.\n"
+    'Example: [{"icon": "🔴", "headline": "Example title", "blurb": "What happened and why it matters.", "url": "https://example.com/article"}]'
 )
 
 _IOC_SYSTEM_PROMPT = (
@@ -66,7 +74,7 @@ class DigestSummarizer:
         )
 
         try:
-            return await self.llm.complete(system=_SYSTEM_PROMPT, user=user_prompt)
+            return await self.llm.complete(system=_SYSTEM_PROMPT, user=user_prompt, max_tokens=2048)
         except Exception as exc:
             logger.error("LLM error for topic %s: %s", topic_name, exc)
             return f"Summary unavailable: {exc}"

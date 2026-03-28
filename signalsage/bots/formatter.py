@@ -1,5 +1,6 @@
 """Message formatting for Slack and Discord platforms."""
 
+import json
 import re
 from datetime import date
 from enum import Enum
@@ -305,6 +306,26 @@ def _md_to_mrkdwn(text: str) -> str:
     return text.strip()
 
 
+def _parse_digest_items(summary: str) -> list[dict] | None:
+    """
+    Try to parse LLM output as a JSON array of digest items.
+
+    Each item should have 'headline', 'blurb', and 'url' keys.
+    Returns None if parsing fails (caller falls back to plain text).
+    """
+    try:
+        text = summary.strip()
+        # Strip markdown code fences if the model adds them
+        text = re.sub(r"^```[a-z]*\n?", "", text)
+        text = re.sub(r"\n?```$", "", text).strip()
+        items = json.loads(text)
+        if isinstance(items, list) and items and isinstance(items[0], dict):
+            return items
+    except (json.JSONDecodeError, ValueError, IndexError):
+        pass
+    return None
+
+
 def format_digest_slack_message(
     topic_name: str,
     summary: str,
@@ -314,11 +335,13 @@ def format_digest_slack_message(
     Return a ``chat_postMessage`` payload for a digest topic.
 
     Uses a blue left-border attachment with Block Kit blocks inside.
+    When the LLM returns structured JSON, each item gets its own section block
+    with a headline, blurb, and optional 'Read More' button.
+    Falls back to paragraph rendering if JSON parsing fails.
     """
     icon = _topic_icon(topic_name)
     today = date.today().strftime("%B %d, %Y")
     window = f"last {lookback}" if lookback else today
-    summary_mrkdwn = _md_to_mrkdwn(summary)
 
     blocks: list[dict] = [
         # ── header ──────────────────────────────────────────────────────────
@@ -328,40 +351,69 @@ def format_digest_slack_message(
         },
         {
             "type": "context",
-            "elements": [{"type": "mrkdwn", "text": f"Daily Digest  ·  {window}"}],
+            "elements": [{"type": "mrkdwn", "text": f"Digest  ·  {window}"}],
         },
         {"type": "divider"},
     ]
 
-    # ── summary — split on blank lines so each paragraph is its own block ──
-    # Slack section text limit is 3000 chars
-    paragraphs = re.split(r"\n{2,}", summary_mrkdwn)
-    current_chunk: list[str] = []
-    current_len = 0
+    items = _parse_digest_items(summary)
 
-    for para in paragraphs:
-        para = para.strip()
-        if not para:
-            continue
-        if current_len + len(para) + 2 > 2900 and current_chunk:
+    if items:
+        # ── structured item rendering ────────────────────────────────────────
+        # Cap at 20 items to stay within Slack's 50-block limit
+        # Each item uses 2 blocks (section + divider), header uses 3 → max ~46 items safe
+        valid_items = [i for i in items[:20] if str(i.get("headline", "")).strip()]
+        for idx, item in enumerate(valid_items):
+            headline = str(item.get("headline", "")).strip()
+            blurb = str(item.get("blurb", "")).strip()
+            url = str(item.get("url") or "").strip()
+            item_icon = str(item.get("icon") or "📰").strip()
+
+            text = f"{item_icon}  *{headline}*\n{blurb}" if blurb else f"{item_icon}  *{headline}*"
+            block: dict = {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": text},
+            }
+            if url and url.startswith("http"):
+                block["accessory"] = {
+                    "type": "button",
+                    "text": {"type": "plain_text", "text": "Read More", "emoji": False},
+                    "url": url,
+                    "action_id": f"digest_link_{len(blocks)}",
+                }
+            blocks.append(block)
+            if idx < len(valid_items) - 1:
+                blocks.append({"type": "divider"})
+    else:
+        # ── fallback: paragraph rendering ────────────────────────────────────
+        summary_mrkdwn = _md_to_mrkdwn(summary)
+        paragraphs = re.split(r"\n{2,}", summary_mrkdwn)
+        current_chunk: list[str] = []
+        current_len = 0
+
+        for para in paragraphs:
+            para = para.strip()
+            if not para:
+                continue
+            if current_len + len(para) + 2 > 2900 and current_chunk:
+                blocks.append(
+                    {
+                        "type": "section",
+                        "text": {"type": "mrkdwn", "text": "\n\n".join(current_chunk)},
+                    }
+                )
+                current_chunk = []
+                current_len = 0
+            current_chunk.append(para)
+            current_len += len(para) + 2
+
+        if current_chunk:
             blocks.append(
                 {
                     "type": "section",
                     "text": {"type": "mrkdwn", "text": "\n\n".join(current_chunk)},
                 }
             )
-            current_chunk = []
-            current_len = 0
-        current_chunk.append(para)
-        current_len += len(para) + 2
-
-    if current_chunk:
-        blocks.append(
-            {
-                "type": "section",
-                "text": {"type": "mrkdwn", "text": "\n\n".join(current_chunk)},
-            }
-        )
 
     return {
         "text": f"{icon} {topic_name} digest — {window}",
@@ -375,4 +427,25 @@ def format_digest_plain(topic_name: str, summary: str, lookback: str | None = No
     window = f"last {lookback}" if lookback else today
     icon = _topic_icon(topic_name)
     header = f"{icon}  **{topic_name}**  ·  {window}\n{'━' * 40}\n"
-    return header + summary
+
+    items = _parse_digest_items(summary)
+    if not items:
+        return header + summary
+
+    sep = "─" * 36
+    lines: list[str] = []
+    for item in items:
+        headline = str(item.get("headline", "")).strip()
+        blurb = str(item.get("blurb", "")).strip()
+        url = str(item.get("url") or "").strip()
+        item_icon = str(item.get("icon") or "📰").strip()
+        if not headline:
+            continue
+        lines.append(f"{item_icon}  **{headline}**")
+        if blurb:
+            lines.append(blurb)
+        if url and url.startswith("http"):
+            lines.append(f"<{url}>")
+        lines.append(sep)
+
+    return header + "\n".join(lines).rstrip(sep).strip()
