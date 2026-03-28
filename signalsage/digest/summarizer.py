@@ -43,7 +43,7 @@ class DigestSummarizer:
         user_prompt = (
             f"Summarize these {topic_name} sources {window_phrase}.\n"
             + (f"Focus only on items published in the last {lookback}. Skip older content.\n" if lookback else "")
-            + f"\n" + "\n".join(source_blocks)
+            + "\n" + "\n".join(source_blocks)
         )
 
         try:

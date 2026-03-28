@@ -8,7 +8,7 @@ from slack_bolt.async_app import AsyncApp
 from signalsage.ioc.processor import IOCProcessor
 
 from .commands import HELP_TEXT, handle_digest_command, parse_command
-from .formatter import Platform, format_results, format_slack_blocks, split_message
+from .formatter import format_slack_message, split_message
 
 logger = logging.getLogger(__name__)
 
@@ -68,9 +68,7 @@ class SlackBot:
             logger.info("Message received in channel %s: %r", channel, text[:80])
             results = await self.ioc_processor.process(text)
             for ioc, intel in results:
-                blocks = format_slack_blocks(ioc, intel)
-                fallback = format_results(ioc, intel, Platform.SLACK)
-                await say(blocks=blocks, text=fallback)
+                await say(**format_slack_message(ioc, intel))
 
         @self.app.event("app_mention")
         async def on_mention(event: dict, say) -> None:

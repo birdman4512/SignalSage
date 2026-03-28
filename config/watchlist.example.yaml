@@ -36,6 +36,9 @@ topics:
       - name: "Risky Business (podcast)"
         # Weekly security news podcast with Patrick Gray
         url: "https://risky.biz/feeds/risky-business/"
+      - name: "Risky Bulletin"
+        # Risky.biz short-form daily security news bulletin
+        url: "https://risky.biz/feeds/risky-biz-news/"
 
   - name: "Vulnerability Alerts"
     schedule: "0 7 * * 1-5"         # 7am weekdays only

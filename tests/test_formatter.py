@@ -48,12 +48,12 @@ def test_discord_bold():
 
 def test_slack_link():
     msg = format_results(_ioc(), [_result(report_url="https://vt.example/abc")], Platform.SLACK)
-    assert "<https://vt.example/abc|details>" in msg
+    assert "<https://vt.example/abc|view report>" in msg
 
 
 def test_discord_link():
     msg = format_results(_ioc(), [_result(report_url="https://vt.example/abc")], Platform.DISCORD)
-    assert "[details](https://vt.example/abc)" in msg
+    assert "[view report](https://vt.example/abc)" in msg
 
 
 def test_no_link_when_url_absent():

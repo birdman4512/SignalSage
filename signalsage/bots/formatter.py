@@ -60,58 +60,122 @@ def _link(url: str, label: str, platform: Platform) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Slack Block Kit
+# Slack Block Kit (attachment-style card with coloured left border)
 # ---------------------------------------------------------------------------
 
-def format_slack_blocks(ioc: IOC, results: list[IntelResult]) -> list[dict]:
-    """Build a Slack Block Kit payload for an IOC report."""
+_VERDICT_COLOUR = {
+    "malicious": "#e01e5a",  # red
+    "clean": "#2eb67d",      # green
+    "unknown": "#868686",    # grey
+}
+
+
+def _verdict_colour(results: list[IntelResult]) -> str:
+    malicious = [r for r in results if r.malicious is True and not r.error]
+    clean = [r for r in results if r.malicious is False and not r.error]
+    if malicious:
+        return _VERDICT_COLOUR["malicious"]
+    if clean:
+        return _VERDICT_COLOUR["clean"]
+    return _VERDICT_COLOUR["unknown"]
+
+
+def format_slack_message(ioc: IOC, results: list[IntelResult]) -> dict:
+    """
+    Return a dict ready to be spread into ``say(**payload)`` for Slack.
+
+    Uses a legacy attachment wrapper (for the coloured left border) containing
+    Block Kit blocks (for rich formatting).  Fallback plain-text is included
+    for notifications.
+    """
     label = IOC_TYPE_LABEL.get(ioc.type, ioc.type.value)
     verdict_emoji, verdict_text = _overall_verdict(results)
+    colour = _verdict_colour(results)
+    total_providers = len([r for r in results if not r.error])
 
+    # ── header: IOC value + type context ────────────────────────────────────
     blocks: list[dict] = [
-        {
-            "type": "header",
-            "text": {"type": "plain_text", "text": f"🔍  IOC Report", "emoji": True},
-        },
-        {
-            "type": "section",
-            "fields": [
-                {"type": "mrkdwn", "text": f"*Indicator*\n`{ioc.value}`"},
-                {"type": "mrkdwn", "text": f"*Type*\n{label}"},
-            ],
-        },
         {
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": f"*Overall Verdict:*  {verdict_emoji}  {verdict_text}",
+                "text": f"*🔍  `{ioc.value}`*",
+            },
+        },
+        {
+            "type": "context",
+            "elements": [
+                {
+                    "type": "mrkdwn",
+                    "text": f"*{label}*  ·  checked by {total_providers} provider{'s' if total_providers != 1 else ''}",
+                }
+            ],
+        },
+        {"type": "divider"},
+        # ── verdict ─────────────────────────────────────────────────────────
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": f"*Verdict:*   {verdict_emoji}  {verdict_text}",
             },
         },
         {"type": "divider"},
     ]
 
+    # ── provider results in a 2-column field grid ────────────────────────────
+    fields: list[dict] = []
     for result in results:
         emoji = _risk_emoji(result)
         if result.error:
-            body = f"Error — {result.error}"
+            body = f"_{result.error}_"
         else:
-            body = result.summary or "No details available"
+            body = result.summary or "No details"
+        fields.append(
+            {"type": "mrkdwn", "text": f"{emoji} *{result.provider}*\n{body}"}
+        )
 
-        text = f"{emoji}  *{result.provider}*\n{body}"
-        block: dict = {"type": "section", "text": {"type": "mrkdwn", "text": text}}
+    # Section blocks accept at most 10 fields — split into chunks if needed
+    for i in range(0, len(fields), 10):
+        blocks.append({"type": "section", "fields": fields[i : i + 10]})
 
-        if result.report_url and not result.error:
-            block["accessory"] = {
-                "type": "button",
-                "text": {"type": "plain_text", "text": "View Report", "emoji": False},
-                "url": result.report_url,
-                "action_id": f"report_{result.provider.lower().replace(' ', '_')}",
+    # ── report links as a compact context block ──────────────────────────────
+    report_links = [
+        f"<{r.report_url}|{r.provider}>"
+        for r in results
+        if r.report_url and not r.error
+    ]
+    if report_links:
+        blocks.append({"type": "divider"})
+        blocks.append(
+            {
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "mrkdwn",
+                        "text": "📊  " + "  ·  ".join(report_links),
+                    }
+                ],
             }
+        )
 
-        blocks.append(block)
+    fallback = f"IOC Report: {ioc.value} ({label}) — {verdict_emoji} {verdict_text}"
 
-    blocks.append({"type": "divider"})
-    return blocks
+    return {
+        "text": fallback,
+        "attachments": [
+            {
+                "color": colour,
+                "blocks": blocks,
+            }
+        ],
+    }
+
+
+# Keep old name as an alias so any direct callers don't break
+def format_slack_blocks(ioc: IOC, results: list[IntelResult]) -> list[dict]:
+    """Deprecated alias — use format_slack_message instead."""
+    return format_slack_message(ioc, results)["attachments"][0]["blocks"]
 
 
 # ---------------------------------------------------------------------------
