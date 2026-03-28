@@ -1,8 +1,12 @@
 """RSS/web content fetcher for the daily digest."""
 
 import asyncio
+import calendar
 import logging
 import re
+import tempfile
+import time
+from pathlib import Path
 
 import feedparser
 import httpx
@@ -13,6 +17,21 @@ logger = logging.getLogger(__name__)
 _FEED_EXTENSIONS = (".xml", ".rss", ".atom")
 _XML_CONTENT_TYPES = ("application/rss+xml", "application/atom+xml", "text/xml", "application/xml")
 _WHITESPACE_RE = re.compile(r"\s+")
+
+# Max audio file size to attempt transcription (bytes). Downloads larger than this are skipped.
+_MAX_AUDIO_BYTES = 200 * 1024 * 1024  # 200 MB
+
+
+def parse_lookback(lookback: str | None) -> int | None:
+    """Convert a lookback string like '24h' or '7d' to seconds, or None for no limit."""
+    if not lookback:
+        return None
+    lookback = lookback.strip().lower()
+    if lookback.endswith("h"):
+        return int(lookback[:-1]) * 3600
+    if lookback.endswith("d"):
+        return int(lookback[:-1]) * 86400
+    return None
 
 
 def _is_feed_url(url: str, content_type: str = "") -> bool:
@@ -32,21 +51,126 @@ def _strip_html(html: str) -> str:
     return _WHITESPACE_RE.sub(" ", text).strip()
 
 
-def _extract_feed_content(feed_data: dict, max_chars: int) -> str:
-    """Extract text content from a parsed feedparser feed."""
+async def _transcribe_audio(
+    audio_url: str,
+    whisper_base_url: str,
+    timeout: int = 600,
+) -> str | None:
+    """
+    Download an audio file and transcribe it via the Whisper API.
+
+    Returns the transcript text, or None on failure.
+    """
+    logger.info("Downloading audio for transcription: %s", audio_url)
+    try:
+        async with httpx.AsyncClient(
+            timeout=60,
+            follow_redirects=True,
+            headers={"User-Agent": "SignalSage/1.0 (Threat Intelligence Bot)"},
+        ) as client:
+            async with client.stream("GET", audio_url) as resp:
+                resp.raise_for_status()
+                content_length = int(resp.headers.get("content-length", 0))
+                if content_length and content_length > _MAX_AUDIO_BYTES:
+                    logger.warning(
+                        "Audio file too large (%d MB), skipping: %s",
+                        content_length // (1024 * 1024),
+                        audio_url,
+                    )
+                    return None
+
+                # Stream into a temp file
+                suffix = Path(audio_url.split("?")[0]).suffix or ".mp3"
+                with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+                    tmp_path = tmp.name
+                    total = 0
+                    async for chunk in resp.aiter_bytes(chunk_size=65536):
+                        total += len(chunk)
+                        if total > _MAX_AUDIO_BYTES:
+                            logger.warning("Audio stream exceeded size limit, skipping: %s", audio_url)
+                            return None
+                        tmp.write(chunk)
+    except Exception as exc:
+        logger.warning("Failed to download audio %s: %s", audio_url, exc)
+        return None
+
+    logger.info("Transcribing %.1f MB audio via Whisper...", total / (1024 * 1024))
+    try:
+        whisper_url = f"{whisper_base_url.rstrip('/')}/v1/audio/transcriptions"
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            with open(tmp_path, "rb") as audio_file:
+                resp = await client.post(
+                    whisper_url,
+                    files={"file": (Path(tmp_path).name, audio_file, "audio/mpeg")},
+                    data={"model": "Systran/faster-whisper-base.en"},
+                )
+            resp.raise_for_status()
+            transcript = resp.json().get("text", "").strip()
+            logger.info("Transcription complete: %d characters", len(transcript))
+            return transcript or None
+    except Exception as exc:
+        logger.warning("Whisper transcription failed for %s: %s", audio_url, exc)
+        return None
+    finally:
+        try:
+            Path(tmp_path).unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
+def _get_audio_enclosure(entry: dict) -> str | None:
+    """Return the URL of the first audio enclosure in a feed entry, or None."""
+    for enc in entry.get("enclosures", []):
+        mime = enc.get("type", "")
+        url = enc.get("href", "") or enc.get("url", "")
+        if mime.startswith("audio/") and url:
+            return url
+    return None
+
+
+async def _extract_feed_content(
+    feed_data: dict,
+    max_chars: int,
+    lookback_seconds: int | None = None,
+    whisper_base_url: str | None = None,
+) -> str:
+    """Extract text content from a parsed feedparser feed, optionally filtered by age."""
+    cutoff = time.time() - lookback_seconds if lookback_seconds else None
     parts: list[str] = []
-    for entry in feed_data.get("entries", [])[:5]:
+
+    for entry in feed_data.get("entries", [])[:20]:
+        # Filter by publish date when lookback is set
+        if cutoff is not None:
+            published = entry.get("published_parsed") or entry.get("updated_parsed")
+            if published:
+                entry_ts = calendar.timegm(published)
+                if entry_ts < cutoff:
+                    continue  # too old
+
         title = entry.get("title", "")
         summary = entry.get("summary", "") or entry.get("description", "")
         link = entry.get("link", "")
 
-        # Strip HTML from summary
         if summary:
             summary = _strip_html(summary)
+
+        # Try podcast transcription if Whisper is configured and entry has audio
+        audio_url = _get_audio_enclosure(entry)
+        if audio_url and whisper_base_url:
+            transcript = await _transcribe_audio(audio_url, whisper_base_url)
+            if transcript:
+                summary = f"[Transcript]\n{transcript[:max_chars]}"
+
         text = f"Title: {title}\n{summary}"
         if link:
             text += f"\nURL: {link}"
         parts.append(text)
+
+        if len(parts) >= 10:
+            break
+
+    if not parts:
+        return ""
 
     combined = "\n\n---\n\n".join(parts)
     return combined[:max_chars]
@@ -87,6 +211,8 @@ async def fetch_source(
     url: str,
     max_chars: int = 3000,
     timeout: int = 15,
+    lookback_seconds: int | None = None,
+    whisper_base_url: str | None = None,
 ) -> tuple[str, str]:
     """
     Fetch content from a URL.
@@ -121,7 +247,9 @@ async def fetch_source(
             # Use feedparser (it works on strings too)
             feed_data = feedparser.parse(raw_content)
             if feed_data.get("entries"):
-                content = _extract_feed_content(feed_data, max_chars)
+                content = await _extract_feed_content(
+                    feed_data, max_chars, lookback_seconds, whisper_base_url
+                )
                 return content, final_url
         except Exception as exc:
             logger.warning("Feedparser failed for %s: %s", url, exc)
@@ -135,6 +263,8 @@ async def fetch_topic(
     sources: list[dict],
     max_chars: int = 3000,
     timeout: int = 15,
+    lookback_seconds: int | None = None,
+    whisper_base_url: str | None = None,
 ) -> list[dict]:
     """
     Fetch all sources for a topic concurrently.
@@ -143,6 +273,7 @@ async def fetch_topic(
         sources: list of dicts with 'name' and 'url' keys
         max_chars: max characters per source
         timeout: HTTP timeout in seconds
+        whisper_base_url: base URL of Whisper service for podcast transcription (optional)
 
     Returns:
         list of dicts: {name, url, content}
@@ -153,7 +284,9 @@ async def fetch_topic(
         url = source.get("url", "")
         if not url:
             return {"name": name, "url": url, "content": ""}
-        content, canonical_url = await fetch_source(url, max_chars, timeout)
+        content, canonical_url = await fetch_source(
+            url, max_chars, timeout, lookback_seconds, whisper_base_url
+        )
         return {"name": name, "url": canonical_url or url, "content": content}
 
     tasks = [_fetch_one(s) for s in sources]

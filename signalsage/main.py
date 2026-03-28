@@ -43,6 +43,7 @@ async def main() -> None:
     from signalsage.intel.shodan import ShodanProvider
     from signalsage.intel.threatfox import ThreatFoxProvider
     from signalsage.intel.urlhaus import URLhausProvider
+    from signalsage.intel.urlscan import URLScanProvider
     from signalsage.intel.virustotal import VirusTotalProvider
 
     providers: list[BaseProvider] = []
@@ -65,6 +66,7 @@ async def main() -> None:
     add_provider(MalwareBazaarProvider, "malwarebazaar")
     add_provider(IPInfoProvider, "ipinfo")
     add_provider(CIRCLCVEProvider, "circl_cve")
+    add_provider(URLScanProvider, "urlscan")
 
     # ------------------------------------------------------------------ #
     # IOC Processor                                                        #
@@ -166,6 +168,14 @@ async def main() -> None:
     if summarizer and notifiers:
         from signalsage.scheduler import DigestScheduler
 
+        whisper_cfg = cfg.get("whisper", {})
+        whisper_base_url: str | None = None
+        if whisper_cfg.get("enabled"):
+            whisper_base_url = whisper_cfg.get("base_url") or "http://whisper:8000"
+            logger.info("Whisper transcription enabled at %s", whisper_base_url)
+        else:
+            logger.info("Whisper transcription disabled")
+
         try:
             scheduler = DigestScheduler(
                 summarizer=summarizer,
@@ -173,6 +183,7 @@ async def main() -> None:
                 notifiers=notifiers,
                 default_schedule=digest_cfg.get("default_schedule", "0 6 * * *"),
                 timezone=digest_cfg.get("timezone", "UTC"),
+                whisper_base_url=whisper_base_url,
             )
             scheduler.start()
             # Give bots a scheduler reference so !digest commands work

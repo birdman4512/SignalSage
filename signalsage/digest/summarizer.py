@@ -23,7 +23,9 @@ class DigestSummarizer:
         self.llm = llm
         self.max_chars = max_chars
 
-    async def summarize_topic(self, topic_name: str, sources: list[dict]) -> str:
+    async def summarize_topic(
+        self, topic_name: str, sources: list[dict], lookback: str | None = None
+    ) -> str:
         today = date.today().strftime("%B %d, %Y")
 
         source_blocks: list[str] = []
@@ -34,10 +36,14 @@ class DigestSummarizer:
             source_blocks.append(f"### {src['name']}\n{content}\nSource: {src['url']}\n")
 
         if not source_blocks:
-            return f"No content available for {topic_name} on {today}."
+            window = f"the last {lookback}" if lookback else today
+            return f"No content found for {topic_name} covering {window}."
 
-        user_prompt = f"Summarize these {topic_name} sources for {today}:\n\n" + "\n".join(
-            source_blocks
+        window_phrase = f"from the last {lookback}" if lookback else f"for {today}"
+        user_prompt = (
+            f"Summarize these {topic_name} sources {window_phrase}.\n"
+            + (f"Focus only on items published in the last {lookback}. Skip older content.\n" if lookback else "")
+            + f"\n" + "\n".join(source_blocks)
         )
 
         try:

@@ -4,6 +4,10 @@
 # Fields per topic:
 #   name           — display name used in the digest header
 #   schedule       — 5-part cron expression (optional, falls back to digest.default_schedule)
+#   lookback       — how far back to include content: "24h", "48h", "7d", etc.
+#                    RSS entries older than this are filtered before summarisation.
+#                    The LLM is also instructed to focus only on this window.
+#                    Omit to include all available content.
 #   digest_channel — Slack: "#channel-name" or channel ID
 #                    Discord: channel ID (integer as string)
 #                    Omit to use the global platforms.slack/discord.digest_channel default
@@ -14,6 +18,7 @@
 topics:
   - name: "Cybersecurity News"
     schedule: "0 6 * * *"          # 6am daily
+    lookback: "24h"                 # only items from the last 24 hours
     digest_channel: "#cyber-news"   # Slack: post to this specific channel
     sources:
       - name: "Krebs on Security"
@@ -24,9 +29,17 @@ topics:
         url: "https://www.welivesecurity.com/feed/"
       - name: "Schneier on Security"
         url: "https://www.schneier.com/feed/atom/"
+      - name: "Security Now (podcast)"
+        # Weekly podcast by Steve Gibson & Leo Laporte — deep-dive security topics
+        # Audio enclosures are transcribed by Whisper when whisper.enabled = true
+        url: "https://feeds.twit.tv/sn.xml"
+      - name: "Risky Business (podcast)"
+        # Weekly security news podcast with Patrick Gray
+        url: "https://risky.biz/feeds/risky-business/"
 
   - name: "Vulnerability Alerts"
     schedule: "0 7 * * 1-5"         # 7am weekdays only
+    lookback: "24h"                  # only items from the last 24 hours
     digest_channel: "#vuln-alerts"
     sources:
       - name: "CISA Known Exploited Vulnerabilities"
@@ -38,6 +51,7 @@ topics:
 
   - name: "Threat Intelligence"
     schedule: "0 6 * * 1"           # 6am every Monday
+    lookback: "7d"                   # weekly — cover the past 7 days
     digest_channel: "#threat-intel"
     sources:
       - name: "abuse.ch Blog"
@@ -51,6 +65,7 @@ topics:
     # 6am Brisbane time (AEST = UTC+10). If you change digest.timezone to
     # "Australia/Brisbane" in config.yaml you can use "0 6 * * *" instead.
     schedule: "0 20 * * *"           # 20:00 UTC = 06:00 AEST next morning
+    lookback: "24h"                  # daily propagation update
     digest_channel: "#ham-radio"
     sources:
       # ── Australian / local ─────────────────────────────────────────────
@@ -89,9 +104,22 @@ topics:
         # operating news and regulatory updates
         url: "https://www.arrl.org/news/rss.xml"
 
+  - name: "Cybersecurity Community"
+    schedule: "0 8 * * *"           # 8am daily
+    lookback: "24h"
+    digest_channel: "#cyber-community"
+    sources:
+      - name: "r/netsec"
+        url: "https://www.reddit.com/r/netsec/.rss"
+      - name: "r/cybersecurity"
+        url: "https://www.reddit.com/r/cybersecurity/.rss"
+      - name: "r/AskNetsec"
+        url: "https://www.reddit.com/r/AskNetsec/.rss"
+
   # Template — copy and customise:
   # - name: "My Custom Topic"
   #   schedule: "0 8 * * *"
+  #   lookback: "24h"
   #   digest_channel: "#my-channel"
   #   sources:
   #     - name: "My Source"

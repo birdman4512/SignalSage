@@ -60,5 +60,17 @@ services:
     #           count: 1
     #           capabilities: [gpu]
 
+  # ── Whisper speech-to-text (podcast transcription) ────────────────────
+  # OpenAI-compatible transcription API. Only reachable on the internal network.
+  # Transcribes podcast audio before the digest summariser processes each topic.
+  whisper:
+    image: fedirz/faster-whisper-server:latest-cpu
+    container_name: whisper
+    restart: unless-stopped
+    environment:
+      WHISPER__MODEL: base.en
+    networks:
+      - internal   # internal only — no outbound internet needed
+
 volumes:
   ollama_data:

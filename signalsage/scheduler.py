@@ -6,7 +6,7 @@ from collections.abc import Callable
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from signalsage.digest.fetcher import fetch_topic
+from signalsage.digest.fetcher import fetch_topic, parse_lookback
 
 logger = logging.getLogger(__name__)
 
@@ -38,10 +38,12 @@ class DigestScheduler:
         notifiers: list[Callable],
         default_schedule: str = "0 6 * * *",
         timezone: str = "UTC",
+        whisper_base_url: str | None = None,
     ) -> None:
         self.summarizer = summarizer
         self.notifiers = notifiers
         self.timezone = timezone
+        self.whisper_base_url = whisper_base_url
         self._scheduler = AsyncIOScheduler(timezone=timezone)
 
         topics = watchlist.get("topics", [])
@@ -74,13 +76,18 @@ class DigestScheduler:
         name = topic.get("name", "Unknown")
         logger.info("Running digest for topic: %s", name)
 
+        lookback = topic.get("lookback") or None
+        lookback_seconds = parse_lookback(lookback)
+
         try:
             fetched = await fetch_topic(
                 topic.get("sources", []),
                 self.summarizer.max_chars,
                 timeout=15,
+                lookback_seconds=lookback_seconds,
+                whisper_base_url=self.whisper_base_url,
             )
-            summary = await self.summarizer.summarize_topic(name, fetched)
+            summary = await self.summarizer.summarize_topic(name, fetched, lookback=lookback)
         except Exception as exc:
             logger.exception("Failed to generate digest for topic '%s': %s", name, exc)
             return

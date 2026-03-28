@@ -32,9 +32,12 @@ class ThreatFoxProvider(BaseProvider):
 
         payload = {"query": "search_ioc", "search_term": search_term}
 
+        headers = {"Auth-Key": self.api_key} if self.api_key else {}
         try:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
-                resp = await client.post(_API_URL, json=payload)
+                resp = await client.post(_API_URL, json=payload, headers=headers)
+                if err := self._check_status(resp, ioc):
+                    return err
                 resp.raise_for_status()
                 data = resp.json()
         except httpx.TimeoutException:

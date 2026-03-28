@@ -25,20 +25,6 @@ IOC_TYPE_LABEL = {
 }
 
 
-def _bold(text: str, platform: Platform) -> str:
-    if platform == Platform.SLACK:
-        return f"*{text}*"
-    return f"**{text}**"
-
-
-def _link(url: str, label: str, platform: Platform) -> str:
-    if not url:
-        return label
-    if platform == Platform.SLACK:
-        return f"<{url}|{label}>"
-    return f"[{label}]({url})"
-
-
 def _risk_emoji(result: IntelResult) -> str:
     if result.error:
         return "⚠️"
@@ -49,44 +35,120 @@ def _risk_emoji(result: IntelResult) -> str:
     return "⚪"
 
 
-def format_results(
-    ioc: IOC,
-    results: list[IntelResult],
-    platform: Platform,
-) -> str:
-    """Format a list of IntelResults for a given IOC into a readable message."""
-    label = IOC_TYPE_LABEL.get(ioc.type, ioc.type.value)
-    separator = "━" * 35
+def _overall_verdict(results: list[IntelResult]) -> tuple[str, str]:
+    """Return (emoji, label) for the overall verdict across all provider results."""
+    malicious = [r for r in results if r.malicious is True and not r.error]
+    clean = [r for r in results if r.malicious is False and not r.error]
+    total = len([r for r in results if not r.error])
 
-    lines: list[str] = [
-        separator,
-        f"🔍 `{ioc.value}` ({label})",
-        "",
+    if not total:
+        return "⚪", "UNKNOWN"
+    if malicious:
+        pct = int(len(malicious) / total * 100)
+        return "🔴", f"MALICIOUS  ({len(malicious)}/{total} providers flagged, {pct}%)"
+    if clean:
+        return "✅", f"CLEAN  ({len(clean)}/{total} providers)"
+    return "⚪", "UNKNOWN"
+
+
+def _link(url: str, label: str, platform: Platform) -> str:
+    if not url:
+        return label
+    if platform == Platform.SLACK:
+        return f"<{url}|{label}>"
+    return f"[{label}]({url})"
+
+
+# ---------------------------------------------------------------------------
+# Slack Block Kit
+# ---------------------------------------------------------------------------
+
+def format_slack_blocks(ioc: IOC, results: list[IntelResult]) -> list[dict]:
+    """Build a Slack Block Kit payload for an IOC report."""
+    label = IOC_TYPE_LABEL.get(ioc.type, ioc.type.value)
+    verdict_emoji, verdict_text = _overall_verdict(results)
+
+    blocks: list[dict] = [
+        {
+            "type": "header",
+            "text": {"type": "plain_text", "text": f"🔍  IOC Report", "emoji": True},
+        },
+        {
+            "type": "section",
+            "fields": [
+                {"type": "mrkdwn", "text": f"*Indicator*\n`{ioc.value}`"},
+                {"type": "mrkdwn", "text": f"*Type*\n{label}"},
+            ],
+        },
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": f"*Overall Verdict:*  {verdict_emoji}  {verdict_text}",
+            },
+        },
+        {"type": "divider"},
     ]
 
     for result in results:
         emoji = _risk_emoji(result)
-        provider_bold = _bold(result.provider, platform)
+        if result.error:
+            body = f"Error — {result.error}"
+        else:
+            body = result.summary or "No details available"
+
+        text = f"{emoji}  *{result.provider}*\n{body}"
+        block: dict = {"type": "section", "text": {"type": "mrkdwn", "text": text}}
+
+        if result.report_url and not result.error:
+            block["accessory"] = {
+                "type": "button",
+                "text": {"type": "plain_text", "text": "View Report", "emoji": False},
+                "url": result.report_url,
+                "action_id": f"report_{result.provider.lower().replace(' ', '_')}",
+            }
+
+        blocks.append(block)
+
+    blocks.append({"type": "divider"})
+    return blocks
+
+
+# ---------------------------------------------------------------------------
+# Discord / plain-text fallback
+# ---------------------------------------------------------------------------
+
+def format_results(ioc: IOC, results: list[IntelResult], platform: Platform) -> str:
+    """Format IOC results as plain text (used for Discord and as Slack fallback)."""
+    label = IOC_TYPE_LABEL.get(ioc.type, ioc.type.value)
+    verdict_emoji, verdict_text = _overall_verdict(results)
+    sep = "━" * 38
+
+    lines: list[str] = [
+        sep,
+        f"🔍  **{ioc.value}**  —  {label}" if platform == Platform.DISCORD
+        else f"🔍  *{ioc.value}*  —  {label}",
+        f"Verdict:  {verdict_emoji}  {verdict_text}",
+        sep,
+    ]
+
+    for result in results:
+        emoji = _risk_emoji(result)
+        name = f"**{result.provider}**" if platform == Platform.DISCORD else f"*{result.provider}*"
 
         if result.error:
-            line = f"{emoji} {provider_bold}: Error — {result.error}"
+            lines.append(f"{emoji}  {name}  —  Error: {result.error}")
         else:
-            line = f"{emoji} {provider_bold}: {result.summary}"
+            line = f"{emoji}  {name}  —  {result.summary or 'No details'}"
             if result.report_url:
-                link = _link(result.report_url, "details", platform)
-                line += f" — {link}"
-
-        lines.append(line)
+                line += f"  ·  {_link(result.report_url, 'view report', platform)}"
+            lines.append(line)
 
     return "\n".join(lines)
 
 
 def split_message(text: str, limit: int = 2000) -> list[str]:
-    """
-    Split a long message into chunks that fit within the character limit.
-
-    Splits on newlines where possible to avoid breaking mid-line.
-    """
+    """Split a long message into chunks that fit within the character limit."""
     if len(text) <= limit:
         return [text]
 
@@ -95,13 +157,10 @@ def split_message(text: str, limit: int = 2000) -> list[str]:
     current_len = 0
 
     for line in text.split("\n"):
-        # +1 for the newline character
         line_len = len(line) + 1
-
         if current_len + line_len > limit:
             if current_lines:
                 chunks.append("\n".join(current_lines))
-            # Handle lines longer than limit by hard splitting
             if line_len > limit:
                 while line:
                     chunks.append(line[:limit])

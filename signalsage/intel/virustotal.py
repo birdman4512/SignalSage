@@ -52,6 +52,8 @@ class VirusTotalProvider(BaseProvider):
 
     async def _lookup_ip(self, client: httpx.AsyncClient, ioc: IOC, headers: dict) -> IntelResult:
         resp = await client.get(f"{_BASE}/ip_addresses/{ioc.value}", headers=headers)
+        if err := self._check_status(resp, ioc):
+            return err
         if resp.status_code == 404:
             return self._error(ioc, "Not found")
         resp.raise_for_status()
@@ -70,6 +72,8 @@ class VirusTotalProvider(BaseProvider):
         self, client: httpx.AsyncClient, ioc: IOC, headers: dict
     ) -> IntelResult:
         resp = await client.get(f"{_BASE}/domains/{ioc.value}", headers=headers)
+        if err := self._check_status(resp, ioc):
+            return err
         if resp.status_code == 404:
             return self._error(ioc, "Not found")
         resp.raise_for_status()
@@ -87,6 +91,8 @@ class VirusTotalProvider(BaseProvider):
     async def _lookup_url(self, client: httpx.AsyncClient, ioc: IOC, headers: dict) -> IntelResult:
         url_id = base64.urlsafe_b64encode(ioc.value.encode()).decode().rstrip("=")
         resp = await client.get(f"{_BASE}/urls/{url_id}", headers=headers)
+        if err := self._check_status(resp, ioc):
+            return err
         if resp.status_code == 404:
             return self._error(ioc, "Not found")
         resp.raise_for_status()
@@ -98,6 +104,8 @@ class VirusTotalProvider(BaseProvider):
 
     async def _lookup_hash(self, client: httpx.AsyncClient, ioc: IOC, headers: dict) -> IntelResult:
         resp = await client.get(f"{_BASE}/files/{ioc.value}", headers=headers)
+        if err := self._check_status(resp, ioc):
+            return err
         if resp.status_code == 404:
             return self._error(ioc, "Not found")
         resp.raise_for_status()

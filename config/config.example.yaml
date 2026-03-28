@@ -33,8 +33,10 @@ intel:
       api_key: ${OTX_API_KEY}
     urlhaus:
       enabled: true
+      api_key: ${ABUSECH_API_KEY}   # free at https://auth.abuse.ch
     threatfox:
       enabled: true
+      api_key: ${ABUSECH_API_KEY}   # same key as urlhaus
     malwarebazaar:
       enabled: true
     ipinfo:
@@ -42,6 +44,9 @@ intel:
       api_key: ${IPINFO_API_KEY}
     circl_cve:
       enabled: true
+    urlscan:
+      enabled: true
+      # api_key: ${URLSCAN_API_KEY}   # optional — lifts rate limits
 
 digest:
   # Fallback schedule for topics that don't define their own (5-part cron)
@@ -62,3 +67,12 @@ digest:
   # Anthropic Claude — paid API. Only used when llm_provider = "anthropic"
   anthropic_model: "claude-haiku-4-5-20251001"
   anthropic_api_key: "${ANTHROPIC_API_KEY}"
+
+# ── Whisper podcast transcription (optional) ──────────────────────────────
+# When enabled, podcast RSS enclosures (audio/*) are downloaded and transcribed
+# before being passed to the LLM for summarisation.
+# Requires the whisper service in docker-compose.yml.
+whisper:
+  enabled: true
+  base_url: "http://whisper:8000"
+  # max_audio_mb and transcription_timeout are enforced in fetcher.py constants

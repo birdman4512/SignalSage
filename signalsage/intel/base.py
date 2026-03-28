@@ -54,3 +54,15 @@ class BaseProvider(ABC):
             ioc_type=ioc.type,
             error=msg,
         )
+
+    def _check_status(self, resp: Any, ioc: IOC) -> IntelResult | None:
+        """Return a clean error result for common HTTP error codes, or None if OK."""
+        if resp.status_code == 200:
+            return None
+        if resp.status_code == 429:
+            return self._error(ioc, "Rate limited — free tier quota reached")
+        if resp.status_code in (401, 403):
+            return self._error(ioc, "Unauthorized — check API key")
+        if resp.status_code == 404:
+            return None  # callers handle 404 themselves
+        return None  # let raise_for_status() handle other codes

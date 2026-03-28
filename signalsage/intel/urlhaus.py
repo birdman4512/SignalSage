@@ -24,9 +24,14 @@ class URLhausProvider(BaseProvider):
     ]
     requires_key = False
 
+    def _headers(self) -> dict:
+        if self.api_key:
+            return {"Auth-Key": self.api_key}
+        return {}
+
     async def lookup(self, ioc: IOC) -> IntelResult | None:
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
+            async with httpx.AsyncClient(timeout=self.timeout, headers=self._headers()) as client:
                 if ioc.type == IOCType.URL:
                     return await self._lookup_url(client, ioc)
                 elif ioc.type in (IOCType.DOMAIN, IOCType.IPV4):
@@ -41,6 +46,8 @@ class URLhausProvider(BaseProvider):
 
     async def _lookup_url(self, client: httpx.AsyncClient, ioc: IOC) -> IntelResult:
         resp = await client.post(f"{_BASE}/url/", data={"url": ioc.value})
+        if err := self._check_status(resp, ioc):
+            return err
         resp.raise_for_status()
         data = resp.json()
 
@@ -75,6 +82,8 @@ class URLhausProvider(BaseProvider):
 
     async def _lookup_host(self, client: httpx.AsyncClient, ioc: IOC) -> IntelResult:
         resp = await client.post(f"{_BASE}/host/", data={"host": ioc.value})
+        if err := self._check_status(resp, ioc):
+            return err
         resp.raise_for_status()
         data = resp.json()
 
@@ -113,6 +122,8 @@ class URLhausProvider(BaseProvider):
             form_data = {"sha256_hash": ioc.value}
 
         resp = await client.post(f"{_BASE}/payload/", data=form_data)
+        if err := self._check_status(resp, ioc):
+            return err
         resp.raise_for_status()
         data = resp.json()
 
