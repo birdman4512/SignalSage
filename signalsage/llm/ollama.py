@@ -38,7 +38,10 @@ class OllamaLLM(BaseLLM):
                 {"role": "user", "content": user},
             ],
             "stream": False,
-            "options": {"num_predict": max_tokens},
+            "options": {
+                "num_predict": max_tokens,
+                "num_ctx": 2048,  # cap context window — halves KV cache RAM (~768 MB saved)
+            },
         }
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:

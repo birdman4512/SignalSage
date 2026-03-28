@@ -95,7 +95,7 @@ class DigestSummarizer:
             return await self.llm.complete(system=_IOC_SYSTEM_PROMPT, user=user_prompt)
         except Exception as exc:
             logger.error("LLM error summarizing IOC %s: %s", ioc.value, exc)
-            return ""
+            return f"⚠️ Assessment unavailable — {exc}"
 
     async def summarize_all(self, watchlist: dict, timeout: int = 15) -> list[tuple[str, str]]:
         topics = watchlist.get("topics", [])

@@ -80,11 +80,12 @@ class SlackBot:
                 # Generate LLM summary and update the posted message in-place
                 msg_ts = resp.get("ts")
                 msg_channel = resp.get("channel")
-                llm_summary: str | None = None
+                llm_summary: str = "⚠️ Assessment unavailable — summarizer did not respond"
                 try:
                     llm_summary = await self.summarizer.summarize_ioc(ioc, intel)
                 except Exception as exc:
                     logger.warning("IOC LLM summary failed for %s: %s", ioc.value, exc)
+                    llm_summary = f"⚠️ Assessment unavailable — {exc}"
 
                 if msg_ts and msg_channel:
                     try:
