@@ -158,10 +158,15 @@ async def _extract_feed_content(
 
         # Try podcast transcription if Whisper is configured and entry has audio
         audio_url = _get_audio_enclosure(entry)
-        if audio_url and whisper_base_url:
-            transcript = await _transcribe_audio(audio_url, whisper_base_url)
-            if transcript:
-                summary = f"[Transcript]\n{transcript[:max_chars]}"
+        if audio_url:
+            if whisper_base_url:
+                transcript = await _transcribe_audio(audio_url, whisper_base_url)
+                if transcript:
+                    summary = f"[Transcript]\n{transcript[:max_chars]}"
+            else:
+                logger.info("Audio enclosure found but Whisper disabled — skipping: %s", audio_url)
+        else:
+            logger.info("No audio enclosure in entry: %r", title)
 
         text = f"Title: {title}\n{summary}"
         if link:
