@@ -1,6 +1,7 @@
 """Slack bot using Socket Mode (no public URL required)."""
 
 import logging
+import re
 
 from slack_bolt.adapter.socket_mode.aiohttp import AsyncSocketModeHandler
 from slack_bolt.async_app import AsyncApp
@@ -112,6 +113,11 @@ class SlackBot:
                     )
                     return
             await say(text=HELP_TEXT)
+
+        @self.app.action(re.compile(".*"))
+        async def on_any_action(ack) -> None:
+            """Acknowledge all block_actions (e.g. URL buttons) to suppress 404 warnings."""
+            await ack()
 
         @self.app.error
         async def on_error(error: Exception) -> None:
