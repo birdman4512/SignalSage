@@ -178,9 +178,39 @@ async def _extract_feed_content(
     return combined[:max_chars]
 
 
+_SOFT_404_PATTERNS = (
+    "404",
+    "page not found",
+    "not found",
+    "no longer exists",
+    "has been removed",
+    "does not exist",
+    "error 404",
+)
+
+
+def _is_soft_404(soup: BeautifulSoup) -> bool:
+    """Return True if the page looks like a soft-404 (200 OK but error content)."""
+    title_tag = soup.find("title")
+    if title_tag:
+        title = title_tag.get_text().lower()
+        if any(pat in title for pat in _SOFT_404_PATTERNS):
+            return True
+    # Also check the first h1
+    h1 = soup.find("h1")
+    if h1:
+        h1_text = h1.get_text().lower()
+        if any(pat in h1_text for pat in _SOFT_404_PATTERNS):
+            return True
+    return False
+
+
 def _extract_web_content(html: str, max_chars: int) -> str:
     """Extract readable text from an HTML page."""
     soup = BeautifulSoup(html, "lxml")
+
+    if _is_soft_404(soup):
+        return ""
 
     # Remove script/style elements
     for tag in soup(["script", "style", "nav", "footer", "header", "aside"]):

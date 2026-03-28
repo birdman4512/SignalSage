@@ -109,7 +109,7 @@ topics:
       - name: "ARRL — Amateur Radio Relay League"
         # World's largest amateur radio organisation; technical articles,
         # operating news and regulatory updates
-        url: "https://www.arrl.org/news/rss.xml"
+        url: "https://www.arrl.org/rss/arrl-news"
 
   - name: "Cybersecurity Community"
     tags: [reddit, community]
