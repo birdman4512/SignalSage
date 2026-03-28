@@ -24,11 +24,13 @@ class OllamaLLM(BaseLLM):
         base_url: str = "http://localhost:11434",
         model: str = "llama3.2",
         timeout: int = 600,
+        num_ctx: int = 8192,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.timeout = timeout
-        logger.info("Ollama LLM: model=%s base_url=%s", model, self.base_url)
+        self.num_ctx = num_ctx
+        logger.info("Ollama LLM: model=%s base_url=%s num_ctx=%d", model, self.base_url, num_ctx)
 
     async def complete(self, system: str, user: str, max_tokens: int = 1024) -> str:
         payload = {
@@ -38,7 +40,7 @@ class OllamaLLM(BaseLLM):
                 {"role": "user", "content": user},
             ],
             "stream": False,
-            "options": {"num_predict": max_tokens},
+            "options": {"num_predict": max_tokens, "num_ctx": self.num_ctx},
         }
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:

@@ -107,6 +107,7 @@ async def main() -> None:
             llm = OllamaLLM(
                 base_url=digest_cfg.get("ollama_base_url") or "http://localhost:11434",
                 model=digest_cfg.get("ollama_model") or "llama3.2",
+                num_ctx=digest_cfg.get("ollama_num_ctx", 8192),
             )
     except Exception as exc:
         logger.error("Failed to initialize LLM (%s): %s", llm_provider, exc)
