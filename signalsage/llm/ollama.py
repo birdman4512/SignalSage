@@ -23,7 +23,7 @@ class OllamaLLM(BaseLLM):
         self,
         base_url: str = "http://localhost:11434",
         model: str = "llama3.2",
-        timeout: int = 180,
+        timeout: int = 600,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.model = model
@@ -38,10 +38,7 @@ class OllamaLLM(BaseLLM):
                 {"role": "user", "content": user},
             ],
             "stream": False,
-            "options": {
-                "num_predict": max_tokens,
-                "num_ctx": 2048,  # cap context window — halves KV cache RAM (~768 MB saved)
-            },
+            "options": {"num_predict": max_tokens},
         }
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:

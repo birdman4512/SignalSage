@@ -39,7 +39,7 @@ topics:
         url: "https://risky.biz/feeds/risky-business/"
       - name: "Risky Bulletin"
         # Risky.biz short-form daily security news bulletin
-        url: "https://risky.biz/feeds/risky-biz-news/"
+        url: "https://risky.biz/feeds/riskybiznews/"
 
   - name: "Vulnerability Alerts"
     tags: [vuln, cve, alerts]

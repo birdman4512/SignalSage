@@ -52,7 +52,7 @@ digest:
   # Fallback schedule for topics that don't define their own (5-part cron)
   default_schedule: "0 6 * * *"
   timezone: "UTC"
-  max_chars_per_source: 3000
+  max_chars_per_source: 800
 
   # LLM backend: "ollama" (local, free) or "anthropic" (paid)
   llm_provider: "${LLM_PROVIDER:-ollama}"
