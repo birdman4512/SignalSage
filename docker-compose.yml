@@ -61,16 +61,21 @@ services:
     #           capabilities: [gpu]
 
   # ── Whisper speech-to-text (podcast transcription) ────────────────────
-  # OpenAI-compatible transcription API. Only reachable on the internal network.
-  # Transcribes podcast audio before the digest summariser processes each topic.
+  # OpenAI-compatible transcription API. Reachable by signalsage on the internal
+  # network. Needs external access on first start to download the model (~150 MB).
+  # Model is cached on a volume — subsequent starts are offline.
   whisper:
     image: fedirz/faster-whisper-server:latest-cpu
     container_name: whisper
     restart: unless-stopped
     environment:
       WHISPER__MODEL: base.en
+    volumes:
+      - whisper_data:/root/.cache/huggingface
     networks:
-      - internal   # internal only — no outbound internet needed
+      - internal   # reachable by signalsage
+      - external   # needed on first start to download the model
 
 volumes:
   ollama_data:
+  whisper_data:
