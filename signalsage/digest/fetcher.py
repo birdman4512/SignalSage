@@ -87,7 +87,9 @@ async def _transcribe_audio(
                     async for chunk in resp.aiter_bytes(chunk_size=65536):
                         total += len(chunk)
                         if total > _MAX_AUDIO_BYTES:
-                            logger.warning("Audio stream exceeded size limit, skipping: %s", audio_url)
+                            logger.warning(
+                                "Audio stream exceeded size limit, skipping: %s", audio_url
+                            )
                             return None
                         tmp.write(chunk)
     except Exception as exc:

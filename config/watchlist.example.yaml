@@ -17,6 +17,7 @@
 
 topics:
   - name: "Cybersecurity News"
+    tags: [cyber, news, sec]
     schedule: "0 6 * * *"          # 6am daily
     lookback: "24h"                 # only items from the last 24 hours
     digest_channel: "#cyber-news"   # Slack: post to this specific channel
@@ -41,6 +42,7 @@ topics:
         url: "https://risky.biz/feeds/risky-biz-news/"
 
   - name: "Vulnerability Alerts"
+    tags: [vuln, cve, alerts]
     schedule: "0 7 * * 1-5"         # 7am weekdays only
     lookback: "24h"                  # only items from the last 24 hours
     digest_channel: "#vuln-alerts"
@@ -53,6 +55,7 @@ topics:
         url: "https://nvd.nist.gov/feeds/xml/cve/misc/nvd-rss-analyzed.xml"
 
   - name: "Threat Intelligence"
+    tags: [threat, intel, ti]
     schedule: "0 6 * * 1"           # 6am every Monday
     lookback: "7d"                   # weekly — cover the past 7 days
     digest_channel: "#threat-intel"
@@ -65,6 +68,7 @@ topics:
         url: "https://urlhaus.abuse.ch/feeds/recent/"
 
   - name: "HF Amateur Radio — Brisbane Propagation"
+    tags: [ham, radio, hf, vk4]
     # 6am Brisbane time (AEST = UTC+10). If you change digest.timezone to
     # "Australia/Brisbane" in config.yaml you can use "0 6 * * *" instead.
     schedule: "0 20 * * *"           # 20:00 UTC = 06:00 AEST next morning
@@ -108,6 +112,7 @@ topics:
         url: "https://www.arrl.org/news/rss.xml"
 
   - name: "Cybersecurity Community"
+    tags: [reddit, community]
     schedule: "0 8 * * *"           # 8am daily
     lookback: "24h"
     digest_channel: "#cyber-community"
@@ -121,6 +126,7 @@ topics:
 
   # Template — copy and customise:
   # - name: "My Custom Topic"
+  #   tags: [mytag, short]          # short aliases for !digest <tag>
   #   schedule: "0 8 * * *"
   #   lookback: "24h"
   #   digest_channel: "#my-channel"

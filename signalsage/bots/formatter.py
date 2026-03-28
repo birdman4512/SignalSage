@@ -25,6 +25,25 @@ IOC_TYPE_LABEL = {
 }
 
 
+_PROVIDER_ICON: dict[str, str] = {
+    "VirusTotal": "🔬",
+    "Shodan": "🌐",
+    "GreyNoise": "📡",
+    "AbuseIPDB": "🚨",
+    "OTX": "👽",
+    "URLhaus": "🔗",
+    "ThreatFox": "🦊",
+    "MalwareBazaar": "🦠",
+    "IPInfo": "ℹ️",
+    "CIRCL CVE": "📋",
+    "URLScan": "🔍",
+}
+
+
+def _provider_icon(name: str) -> str:
+    return _PROVIDER_ICON.get(name, "🔎")
+
+
 def _risk_emoji(result: IntelResult) -> str:
     if result.error:
         return "⚠️"
@@ -65,8 +84,8 @@ def _link(url: str, label: str, platform: Platform) -> str:
 
 _VERDICT_COLOUR = {
     "malicious": "#e01e5a",  # red
-    "clean": "#2eb67d",      # green
-    "unknown": "#868686",    # grey
+    "clean": "#2eb67d",  # green
+    "unknown": "#868686",  # grey
 }
 
 
@@ -80,13 +99,22 @@ def _verdict_colour(results: list[IntelResult]) -> str:
     return _VERDICT_COLOUR["unknown"]
 
 
-def format_slack_message(ioc: IOC, results: list[IntelResult]) -> dict:
+def format_slack_message(
+    ioc: IOC,
+    results: list[IntelResult],
+    llm_summary: str | None = None,
+    assessment_pending: bool = False,
+) -> dict:
     """
     Return a dict ready to be spread into ``say(**payload)`` for Slack.
 
     Uses a legacy attachment wrapper (for the coloured left border) containing
     Block Kit blocks (for rich formatting).  Fallback plain-text is included
     for notifications.
+
+    Args:
+        llm_summary: Optional LLM-generated plain-English assessment to include
+                     below the verdict.
     """
     label = IOC_TYPE_LABEL.get(ioc.type, ioc.type.value)
     verdict_emoji, verdict_text = _overall_verdict(results)
@@ -97,10 +125,7 @@ def format_slack_message(ioc: IOC, results: list[IntelResult]) -> dict:
     blocks: list[dict] = [
         {
             "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": f"*🔍  `{ioc.value}`*",
-            },
+            "text": {"type": "mrkdwn", "text": f"*🔍  `{ioc.value}`*"},
         },
         {
             "type": "context",
@@ -115,72 +140,69 @@ def format_slack_message(ioc: IOC, results: list[IntelResult]) -> dict:
         # ── verdict ─────────────────────────────────────────────────────────
         {
             "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": f"*Verdict:*   {verdict_emoji}  {verdict_text}",
-            },
+            "text": {"type": "mrkdwn", "text": f"*Verdict:*   {verdict_emoji}  {verdict_text}"},
         },
-        {"type": "divider"},
     ]
 
-    # ── provider results in a 2-column field grid ────────────────────────────
-    fields: list[dict] = []
-    for result in results:
-        emoji = _risk_emoji(result)
-        if result.error:
-            body = f"_{result.error}_"
-        else:
-            body = result.summary or "No details"
-        fields.append(
-            {"type": "mrkdwn", "text": f"{emoji} *{result.provider}*\n{body}"}
+    # ── LLM assessment ───────────────────────────────────────────────────────
+    if llm_summary:
+        blocks.append(
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": f"*Assessment:*\n{llm_summary}"},
+            }
         )
-
-    # Section blocks accept at most 10 fields — split into chunks if needed
-    for i in range(0, len(fields), 10):
-        blocks.append({"type": "section", "fields": fields[i : i + 10]})
-
-    # ── report links as a compact context block ──────────────────────────────
-    report_links = [
-        f"<{r.report_url}|{r.provider}>"
-        for r in results
-        if r.report_url and not r.error
-    ]
-    if report_links:
-        blocks.append({"type": "divider"})
+    elif assessment_pending:
         blocks.append(
             {
                 "type": "context",
-                "elements": [
-                    {
-                        "type": "mrkdwn",
-                        "text": "📊  " + "  ·  ".join(report_links),
-                    }
-                ],
+                "elements": [{"type": "mrkdwn", "text": "💭  _Generating assessment…_"}],
             }
         )
 
+    blocks.append({"type": "divider"})
+
+    # ── provider results — one full-width block per provider ─────────────────
+    for result in results:
+        icon = _provider_icon(result.provider)
+        verdict = _risk_emoji(result)
+        if result.error:
+            body = f"{verdict}  _{result.error}_"
+        else:
+            body = f"{verdict}  {result.summary or 'No details'}"
+
+        block: dict = {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": f"{icon}  *{result.provider}*\n{body}",
+            },
+        }
+        if result.report_url and not result.error:
+            block["accessory"] = {
+                "type": "button",
+                "text": {"type": "plain_text", "text": "View Report", "emoji": False},
+                "url": result.report_url,
+                "action_id": f"report_{result.provider.lower().replace(' ', '_')}",
+            }
+        blocks.append(block)
+
+    blocks.append({"type": "divider"})
+
     fallback = f"IOC Report: {ioc.value} ({label}) — {verdict_emoji} {verdict_text}"
+    if llm_summary:
+        fallback += f"\n{llm_summary}"
 
     return {
         "text": fallback,
-        "attachments": [
-            {
-                "color": colour,
-                "blocks": blocks,
-            }
-        ],
+        "attachments": [{"color": colour, "blocks": blocks}],
     }
-
-
-# Keep old name as an alias so any direct callers don't break
-def format_slack_blocks(ioc: IOC, results: list[IntelResult]) -> list[dict]:
-    """Deprecated alias — use format_slack_message instead."""
-    return format_slack_message(ioc, results)["attachments"][0]["blocks"]
 
 
 # ---------------------------------------------------------------------------
 # Discord / plain-text fallback
 # ---------------------------------------------------------------------------
+
 
 def format_results(ioc: IOC, results: list[IntelResult], platform: Platform) -> str:
     """Format IOC results as plain text (used for Discord and as Slack fallback)."""
@@ -190,7 +212,8 @@ def format_results(ioc: IOC, results: list[IntelResult], platform: Platform) -> 
 
     lines: list[str] = [
         sep,
-        f"🔍  **{ioc.value}**  —  {label}" if platform == Platform.DISCORD
+        f"🔍  **{ioc.value}**  —  {label}"
+        if platform == Platform.DISCORD
         else f"🔍  *{ioc.value}*  —  {label}",
         f"Verdict:  {verdict_emoji}  {verdict_text}",
         sep,

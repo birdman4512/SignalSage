@@ -110,14 +110,18 @@ class DigestScheduler:
 
     def get_topic_names(self) -> list[str]:
         """Return names of all scheduled digest topics."""
+        return [name for name, _ in self.get_topics()]
+
+    def get_topics(self) -> list[tuple[str, list[str]]]:
+        """Return (name, tags) for all scheduled digest topics."""
         return [
-            job.args[0]["name"]
+            (job.args[0]["name"], job.args[0].get("tags", []))
             for job in self._scheduler.get_jobs()
             if job.id.startswith("digest_")
         ]
 
     async def run_topic_now(self, topic_query: str) -> bool:
-        """Run a topic whose name contains *topic_query* (case-insensitive).
+        """Run a topic whose name or tags contain *topic_query* (case-insensitive).
 
         Returns True if a matching topic was found and triggered, False otherwise.
         """
@@ -125,8 +129,10 @@ class DigestScheduler:
         for job in self._scheduler.get_jobs():
             if not job.id.startswith("digest_"):
                 continue
-            name: str = job.args[0]["name"]
-            if query in name.lower() or name.lower() in query:
+            topic = job.args[0]
+            name: str = topic["name"]
+            tags: list[str] = [t.lower() for t in topic.get("tags", [])]
+            if query in name.lower() or name.lower() in query or query in tags:
                 logger.info("Triggering on-demand digest for topic '%s'", name)
                 await job.func(*job.args)
                 return True

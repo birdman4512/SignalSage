@@ -10,8 +10,9 @@ COMMAND_PREFIX = "!"
 HELP_TEXT = """\
 📋 *SignalSage commands*
 • `!digest` — run all digest topics right now
-• `!digest list` — show scheduled topics and their next run time
-• `!digest <topic>` — run a specific topic (partial name match, case-insensitive)
+• `!digest list` — show scheduled topics and their tags
+• `!digest <tag>` — run a topic by tag (e.g. `!digest cyber`, `!digest vuln`, `!digest ti`)
+• `!digest <name>` — run a topic by partial name match (case-insensitive)
 
 *IOC enrichment* happens automatically — just post any IP, hash, domain, URL or CVE.\
 """
@@ -51,10 +52,13 @@ async def handle_digest_command(
         await scheduler.run_all_now()
 
     elif args[0] == "list":
-        names = scheduler.get_topic_names()
-        if names:
-            lines = "\n".join(f"• {n}" for n in names)
-            await reply(f"📋 *Scheduled topics:*\n{lines}")
+        topics = scheduler.get_topics()
+        if topics:
+            lines = []
+            for name, tags in topics:
+                tag_str = f"  `{', '.join(tags)}`" if tags else ""
+                lines.append(f"• {name}{tag_str}")
+            await reply("📋 *Scheduled topics:*\n" + "\n".join(lines))
         else:
             await reply("No topics scheduled.")
 

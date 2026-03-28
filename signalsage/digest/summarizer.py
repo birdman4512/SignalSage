@@ -3,6 +3,8 @@
 import logging
 from datetime import date
 
+from signalsage.intel.base import IntelResult
+from signalsage.ioc.models import IOC
 from signalsage.llm.base import BaseLLM
 
 from .fetcher import fetch_topic
@@ -10,9 +12,19 @@ from .fetcher import fetch_topic
 logger = logging.getLogger(__name__)
 
 _SYSTEM_PROMPT = (
-    "You are a cybersecurity analyst. Summarize security news concisely. "
-    "Use bullet points. Include source names and key details. "
-    "Focus on actionable intelligence, new threats, and important vulnerabilities."
+    "You are an analyst producing a digest summary. "
+    "The content below has already been fetched from the sources and is provided to you directly — "
+    "you do not need to access the internet or any external URLs. "
+    "Summarize the provided content concisely using bullet points. "
+    "Include source names and key details. "
+    "If no useful content is provided, say so briefly."
+)
+
+_IOC_SYSTEM_PROMPT = (
+    "You are a senior threat intelligence analyst. "
+    "Given threat intelligence results for an indicator, write a concise 2-3 sentence assessment. "
+    "State the overall verdict, what the indicator is associated with, and any recommended action. "
+    "Be direct and factual. Do not repeat the raw numbers — interpret them."
 )
 
 
@@ -41,9 +53,16 @@ class DigestSummarizer:
 
         window_phrase = f"from the last {lookback}" if lookback else f"for {today}"
         user_prompt = (
-            f"Summarize these {topic_name} sources {window_phrase}.\n"
-            + (f"Focus only on items published in the last {lookback}. Skip older content.\n" if lookback else "")
-            + "\n" + "\n".join(source_blocks)
+            f"The following content has been pre-fetched for you from {topic_name} sources "
+            f"{window_phrase}. Summarize it.\n"
+            + (
+                f"Focus only on items published in the last {lookback}. Skip older content.\n"
+                if lookback
+                else ""
+            )
+            + "\n--- BEGIN CONTENT ---\n"
+            + "\n".join(source_blocks)
+            + "\n--- END CONTENT ---"
         )
 
         try:
@@ -51,6 +70,32 @@ class DigestSummarizer:
         except Exception as exc:
             logger.error("LLM error for topic %s: %s", topic_name, exc)
             return f"Summary unavailable: {exc}"
+
+    async def summarize_ioc(self, ioc: IOC, results: list[IntelResult]) -> str:
+        """Generate a plain-English assessment of an IOC from its enrichment results."""
+        lines: list[str] = []
+        for r in results:
+            if r.error:
+                lines.append(f"- {r.provider}: error — {r.error}")
+            else:
+                verdict = (
+                    "MALICIOUS"
+                    if r.malicious is True
+                    else "CLEAN"
+                    if r.malicious is False
+                    else "UNKNOWN"
+                )
+                lines.append(f"- {r.provider}: {verdict} — {r.summary or 'no details'}")
+
+        label = ioc.type.value.upper()
+        user_prompt = (
+            f"Indicator: {ioc.value} ({label})\n\nThreat intelligence results:\n" + "\n".join(lines)
+        )
+        try:
+            return await self.llm.complete(system=_IOC_SYSTEM_PROMPT, user=user_prompt)
+        except Exception as exc:
+            logger.error("LLM error summarizing IOC %s: %s", ioc.value, exc)
+            return ""
 
     async def summarize_all(self, watchlist: dict, timeout: int = 15) -> list[tuple[str, str]]:
         topics = watchlist.get("topics", [])

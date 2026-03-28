@@ -139,7 +139,7 @@ async def main() -> None:
         try:
             from signalsage.bots.slack import SlackBot
 
-            slack_bot = SlackBot(cfg, processor)
+            slack_bot = SlackBot(cfg, processor, summarizer=summarizer)
             notifiers.append(slack_bot.send_digest)
             tasks.append(asyncio.create_task(slack_bot.start(), name="slack"))
             logger.info("Slack bot task created")

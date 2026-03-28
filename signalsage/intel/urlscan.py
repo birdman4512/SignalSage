@@ -74,9 +74,7 @@ class URLScanProvider(BaseProvider):
 
         # Count malicious verdicts across returned scans
         malicious_count = sum(
-            1
-            for r in results
-            if r.get("verdicts", {}).get("overall", {}).get("malicious", False)
+            1 for r in results if r.get("verdicts", {}).get("overall", {}).get("malicious", False)
         )
         tags: list[str] = []
         for r in results[:3]:
@@ -92,7 +90,9 @@ class URLScanProvider(BaseProvider):
 
         # Link to the most recent scan result
         latest = results[0]
-        report_url = f"https://urlscan.io/result/{latest.get('_id', '')}/" if latest.get("_id") else ""
+        report_url = (
+            f"https://urlscan.io/result/{latest.get('_id', '')}/" if latest.get("_id") else ""
+        )
 
         return IntelResult(
             provider=self.name,

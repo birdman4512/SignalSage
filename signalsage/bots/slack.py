@@ -16,9 +16,10 @@ logger = logging.getLogger(__name__)
 class SlackBot:
     """Async Slack bot that monitors messages and enriches IOCs."""
 
-    def __init__(self, config: dict, ioc_processor: IOCProcessor) -> None:
+    def __init__(self, config: dict, ioc_processor: IOCProcessor, summarizer=None) -> None:
         self.cfg = config["platforms"]["slack"]
         self.ioc_processor = ioc_processor
+        self.summarizer = summarizer  # optional DigestSummarizer for IOC assessment
         self.app = AsyncApp(token=self.cfg["bot_token"])
         self._bot_user_id: str | None = None
         self.scheduler = None  # set by main.py after scheduler creation
@@ -68,7 +69,32 @@ class SlackBot:
             logger.info("Message received in channel %s: %r", channel, text[:80])
             results = await self.ioc_processor.process(text)
             for ioc, intel in results:
-                await say(**format_slack_message(ioc, intel))
+                pending = self.summarizer is not None and bool(intel)
+
+                # Post immediately with a "generating…" placeholder
+                resp = await say(**format_slack_message(ioc, intel, assessment_pending=pending))
+
+                if not pending:
+                    continue
+
+                # Generate LLM summary and update the posted message in-place
+                msg_ts = resp.get("ts")
+                msg_channel = resp.get("channel")
+                llm_summary: str | None = None
+                try:
+                    llm_summary = await self.summarizer.summarize_ioc(ioc, intel)
+                except Exception as exc:
+                    logger.warning("IOC LLM summary failed for %s: %s", ioc.value, exc)
+
+                if msg_ts and msg_channel:
+                    try:
+                        await client.chat_update(
+                            channel=msg_channel,
+                            ts=msg_ts,
+                            **format_slack_message(ioc, intel, llm_summary=llm_summary),
+                        )
+                    except Exception as exc:
+                        logger.warning("Failed to update IOC message: %s", exc)
 
         @self.app.event("app_mention")
         async def on_mention(event: dict, say) -> None:
