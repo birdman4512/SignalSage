@@ -8,7 +8,7 @@ from slack_bolt.async_app import AsyncApp
 from signalsage.ioc.processor import IOCProcessor
 
 from .commands import HELP_TEXT, handle_digest_command, parse_command
-from .formatter import format_slack_message, split_message
+from .formatter import format_digest_slack_message, format_slack_message
 
 logger = logging.getLogger(__name__)
 
@@ -116,22 +116,23 @@ class SlackBot:
         async def on_error(error: Exception) -> None:
             logger.error("Slack bolt error: %s", error)
 
-    async def send_digest(self, text: str, channel: str | None = None) -> None:
-        """Send a digest message to a channel.
-
-        Args:
-            text: The message to send.
-            channel: Channel name/ID override. Falls back to platforms.slack.digest_channel.
-        """
+    async def send_digest(
+        self,
+        topic_name: str,
+        summary: str,
+        lookback: str | None = None,
+        channel: str | None = None,
+    ) -> None:
+        """Send a digest message to a channel using Block Kit formatting."""
         ch = channel or self.cfg.get("digest_channel")
         if not ch:
             logger.warning("No digest_channel configured for Slack")
             return
-        for chunk in split_message(text, 3000):
-            try:
-                await self.app.client.chat_postMessage(channel=ch, text=chunk)
-            except Exception as exc:
-                logger.error("Failed to send Slack digest chunk: %s", exc)
+        payload = format_digest_slack_message(topic_name, summary, lookback)
+        try:
+            await self.app.client.chat_postMessage(channel=ch, **payload)
+        except Exception as exc:
+            logger.error("Failed to send Slack digest for '%s': %s", topic_name, exc)
 
     async def start(self) -> None:
         """Start the Socket Mode handler (blocks until stopped)."""

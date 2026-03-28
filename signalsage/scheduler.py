@@ -92,14 +92,12 @@ class DigestScheduler:
             logger.exception("Failed to generate digest for topic '%s': %s", name, exc)
             return
 
-        header = f"📰 *Daily Digest: {name}*\n{'━' * 40}\n"
-        message = header + summary
         # Per-topic channel override (None = use each bot's configured default)
         topic_channel = topic.get("digest_channel") or None
 
         for notify in self.notifiers:
             try:
-                await notify(message, channel=topic_channel)
+                await notify(name, summary, lookback=lookback, channel=topic_channel)
             except Exception as exc:
                 logger.error(
                     "Notifier %s failed for topic '%s': %s",

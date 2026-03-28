@@ -1,5 +1,7 @@
 """Message formatting for Slack and Discord platforms."""
 
+import re
+from datetime import date
 from enum import Enum
 
 from signalsage.intel.base import IntelResult
@@ -265,3 +267,112 @@ def split_message(text: str, limit: int = 2000) -> list[str]:
         chunks.append("\n".join(current_lines))
 
     return chunks
+
+
+# ---------------------------------------------------------------------------
+# Digest formatting
+# ---------------------------------------------------------------------------
+
+# Topic icon map — falls back to 📰
+_TOPIC_ICON: dict[str, str] = {
+    "cybersecurity news": "🔐",
+    "vulnerability alerts": "🚨",
+    "threat intelligence": "🕵️",
+    "hf amateur radio": "📻",
+    "cybersecurity community": "💬",
+}
+
+_DIGEST_COLOUR = "#3b82f6"  # blue — distinct from IOC red/green
+
+
+def _topic_icon(name: str) -> str:
+    key = name.lower()
+    for k, icon in _TOPIC_ICON.items():
+        if k in key:
+            return icon
+    return "📰"
+
+
+def _md_to_mrkdwn(text: str) -> str:
+    """Convert common LLM markdown output to Slack mrkdwn."""
+    # Bold: **text** or __text__ → *text*
+    text = re.sub(r"\*\*(.+?)\*\*", r"*\1*", text)
+    text = re.sub(r"__(.+?)__", r"*\1*", text)
+    # Headings: ### text → *text*
+    text = re.sub(r"^#{1,6}\s+(.+)$", r"*\1*", text, flags=re.MULTILINE)
+    # Unordered list markers: "- " or "* " at line start → "• "
+    text = re.sub(r"^[\-\*]\s+", "• ", text, flags=re.MULTILINE)
+    return text.strip()
+
+
+def format_digest_slack_message(
+    topic_name: str,
+    summary: str,
+    lookback: str | None = None,
+) -> dict:
+    """
+    Return a ``chat_postMessage`` payload for a digest topic.
+
+    Uses a blue left-border attachment with Block Kit blocks inside.
+    """
+    icon = _topic_icon(topic_name)
+    today = date.today().strftime("%B %d, %Y")
+    window = f"last {lookback}" if lookback else today
+    summary_mrkdwn = _md_to_mrkdwn(summary)
+
+    blocks: list[dict] = [
+        # ── header ──────────────────────────────────────────────────────────
+        {
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": f"{icon}  *{topic_name}*"},
+        },
+        {
+            "type": "context",
+            "elements": [{"type": "mrkdwn", "text": f"Daily Digest  ·  {window}"}],
+        },
+        {"type": "divider"},
+    ]
+
+    # ── summary — split on blank lines so each paragraph is its own block ──
+    # Slack section text limit is 3000 chars
+    paragraphs = re.split(r"\n{2,}", summary_mrkdwn)
+    current_chunk: list[str] = []
+    current_len = 0
+
+    for para in paragraphs:
+        para = para.strip()
+        if not para:
+            continue
+        if current_len + len(para) + 2 > 2900 and current_chunk:
+            blocks.append(
+                {
+                    "type": "section",
+                    "text": {"type": "mrkdwn", "text": "\n\n".join(current_chunk)},
+                }
+            )
+            current_chunk = []
+            current_len = 0
+        current_chunk.append(para)
+        current_len += len(para) + 2
+
+    if current_chunk:
+        blocks.append(
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": "\n\n".join(current_chunk)},
+            }
+        )
+
+    return {
+        "text": f"{icon} {topic_name} digest — {window}",
+        "attachments": [{"color": _DIGEST_COLOUR, "blocks": blocks}],
+    }
+
+
+def format_digest_plain(topic_name: str, summary: str, lookback: str | None = None) -> str:
+    """Plain-text digest for Discord (2000-char chunks handled by caller)."""
+    today = date.today().strftime("%B %d, %Y")
+    window = f"last {lookback}" if lookback else today
+    icon = _topic_icon(topic_name)
+    header = f"{icon}  **{topic_name}**  ·  {window}\n{'━' * 40}\n"
+    return header + summary

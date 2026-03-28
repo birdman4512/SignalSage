@@ -7,7 +7,7 @@ import discord
 from signalsage.ioc.processor import IOCProcessor
 
 from .commands import HELP_TEXT, handle_digest_command, parse_command
-from .formatter import Platform, format_results, split_message
+from .formatter import Platform, format_digest_plain, format_results, split_message
 
 logger = logging.getLogger(__name__)
 
@@ -72,13 +72,14 @@ class DiscordBot(discord.Client):
     async def on_error(self, event_method: str, *args, **kwargs) -> None:
         logger.exception("Discord error in %s", event_method)
 
-    async def send_digest(self, text: str, channel: str | None = None) -> None:
-        """Send a digest message to a channel.
-
-        Args:
-            text: The message to send.
-            channel: Channel ID override (as string). Falls back to platforms.discord.digest_channel.
-        """
+    async def send_digest(
+        self,
+        topic_name: str,
+        summary: str,
+        lookback: str | None = None,
+        channel: str | None = None,
+    ) -> None:
+        """Send a digest message to a channel."""
         ch_id = channel or self.cfg.get("digest_channel")
         if not ch_id:
             logger.warning("No digest_channel configured for Discord")
@@ -87,6 +88,7 @@ class DiscordBot(discord.Client):
         if not ch:
             logger.warning("Discord channel %s not found or not accessible", ch_id)
             return
+        text = format_digest_plain(topic_name, summary, lookback)
         for chunk in split_message(text, 2000):
             try:
                 await ch.send(chunk)  # type: ignore[attr-defined]
