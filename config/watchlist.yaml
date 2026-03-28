@@ -80,6 +80,21 @@ topics:
       - name: "Risky Bulletin"
         # Risky.biz short-form daily security news bulletin
         url: "https://risky.biz/feeds/riskybiznews/"
+      # ── Reddit — high-signal security subreddits ─────────────────────────────
+      - name: "r/netsec"
+        url: "https://www.reddit.com/r/netsec/.rss"
+      - name: "r/cybersecurity"
+        url: "https://www.reddit.com/r/cybersecurity/.rss"
+      - name: "r/AskNetsec"
+        url: "https://www.reddit.com/r/AskNetsec/.rss"
+      - name: "r/dfir"
+        url: "https://www.reddit.com/r/dfir/.rss"
+      - name: "r/InfoSecNews"
+        url: "https://www.reddit.com/r/InfoSecNews/.rss"
+      - name: "r/Pwned"
+        url: "https://www.reddit.com/r/Pwned/.rss"
+      - name: "r/Security"
+        url: "https://www.reddit.com/r/Security/.rss"
 
   - name: "Vulnerability Alerts"
     tags: [vuln, cve, alerts]
@@ -110,7 +125,7 @@ topics:
   - name: "HF Amateur Radio — Brisbane Propagation"
     tags: [ham, radio, hf, vk4]
     schedule: "0 18 * * 4"           # 6pm Thursdays
-    lookback: "24h"                  # daily propagation update
+    lookback: "7d"                  # daily propagation update
     digest_channel: "#general"
     sources:
       # ── Australian / local ─────────────────────────────────────────────
@@ -153,27 +168,11 @@ topics:
       - name: "SpaceWeather Live"
         # Real-time solar and geomagnetic data, including solar flares, CMEs and HF propagation conditions, with a focus on amateur radio operators worldwide
         url: "https://www.spaceweatherlive.com/"
+      
+      - name: "Reddit: Amateur Radio"
+        # User-submitted news, discussions and updates on amateur radio, including HF propagation reports and DXpedition announcements
+        url: "https://www.reddit.com/r/amateurradio/new/.rss"
 
-  - name: "Cybersecurity Community"
-    tags: [reddit, community]
-    schedule: "0 8 * * *"           # 8am daily
-    lookback: "24h"
-    digest_channel: "#general"
-    sources:
-      - name: "r/netsec"
-        url: "https://www.reddit.com/r/netsec/.rss"
-      - name: "r/cybersecurity"
-        url: "https://www.reddit.com/r/cybersecurity/.rss"
-      - name: "r/AskNetsec"
-        url: "https://www.reddit.com/r/AskNetsec/.rss"
-      - name: "r/dfir"
-        url: "https://www.reddit.com/r/dfir/.rss"
-      - name: "r/InfoSecNews"
-        url: "https://www.reddit.com/r/InfoSecNews/.rss"
-      - name: "r/Pwned"
-        url: "https://www.reddit.com/r/Pwned/.rss"
-      - name: "r/Security"
-        url: "https://www.reddit.com/r/Security/.rss"
 
   # Template — copy and customise:
   # - name: "My Custom Topic"
