@@ -1,4 +1,13 @@
-version: "3.9"
+networks:
+  # Internal network — containers can reach each other by service name.
+  # No host access; nothing binds to a host port unless explicitly mapped below.
+  internal:
+    driver: bridge
+    internal: true   # blocks outbound internet from this network
+
+  # External network — used only by signalsage and ollama to reach the internet.
+  external:
+    driver: bridge
 
 services:
   signalsage:
@@ -8,28 +17,40 @@ services:
     env_file: .env
     volumes:
       - ./config:/app/config:ro
+    networks:
+      - internal   # talks to ollama
+      - external   # reaches Slack, Discord, threat intel APIs
+    depends_on:
+      ollama:
+        condition: service_healthy
     logging:
       driver: json-file
       options:
         max-size: "10m"
         max-file: "3"
 
-  # ── Optional: local Ollama LLM ─────────────────────────────────────────
-  # Enable with: docker-compose --profile ollama up -d
-  # Then set in .env:
-  #   LLM_PROVIDER=ollama
-  #   OLLAMA_BASE_URL=http://ollama:11434
-  # Pull a model after first start:
-  #   docker exec ollama ollama pull llama3.2
+  # ── Local Ollama LLM ───────────────────────────────────────────────────
+  # Starts the server then auto-pulls OLLAMA_MODEL on first run.
+  # On subsequent starts the model is already on the volume — pull is a no-op.
+  # No host port binding — not accessible from outside Docker.
   ollama:
     image: ollama/ollama:latest
     container_name: ollama
-    profiles: [ollama]
     restart: unless-stopped
+    env_file: .env
     volumes:
       - ollama_data:/root/.ollama
-    ports:
-      - "11434:11434"
+      - ./scripts/ollama-start.sh:/ollama-start.sh:ro
+    networks:
+      - internal   # reachable by signalsage
+      - external   # needed to download models from ollama.com
+    entrypoint: ["/bin/bash", "/ollama-start.sh"]
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo >/dev/tcp/localhost/11434' 2>/dev/null && echo ok"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 15s
     # Uncomment for GPU support (NVIDIA):
     # deploy:
     #   resources:

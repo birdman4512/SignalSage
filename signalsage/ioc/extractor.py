@@ -149,6 +149,7 @@ def extract(text: str) -> list[IOC]:
 
     iocs: list[IOC] = []
     used_spans: list[tuple[int, int]] = []
+    seen_values: set[tuple[str, IOCType]] = set()  # deduplicate by (value, type)
 
     def _span_used(match: re.Match) -> bool:
         start, end = match.span()
@@ -160,12 +161,18 @@ def extract(text: str) -> list[IOC]:
     def _mark(match: re.Match) -> None:
         used_spans.append(match.span())
 
+    def _add(value: str, ioc_type: IOCType, raw: str) -> None:
+        key = (value, ioc_type)
+        if key not in seen_values:
+            seen_values.add(key)
+            iocs.append(IOC(value=value, type=ioc_type, raw=raw))
+
     # --- CVEs (high confidence, extract first) ---
     for m in _CVE_RE.finditer(clean):
         if _span_used(m):
             continue
         _mark(m)
-        iocs.append(IOC(value=m.group(1).upper(), type=IOCType.CVE, raw=m.group(0)))
+        _add(m.group(1).upper(), IOCType.CVE, m.group(0))
 
     # --- URLs ---
     for m in _URL_RE.finditer(clean):
@@ -176,7 +183,7 @@ def extract(text: str) -> list[IOC]:
         if len(url) < 10:
             continue
         _mark(m)
-        iocs.append(IOC(value=url, type=IOCType.URL, raw=raw))
+        _add(url, IOCType.URL, raw)
         # Also extract domain from URL
         try:
             ext = tldextract.extract(url)
@@ -187,7 +194,7 @@ def extract(text: str) -> list[IOC]:
                 else:
                     full = domain
                 if not _is_benign_domain(full):
-                    iocs.append(IOC(value=full, type=IOCType.DOMAIN, raw=raw))
+                    _add(full, IOCType.DOMAIN, raw)
         except Exception:
             pass
 
@@ -196,7 +203,7 @@ def extract(text: str) -> list[IOC]:
         if _span_used(m):
             continue
         _mark(m)
-        iocs.append(IOC(value=m.group(0).lower(), type=IOCType.EMAIL, raw=m.group(0)))
+        _add(m.group(0).lower(), IOCType.EMAIL, m.group(0))
 
     # --- IPv4 ---
     for m in _IPV4_RE.finditer(clean):
@@ -207,7 +214,7 @@ def extract(text: str) -> list[IOC]:
         if _is_private_ip(ip):
             continue
         _mark(m)
-        iocs.append(IOC(value=ip, type=IOCType.IPV4, raw=raw))
+        _add(ip, IOCType.IPV4, raw)
 
     # --- IPv6 ---
     for m in _IPV6_RE.finditer(clean):
@@ -218,7 +225,7 @@ def extract(text: str) -> list[IOC]:
         if _is_private_ip(ip):
             continue
         _mark(m)
-        iocs.append(IOC(value=ip, type=IOCType.IPV6, raw=raw))
+        _add(ip, IOCType.IPV6, raw)
 
     # --- Hashes (longest first to avoid partial matches) ---
     for pattern, ioc_type in [
@@ -231,7 +238,7 @@ def extract(text: str) -> list[IOC]:
             if _span_used(m):
                 continue
             _mark(m)
-            iocs.append(IOC(value=m.group(1).lower(), type=ioc_type, raw=m.group(0)))
+            _add(m.group(1).lower(), ioc_type, m.group(0))
 
     # --- Standalone domains (not already captured via URL/email) ---
     for m in _DOMAIN_RE.finditer(clean):
@@ -246,6 +253,6 @@ def extract(text: str) -> list[IOC]:
         if _is_benign_domain(domain):
             continue
         _mark(m)
-        iocs.append(IOC(value=domain, type=IOCType.DOMAIN, raw=raw))
+        _add(domain, IOCType.DOMAIN, raw)
 
     return iocs

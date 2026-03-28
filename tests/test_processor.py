@@ -129,9 +129,8 @@ async def test_disabled_provider_skipped():
 
     processor = IOCProcessor([provider])
     results = await processor.process("IP: 8.8.8.8")
-    # Result present but no intel (provider not called)
-    _, intel = results[0]
-    assert intel == []
+    # No applicable providers → IOC is suppressed entirely
+    assert results == []
     provider.lookup.assert_not_called()
 
 
@@ -146,6 +145,6 @@ async def test_provider_unsupported_type_skipped():
 
     processor = IOCProcessor([provider])
     results = await processor.process("IP: 8.8.8.8")
-    _, intel = results[0]
-    assert intel == []
+    # No applicable providers → IOC is suppressed entirely
+    assert results == []
     provider.lookup.assert_not_called()

@@ -47,6 +47,48 @@ topics:
       - name: "URLhaus Recent Additions"
         url: "https://urlhaus.abuse.ch/feeds/recent/"
 
+  - name: "HF Amateur Radio — Brisbane Propagation"
+    # 6am Brisbane time (AEST = UTC+10). If you change digest.timezone to
+    # "Australia/Brisbane" in config.yaml you can use "0 6 * * *" instead.
+    schedule: "0 20 * * *"           # 20:00 UTC = 06:00 AEST next morning
+    digest_channel: "#ham-radio"
+    sources:
+      # ── Australian / local ─────────────────────────────────────────────
+      - name: "WIA — Wireless Institute of Australia"
+        # Australia's peak amateur radio body; national news and notices
+        url: "https://www.wia.org.au/feeds/"
+
+      - name: "Space Weather Australia (BoM)"
+        # Australian Government Bureau of Meteorology space weather service
+        # Provides HF propagation forecasts, geomagnetic alerts and solar data
+        # directly relevant to VK4 (Queensland) paths
+        url: "https://www.sws.bom.gov.au/HF_Systems/6/5"
+
+      - name: "QARS — Queensland Amateur Radio Society"
+        # Brisbane-based club; local events, nets and operating news
+        url: "https://qars.org.au/"
+
+      # ── Solar & propagation data ────────────────────────────────────────
+      - name: "NOAA Space Weather Center"
+        # Daily solar flux (SFI), A-index, K-index alerts and geomagnetic storm warnings
+        url: "https://www.swpc.noaa.gov/news/rss.xml"
+
+      - name: "DX World — HF DX News"
+        # Current DX activity, expeditions and band openings relevant to
+        # paths out of VK4 (Asia-Pacific, trans-Pacific, long-path Europe)
+        url: "https://www.dxworld.net/feed/"
+
+      # ── International amateur radio news ───────────────────────────────
+      - name: "Southgate Amateur Radio News"
+        # High-volume global ham radio news aggregator; covers propagation
+        # conditions, regulatory news and technical articles
+        url: "https://southgatearc.org/feed"
+
+      - name: "ARRL — Amateur Radio Relay League"
+        # World's largest amateur radio organisation; technical articles,
+        # operating news and regulatory updates
+        url: "https://www.arrl.org/news/rss.xml"
+
   # Template — copy and customise:
   # - name: "My Custom Topic"
   #   schedule: "0 8 * * *"
