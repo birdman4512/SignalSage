@@ -348,6 +348,9 @@ def _parse_digest_items(summary: str) -> list[dict] | None:
         # Strip markdown code fences if the model adds them
         text = re.sub(r"^```[a-z]*\n?", "", text)
         text = re.sub(r"\n?```$", "", text).strip()
+        # Quote bare shortcodes used as JSON values (e.g. "icon": :shield: → "icon": ":shield:")
+        # Only wraps shortcodes not already inside quotes or adjacent to word characters.
+        text = re.sub(r'(?<!["\w]):([\w]+):(?!["\w])', r'":\1:"', text)
         # Fix emoji shortcodes that some models emit (e.g. :shield: → 🛡️)
         text = _fix_shortcodes(text)
         items = json.loads(text)
