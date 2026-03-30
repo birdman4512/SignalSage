@@ -33,6 +33,7 @@ def _user_agent(url: str) -> str:
         return _REDDIT_UA
     return _DEFAULT_UA
 
+
 # Max audio file size to attempt transcription (bytes). Downloads larger than this are skipped.
 _MAX_AUDIO_BYTES = 200 * 1024 * 1024  # 200 MB
 

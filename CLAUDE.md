@@ -11,7 +11,7 @@ SignalSage is a fully async, Docker-based threat intelligence bot that connects 
 1. **Monitors messages** for Indicators of Compromise (IOCs) — IP addresses, domains, URLs, file hashes, email addresses, and CVEs.
 2. **Enriches IOCs** in real-time by querying multiple threat intelligence APIs in parallel.
 3. **Posts enriched results** back to the same channel with risk ratings, summaries, and links.
-4. **Runs a daily LLM-powered news digest** by fetching configured RSS/web sources and summarizing them with Claude Haiku.
+4. **Runs a scheduled LLM-powered news digest** by fetching configured RSS/web sources and summarizing them with a configurable LLM backend (Ollama or Anthropic Claude).
 
 ---
 
@@ -68,7 +68,7 @@ Copy `.env.example` to `.env` and fill in your credentials:
 | `ABUSEIPDB_API_KEY` | AbuseIPDB API key |
 | `OTX_API_KEY` | AlienVault OTX API key (optional, works unauthenticated) |
 | `IPINFO_API_KEY` | IPInfo API key (optional, works unauthenticated) |
-| `ANTHROPIC_API_KEY` | Anthropic API key for Claude digest summarization |
+| `ANTHROPIC_API_KEY` | Anthropic API key (only needed when `digest.llm_provider: anthropic`) |
 
 ### `config/config.yaml`
 
@@ -83,23 +83,34 @@ Main configuration file. Uses `${ENV_VAR}` syntax for environment variable subst
 - `intel.max_iocs_per_message` — max IOCs to look up per message (default: 5)
 - `intel.cache_ttl` — seconds to cache lookup results (default: 3600)
 - `intel.timeout` — HTTP timeout per provider request in seconds (default: 10)
+- `digest.llm_provider` — LLM backend: `"ollama"` (default) or `"anthropic"`
+- `digest.anthropic_model` — Anthropic model ID (default: `"claude-haiku-4-5-20251001"`)
+- `digest.anthropic_api_key` — Anthropic API key (or use `${ANTHROPIC_API_KEY}`)
+- `digest.ollama_base_url` — Ollama endpoint (default: `"http://localhost:11434"`)
+- `digest.ollama_model` — Ollama model to use (default: `"llama3.2"`)
+- `digest.ollama_num_ctx` — Ollama context window tokens (default: 8192)
+- `digest.max_chars_per_source` — max characters fetched per source before summarization (default: 3000)
 - `digest.default_schedule` — fallback cron schedule for topics that don't define their own (default: `"0 6 * * *"` = 6 AM UTC)
 - `digest.timezone` — timezone for the scheduler (default: `"UTC"`)
+- `whisper.enabled` — enable Whisper audio transcription service
+- `whisper.base_url` — Whisper service endpoint (default: `"http://whisper:8000"`)
 
 ### `config/watchlist.yaml`
 
-Defines topics and sources for the daily digest. Each topic can have its own `schedule` (5-part cron expression). If omitted, falls back to `digest.default_schedule`. Supports RSS feeds (`.xml`, `.rss`, `.atom`) and regular HTML pages.
+Defines topics and sources for the daily digest. Each topic can have its own `schedule` (5-part cron expression) and `tags` list for bot command targeting. If `schedule` is omitted, falls back to `digest.default_schedule`. Supports RSS feeds (`.xml`, `.rss`, `.atom`) and regular HTML pages.
 
 ```yaml
 topics:
   - name: "Cybersecurity News"
     schedule: "0 6 * * *"     # 6am daily
+    tags: ["cyber"]
     sources:
       - name: "Krebs on Security"
         url: "https://krebsonsecurity.com/feed/"
 
   - name: "Vulnerability Alerts"
     schedule: "0 7 * * 1-5"   # 7am weekdays
+    tags: ["vuln"]
     sources: [...]
 ```
 
@@ -134,6 +145,21 @@ Both files are committed to the repository and can be edited directly.
 6. Copy the **Bot Token** as `DISCORD_BOT_TOKEN`.
 7. Set `platforms.discord.enabled: true` in `config/config.yaml`.
 8. Set `platforms.discord.monitor_channels` to a list of channel IDs (right-click channel > Copy ID with Developer Mode on), or leave empty for all channels.
+
+---
+
+## Bot Commands
+
+Both Slack and Discord support the `!` command prefix (or `@SignalSage` mention on Slack):
+
+| Command | Description |
+|---|---|
+| `!digest` | Run all digest topics immediately |
+| `!digest list` | Show all scheduled topics and their tags |
+| `!digest <tag>` | Run topics matching a tag (e.g. `!digest cyber`) |
+| `!digest <name>` | Run a topic by partial name match (case-insensitive) |
+
+IOC enrichment is automatic — no command needed. Command parsing lives in `bots/commands.py` and is shared by both bot implementations.
 
 ---
 
@@ -175,9 +201,18 @@ APScheduler registers one cron job per topic (using each topic's own schedule)
             → fetch_source() per URL
                 → feedparser for RSS/Atom feeds
                 → BeautifulSoup for HTML pages
-        → Claude Haiku API call per topic
+        → BaseLLM.complete() — via OllamaLLM or AnthropicLLM
     → post to notifiers (slack_bot.send_digest, discord_bot.send_digest)
 ```
+
+### LLM Abstraction
+
+`signalsage/llm/base.py` defines `BaseLLM` with a single `async complete(system, user, max_tokens) -> str` method. Two backends are provided:
+
+- **`OllamaLLM`** — calls a locally-running Ollama instance (default). Requires Ollama installed and a model pulled (e.g. `ollama pull llama3.2`).
+- **`AnthropicLLM`** — calls the Anthropic API. Requires `ANTHROPIC_API_KEY`.
+
+The active backend is selected by `digest.llm_provider` in `config.yaml`. If the LLM fails to initialize, the digest scheduler is skipped entirely (bot still runs for IOC enrichment).
 
 ---
 
@@ -228,6 +263,23 @@ myprovider:
 
 ---
 
+## Adding a New LLM Backend
+
+1. Create `signalsage/llm/mybackend.py` extending `BaseLLM`:
+
+```python
+from signalsage.llm.base import BaseLLM
+
+class MyBackendLLM(BaseLLM):
+    async def complete(self, system: str, user: str, max_tokens: int = 1024) -> str:
+        ...
+```
+
+2. Add a branch in `signalsage/main.py` under the `llm_provider` selection block.
+3. Add any new config keys under `digest` in `config/config.yaml`.
+
+---
+
 ## Adding a New Watchlist Topic
 
 Edit `config/watchlist.yaml` and add a new entry under `topics`:
@@ -235,6 +287,7 @@ Edit `config/watchlist.yaml` and add a new entry under `topics`:
 ```yaml
 topics:
   - name: "My New Topic"
+    tags: ["mytag"]
     sources:
       - name: "Source Name"
         url: "https://example.com/feed.xml"
@@ -256,11 +309,13 @@ RSS/Atom feeds (`.xml`, `.rss`, `.atom`) are automatically detected and parsed w
 | **AbuseIPDB** | 1,000 req/day | Free registration required. |
 | **AlienVault OTX** | Unlimited (free) | Works unauthenticated but with stricter rate limits. Free registration recommended. |
 | **URLhaus** | No key required | Completely free, no registration needed. |
+| **URLScan** | No key required | Completely free public API. |
 | **ThreatFox** | No key required | Completely free, no registration needed. |
 | **MalwareBazaar** | No key required | Completely free, no registration needed. |
 | **IPInfo** | 50,000 req/month (free) | Works without key up to rate limit. |
 | **CIRCL CVE** | No key required | Completely free public API. |
-| **Claude Haiku** | Pay per token | Used for daily digest summarization only. ~$0.25/MTok input, $1.25/MTok output. |
+| **Ollama** | Free (local) | Requires local GPU/CPU. Default digest LLM. Pull models with `ollama pull <model>`. |
+| **Anthropic Claude** | Pay per token | Optional digest LLM. ~$0.25/MTok input, $1.25/MTok output for Haiku. |
 
 ### Caching
 
@@ -303,50 +358,30 @@ SignalSage/
 ├── requirements-dev.txt
 ├── pyproject.toml           # pytest + ruff + mypy config
 ├── .env.example
-├── .gitignore
-├── CLAUDE.md
-├── .github/
-│   └── workflows/
-│       ├── ci.yml           # Lint + test on push/PR
-│       └── docker.yml       # Docker build on push/PR
 ├── config/
 │   ├── config.yaml          # Main config
-│   └── watchlist.yaml       # Digest sources
+│   └── watchlist.yaml       # Digest sources and schedules
 ├── tests/
-│   ├── test_extractor.py
-│   ├── test_formatter.py
-│   ├── test_processor.py
-│   ├── test_scheduler.py
-│   └── test_config.py
 └── signalsage/
-    ├── __init__.py
     ├── main.py              # Entry point, wires everything together
     ├── config.py            # Config loading + env var substitution
     ├── scheduler.py         # APScheduler-based digest scheduler
     ├── ioc/
-    │   ├── __init__.py
     │   ├── models.py        # IOC and IOCType dataclasses/enums
     │   ├── extractor.py     # Regex-based IOC extraction with defanging
     │   └── processor.py     # Orchestrates extraction + lookup + caching
     ├── intel/
-    │   ├── __init__.py
     │   ├── base.py          # BaseProvider ABC + IntelResult dataclass
-    │   ├── virustotal.py
-    │   ├── shodan.py
-    │   ├── greynoise.py
-    │   ├── abuseipdb.py
-    │   ├── otx.py
-    │   ├── urlhaus.py
-    │   ├── threatfox.py
-    │   ├── malwarebazaar.py
-    │   ├── ipinfo.py
-    │   └── circl_cve.py
+    │   └── *.py             # One file per provider
+    ├── llm/
+    │   ├── base.py          # BaseLLM ABC
+    │   ├── anthropic_llm.py # Anthropic API backend
+    │   └── ollama.py        # Ollama local backend (default)
     ├── digest/
-    │   ├── __init__.py
     │   ├── fetcher.py       # RSS/web content fetcher
-    │   └── summarizer.py    # Claude Haiku summarization
+    │   └── summarizer.py    # LLM-based digest summarization
     └── bots/
-        ├── __init__.py
+        ├── commands.py      # !digest command parsing (shared by Slack + Discord)
         ├── formatter.py     # Platform-aware message formatting
         ├── slack.py         # Slack Socket Mode bot
         └── discord_bot.py   # Discord bot (discord.py v2)
