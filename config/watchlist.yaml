@@ -17,21 +17,21 @@
 
 topics:
   - name: "General News"
-    tags: [news]
+    tags: [general, aus, news, australia]
     schedule: "0 5 * * *"          # 5am daily
     lookback: "24h"                 # only items from the last 24 hours
     digest_channel: "#general"   # Slack: post to this specific channel
     sources:
       # ── News & analysis ─────────────────────────────────────────────────
       - name: "Reddit News"
-        url: "https://www.reddit.com/news/new/"
+        url: "https://www.reddit.com/r/news/.rss"
       - name: "ABC News Feed"
         url: "https://www.abc.net.au/news/feed/51120/rss.xml"
       - name: "ABC News"
         url: "https://www.abc.net.au/"
 
   
-  - name: "Cybersecurity News"
+  - name: "Cybersecurity Update"
     tags: [cyber, sec]
     schedule: "0 6 * * *"          # 6am daily
     lookback: "24h"                 # only items from the last 24 hours
@@ -45,7 +45,7 @@ topics:
       - name: "Dark Reading"
         url: "https://www.darkreading.com/rss.xml"
       - name: "SecurityWeek"
-        url: "https://feeds.feedburner.com/securityweek"
+        url: "https://www.securityweek.com/feed/"
       # ── Threat intelligence & research ──────────────────────────────────
       - name: "Mandiant Blog"
         url: "https://www.mandiant.com/resources/blog/rss.xml"
@@ -56,14 +56,14 @@ topics:
       - name: "SentinelOne Labs"
         url: "https://www.sentinelone.com/labs/feed/"
       - name: "Cisco Talos"
-        url: "https://blog.talosintelligence.com/feeds/posts/default"
+        url: "https://blog.talosintelligence.com/rss/"
       - name: "Kaspersky Securelist"
         url: "https://securelist.com/feed/"
       # ── Government & advisories ──────────────────────────────────────────
       - name: "CISA Advisories"
         url: "https://www.cisa.gov/cybersecurity-advisories/all.xml"
       - name: "NCSC (UK)"
-        url: "https://www.ncsc.gov.uk/feeds/all-content.xml"
+        url: "https://www.ncsc.gov.uk/api/1/services/news/rss-feed.xml"
       - name: "ACSC (Australia)"
         url: "https://www.cyber.gov.au/feeds/all-content.xml"
       # ── SANS ────────────────────────────────────────────────────────────
@@ -79,9 +79,9 @@ topics:
       - name: "Risky Business (podcast)"
         # Weekly security news podcast with Patrick Gray
         url: "https://risky.biz/feeds/risky-business/"
-      - name: "Risky Bulletin"
-        # Risky.biz short-form daily security news bulletin
-        url: "https://risky.biz/feeds/riskybiznews/"
+      # Risky Bulletin feed URL needs verifying — check https://risky.biz for current RSS link
+      # - name: "Risky Bulletin"
+      #   url: "https://risky.biz/feeds/riskybiznews/"
       # ── Reddit — high-signal security subreddits ─────────────────────────────
       - name: "r/netsec"
         url: "https://www.reddit.com/r/netsec/.rss"
