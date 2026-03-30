@@ -36,9 +36,10 @@ class SlackBot:
                 return
 
             channel = event.get("channel", "")
+            is_dm = channel.startswith("D")
             monitor = self.cfg.get("monitor_channels") or []
 
-            if monitor:
+            if monitor and not is_dm:
                 try:
                     info = await client.conversations_info(channel=channel)
                     ch_name = f"#{info['channel']['name']}"
