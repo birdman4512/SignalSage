@@ -15,7 +15,12 @@ from bs4 import BeautifulSoup
 logger = logging.getLogger(__name__)
 
 _FEED_EXTENSIONS = (".xml", ".rss", ".atom")
-_XML_CONTENT_TYPES = ("application/rss+xml", "application/atom+xml", "text/xml", "application/xml")
+_XML_CONTENT_TYPES = (
+    "application/rss+xml",
+    "application/atom+xml",
+    "text/xml",
+    "application/xml",
+)
 _WHITESPACE_RE = re.compile(r"\s+")
 
 _DEFAULT_UA = "SignalSage/1.0 (Threat Intelligence Bot)"
