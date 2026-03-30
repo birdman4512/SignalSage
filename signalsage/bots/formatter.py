@@ -306,6 +306,36 @@ def _md_to_mrkdwn(text: str) -> str:
     return text.strip()
 
 
+_SHORTCODE_TO_EMOJI: dict[str, str] = {
+    ":shield:": "🛡️",
+    ":red_circle:": "🔴",
+    ":warning:": "⚠️",
+    ":newspaper:": "📰",
+    ":bug:": "🦠",
+    ":link:": "🔗",
+    ":mag:": "🔍",
+    ":loudspeaker:": "📢",
+    ":satellite:": "📡",
+    ":classical_building:": "🏛️",
+    ":radio:": "📻",
+    ":sunny:": "☀️",
+    ":rotating_light:": "🚨",
+    ":clipboard:": "📋",
+    ":ghost:": "👻",
+    ":lock:": "🔐",
+    ":fire:": "🔥",
+    ":skull:": "💀",
+    ":injection:": "💉",
+}
+
+
+def _fix_shortcodes(text: str) -> str:
+    """Replace Slack/emoji shortcodes with actual emoji characters."""
+    for code, emoji in _SHORTCODE_TO_EMOJI.items():
+        text = text.replace(code, emoji)
+    return text
+
+
 def _parse_digest_items(summary: str) -> list[dict] | None:
     """
     Try to parse LLM output as a JSON array of digest items.
@@ -318,6 +348,8 @@ def _parse_digest_items(summary: str) -> list[dict] | None:
         # Strip markdown code fences if the model adds them
         text = re.sub(r"^```[a-z]*\n?", "", text)
         text = re.sub(r"\n?```$", "", text).strip()
+        # Fix emoji shortcodes that some models emit (e.g. :shield: → 🛡️)
+        text = _fix_shortcodes(text)
         items = json.loads(text)
         if isinstance(items, list) and items and isinstance(items[0], dict):
             return items

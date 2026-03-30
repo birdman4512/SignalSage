@@ -18,6 +18,16 @@ _FEED_EXTENSIONS = (".xml", ".rss", ".atom")
 _XML_CONTENT_TYPES = ("application/rss+xml", "application/atom+xml", "text/xml", "application/xml")
 _WHITESPACE_RE = re.compile(r"\s+")
 
+_DEFAULT_UA = "SignalSage/1.0 (Threat Intelligence Bot)"
+# Reddit blocks non-browser User-Agents — use a generic browser UA for reddit.com
+_REDDIT_UA = "Mozilla/5.0 (X11; Linux x86_64; rv:124.0) Gecko/20100101 Firefox/124.0"
+
+
+def _user_agent(url: str) -> str:
+    if "reddit.com" in url:
+        return _REDDIT_UA
+    return _DEFAULT_UA
+
 # Max audio file size to attempt transcription (bytes). Downloads larger than this are skipped.
 _MAX_AUDIO_BYTES = 200 * 1024 * 1024  # 200 MB
 
@@ -264,7 +274,7 @@ async def fetch_source(
         async with httpx.AsyncClient(
             timeout=timeout,
             follow_redirects=True,
-            headers={"User-Agent": "SignalSage/1.0 (Threat Intelligence Bot)"},
+            headers={"User-Agent": _user_agent(url)},
         ) as client:
             resp = await client.get(url)
             resp.raise_for_status()
