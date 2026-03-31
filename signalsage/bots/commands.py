@@ -55,9 +55,13 @@ async def handle_digest_command(
         topics = scheduler.get_topics()
         if topics:
             lines = []
-            for name, tags in topics:
+            for name, tags, next_run in topics:
                 tag_str = f"  `{', '.join(tags)}`" if tags else ""
-                lines.append(f"• {name}{tag_str}")
+                if next_run is not None:
+                    next_str = f"  ·  next run {next_run.strftime('%-d %b %H:%M %Z')}"
+                else:
+                    next_str = ""
+                lines.append(f"• {name}{tag_str}{next_str}")
             await reply("📋 *Scheduled topics:*\n" + "\n".join(lines))
         else:
             await reply("No topics scheduled.")

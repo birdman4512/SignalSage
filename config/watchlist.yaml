@@ -14,13 +14,16 @@
 #   sources        — list of {name, url} to fetch and summarize
 #                    RSS/Atom feeds (.xml, .rss, .atom) are auto-detected
 #                    HTML pages are scraped with BeautifulSoup
+#
+# Tag naming rules — tags must be unique across all topics because !digest <tag>
+# returns on the first match. Use the topic's primary tag for !digest commands.
 
 topics:
 
   # ── General ───────────────────────────────────────────────────────────────
 
   - name: "General News"
-    tags: [general, aus, news, australia]
+    tags: [news, aus, australia]    # !digest news
     schedule: "0 5 * * *"          # 5am daily
     lookback: "24h"
     digest_channel: "#general"
@@ -35,7 +38,7 @@ topics:
   # ── Cybersecurity ─────────────────────────────────────────────────────────
 
   - name: "Cybersecurity News"
-    tags: [cyber, sec, news]
+    tags: [cybernews, secnews]      # !digest cybernews
     schedule: "0 6 * * *"          # 6am daily
     lookback: "24h"
     digest_channel: "#general"
@@ -50,7 +53,7 @@ topics:
         url: "https://www.securityweek.com/feed/"
 
   - name: "Threat Research"
-    tags: [cyber, sec, research, threat, ti]
+    tags: [research, vendors]       # !digest research
     schedule: "0 7 * * 1,3,5"     # 7am Mon/Wed/Fri — these blogs don't update daily
     lookback: "48h"
     digest_channel: "#general"
@@ -69,7 +72,7 @@ topics:
         url: "https://securelist.com/feed/"
 
   - name: "Government Advisories"
-    tags: [cyber, sec, gov, advisories, cisa, ncsc, acsc]
+    tags: [advisories, gov, cisa]   # !digest advisories
     schedule: "0 7 * * *"          # 7am daily
     lookback: "24h"
     digest_channel: "#general"
@@ -86,7 +89,7 @@ topics:
         url: "https://isc.sans.edu/dailypodcast.xml"
 
   - name: "Security Community"
-    tags: [cyber, sec, community, reddit, podcast]
+    tags: [community, seccomm]      # !digest community
     schedule: "0 8 * * *"          # 8am daily
     lookback: "24h"
     digest_channel: "#general"
@@ -107,7 +110,7 @@ topics:
         url: "https://risky.biz/feeds/risky-business/"
 
   - name: "Vulnerability Alerts"
-    tags: [vuln, cve, alerts]
+    tags: [vuln, cve]               # !digest vuln
     schedule: "0 7 * * 1-5"        # 7am weekdays only
     lookback: "24h"
     digest_channel: "#general"
@@ -120,7 +123,7 @@ topics:
         url: "https://nvd.nist.gov/feeds/xml/cve/misc/nvd-rss-analyzed.xml"
 
   - name: "Threat Intelligence"
-    tags: [threat, intel, ti]
+    tags: [ti, intel, threatintel]  # !digest ti
     schedule: "0 6 * * 1"          # 6am every Monday
     lookback: "7d"
     digest_channel: "#general"
@@ -132,10 +135,33 @@ topics:
       - name: "URLhaus Recent Additions"
         url: "https://urlhaus.abuse.ch/feeds/recent/"
 
+  # ── AI & Machine Learning ─────────────────────────────────────────────────
+
+  - name: "AI & ML News"
+    tags: [ai, ml, llm]             # !digest ai
+    schedule: "0 6 * * *"          # 6am daily
+    lookback: "24h"
+    digest_channel: "#general"
+    sources:
+      - name: "The Verge AI"
+        url: "https://www.theverge.com/ai-artificial-intelligence/rss/index.xml"
+      - name: "Ars Technica AI"
+        url: "https://arstechnica.com/tag/ai/feed/"
+      - name: "MIT Technology Review"
+        url: "https://www.technologyreview.com/feed/"
+      - name: "VentureBeat AI"
+        url: "https://venturebeat.com/category/ai/feed/"
+      - name: "r/MachineLearning"
+        url: "https://www.reddit.com/r/MachineLearning/.rss"
+      - name: "r/LocalLLaMA"
+        url: "https://www.reddit.com/r/LocalLLaMA/.rss"
+      - name: "r/artificial"
+        url: "https://www.reddit.com/r/artificial/.rss"
+
   # ── HF Amateur Radio ──────────────────────────────────────────────────────
 
   - name: "Solar & Propagation"
-    tags: [ham, radio, hf, solar, propagation, vk4]
+    tags: [solar, propagation, spaceweather]  # !digest solar
     schedule: "0 18 * * 4"         # 6pm Thursdays
     lookback: "7d"
     digest_channel: "#general"
@@ -154,7 +180,7 @@ topics:
         url: "https://dx.qsl.net/propagation/propagation.html"
 
   - name: "Ham Radio News"
-    tags: [ham, radio, hf, news, dx, vk4]
+    tags: [ham, dx, hamradio]       # !digest ham
     schedule: "0 18 * * 4"         # 6pm Thursdays
     lookback: "7d"
     digest_channel: "#general"
@@ -174,6 +200,7 @@ topics:
   #   schedule: "0 8 * * *"
   #   lookback: "24h"
   #   digest_channel: "#my-channel"
+  #   tags: [mytag]                 # must be unique across all topics
   #   sources:
   #     - name: "My Source"
   #       url: "https://example.com/feed.xml"

@@ -108,12 +108,12 @@ class DigestScheduler:
 
     def get_topic_names(self) -> list[str]:
         """Return names of all scheduled digest topics."""
-        return [name for name, _ in self.get_topics()]
+        return [name for name, _tags, _next in self.get_topics()]
 
-    def get_topics(self) -> list[tuple[str, list[str]]]:
-        """Return (name, tags) for all scheduled digest topics."""
+    def get_topics(self) -> list[tuple[str, list[str], object]]:
+        """Return (name, tags, next_run_time) for all scheduled digest topics."""
         return [
-            (job.args[0]["name"], job.args[0].get("tags", []))
+            (job.args[0]["name"], job.args[0].get("tags", []), job.next_run_time)
             for job in self._scheduler.get_jobs()
             if job.id.startswith("digest_")
         ]
