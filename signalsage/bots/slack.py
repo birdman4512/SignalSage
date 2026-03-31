@@ -130,13 +130,14 @@ class SlackBot:
         summary: str,
         lookback: str | None = None,
         channel: str | None = None,
+        meta: dict | None = None,
     ) -> None:
         """Send a digest message to a channel using Block Kit formatting."""
         ch = channel or self.cfg.get("digest_channel")
         if not ch:
             logger.warning("No digest_channel configured for Slack")
             return
-        payload = format_digest_slack_message(topic_name, summary, lookback)
+        payload = format_digest_slack_message(topic_name, summary, lookback, meta=meta)
         try:
             await self.app.client.chat_postMessage(channel=ch, **payload)
         except Exception as exc:

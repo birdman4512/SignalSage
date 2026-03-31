@@ -15,12 +15,13 @@ logger = logging.getLogger(__name__)
 class DiscordBot(discord.Client):
     """Discord client that monitors messages and enriches IOCs."""
 
-    def __init__(self, config: dict, ioc_processor: IOCProcessor) -> None:
+    def __init__(self, config: dict, ioc_processor: IOCProcessor, summarizer=None) -> None:
         intents = discord.Intents.default()
         intents.message_content = True
         super().__init__(intents=intents)
         self.cfg = config["platforms"]["discord"]
         self.ioc_processor = ioc_processor
+        self.summarizer = summarizer  # optional DigestSummarizer for IOC assessment
         self.scheduler = None  # set by main.py after scheduler creation
 
     async def on_ready(self) -> None:
@@ -63,11 +64,21 @@ class DiscordBot(discord.Client):
         results = await self.ioc_processor.process(content)
         for ioc, intel in results:
             msg = format_results(ioc, intel, Platform.DISCORD)
+            sent: discord.Message | None = None
             for chunk in split_message(msg, 2000):
                 try:
-                    await message.channel.send(chunk)
+                    sent = await message.channel.send(chunk)
                 except discord.HTTPException as exc:
                     logger.error("Failed to send Discord message: %s", exc)
+
+            if not (self.summarizer and intel and sent):
+                continue
+
+            try:
+                assessment = await self.summarizer.summarize_ioc(ioc, intel)
+                await sent.edit(content=f"{msg}\n\n**💡 Assessment:**\n{assessment}"[:2000])
+            except Exception as exc:
+                logger.warning("Discord IOC assessment failed for %s: %s", ioc.value, exc)
 
     async def on_error(self, event_method: str, *args, **kwargs) -> None:
         logger.exception("Discord error in %s", event_method)
@@ -78,6 +89,7 @@ class DiscordBot(discord.Client):
         summary: str,
         lookback: str | None = None,
         channel: str | None = None,
+        meta: dict | None = None,
     ) -> None:
         """Send a digest message to a channel."""
         ch_id = channel or self.cfg.get("digest_channel")
@@ -88,7 +100,7 @@ class DiscordBot(discord.Client):
         if not ch:
             logger.warning("Discord channel %s not found or not accessible", ch_id)
             return
-        text = format_digest_plain(topic_name, summary, lookback)
+        text = format_digest_plain(topic_name, summary, lookback, meta=meta)
         for chunk in split_message(text, 2000):
             try:
                 await ch.send(chunk)  # type: ignore[attr-defined]

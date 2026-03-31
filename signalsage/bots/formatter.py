@@ -285,6 +285,9 @@ _TOPIC_ICON: dict[str, str] = {
 
 _DIGEST_COLOUR = "#3b82f6"  # blue — distinct from IOC red/green
 
+_SEVERITY_ORDER: dict[str, int] = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+_SEVERITY_EMOJI: dict[str, str] = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "🟢"}
+
 
 def _topic_icon(name: str) -> str:
     key = name.lower()
@@ -336,12 +339,13 @@ def _fix_shortcodes(text: str) -> str:
     return text
 
 
-def _parse_digest_items(summary: str) -> list[dict] | None:
+def _parse_digest_json(summary: str) -> dict | None:
     """
-    Try to parse LLM output as a JSON array of digest items.
+    Parse LLM output into {"tldr": [...], "items": [...]}.
 
-    Each item should have 'headline', 'blurb', and 'url' keys.
-    Returns None if parsing fails (caller falls back to plain text).
+    Handles the structured object format and falls back to the legacy flat-array
+    format for backward compatibility. Returns None if parsing fails entirely
+    (caller falls back to plain-text rendering).
     """
     try:
         text = summary.strip()
@@ -349,13 +353,21 @@ def _parse_digest_items(summary: str) -> list[dict] | None:
         text = re.sub(r"^```[a-z]*\n?", "", text)
         text = re.sub(r"\n?```$", "", text).strip()
         # Quote bare shortcodes used as JSON values (e.g. "icon": :shield: → "icon": ":shield:")
-        # Only wraps shortcodes not already inside quotes or adjacent to word characters.
         text = re.sub(r'(?<!["\w]):([\w]+):(?!["\w])', r'":\1:"', text)
         # Fix emoji shortcodes that some models emit (e.g. :shield: → 🛡️)
         text = _fix_shortcodes(text)
-        items = json.loads(text)
-        if isinstance(items, list) and items and isinstance(items[0], dict):
-            return items
+        parsed = json.loads(text)
+        if isinstance(parsed, dict) and "items" in parsed:
+            tldr = [str(b) for b in parsed.get("tldr", []) if str(b).strip()]
+            items = [i for i in parsed["items"] if isinstance(i, dict)]
+            return {
+                "tldr": tldr,
+                "items": items,
+                "coverage_confidence": parsed.get("coverage_confidence") or None,
+            }
+        if isinstance(parsed, list) and parsed and isinstance(parsed[0], dict):
+            # Legacy flat-array format
+            return {"tldr": [], "items": parsed, "coverage_confidence": None}
     except (json.JSONDecodeError, ValueError, IndexError):
         pass
     return None
@@ -365,13 +377,14 @@ def format_digest_slack_message(
     topic_name: str,
     summary: str,
     lookback: str | None = None,
+    meta: dict | None = None,
 ) -> dict:
     """
     Return a ``chat_postMessage`` payload for a digest topic.
 
     Uses a blue left-border attachment with Block Kit blocks inside.
-    When the LLM returns structured JSON, each item gets its own section block
-    with a headline, blurb, and optional 'Read More' button.
+    When the LLM returns structured JSON, renders a TLDR block followed by
+    individual story items sorted by severity with optional 'Read More' buttons.
     Falls back to paragraph rendering if JSON parsing fails.
     """
     icon = _topic_icon(topic_name)
@@ -391,20 +404,42 @@ def format_digest_slack_message(
         {"type": "divider"},
     ]
 
-    items = _parse_digest_items(summary)
+    parsed = _parse_digest_json(summary)
 
-    if items:
-        # ── structured item rendering ────────────────────────────────────────
-        # Cap at 20 items to stay within Slack's 50-block limit
-        # Each item uses 2 blocks (section + divider), header uses 3 → max ~46 items safe
-        valid_items = [i for i in items[:20] if str(i.get("headline", "")).strip()]
+    if parsed:
+        # ── TLDR / top signals ───────────────────────────────────────────────
+        if parsed["tldr"]:
+            bullets = "\n".join(f"• {b}" for b in parsed["tldr"])
+            blocks.append(
+                {
+                    "type": "section",
+                    "text": {"type": "mrkdwn", "text": f"*📌 Top Signals*\n{bullets}"},
+                }
+            )
+            blocks.append({"type": "divider"})
+
+        # ── structured item rendering — sorted by severity ───────────────────
+        # Cap at 20 items; each uses ~2 blocks + header 3 + tldr 2 + footer 1 ≤ 50
+        sorted_items = sorted(
+            parsed["items"],
+            key=lambda i: _SEVERITY_ORDER.get(str(i.get("severity") or "").lower(), 4),
+        )
+        valid_items = [i for i in sorted_items[:20] if str(i.get("headline", "")).strip()]
         for idx, item in enumerate(valid_items):
             headline = str(item.get("headline", "")).strip()
             blurb = str(item.get("blurb", "")).strip()
             url = str(item.get("url") or "").strip()
             item_icon = str(item.get("icon") or "📰").strip()
+            severity = str(item.get("severity") or "").lower()
+            sev_emoji = _SEVERITY_EMOJI.get(severity, "")
 
-            text = f"{item_icon}  *{headline}*\n{blurb}" if blurb else f"{item_icon}  *{headline}*"
+            sev_str = f"  ·  {sev_emoji} {severity.title()}" if sev_emoji else ""
+            trend = str(item.get("trend") or "").lower()
+            trend_str = "  🔥 Trending" if trend == "trending" else ""
+            text = f"{item_icon}  *{headline}*{sev_str}{trend_str}"
+            if blurb:
+                text += f"\n{blurb}"
+
             block: dict = {
                 "type": "section",
                 "text": {"type": "mrkdwn", "text": text},
@@ -450,37 +485,132 @@ def format_digest_slack_message(
                 }
             )
 
+    # ── metadata footer ──────────────────────────────────────────────────────
+    footer_parts: list[str] = []
+    if meta:
+        sources_ok = meta.get("sources_ok", 0)
+        sources_total = meta.get("sources_total", 0)
+        footer_parts.append(f"📡 {sources_ok}/{sources_total} sources")
+
+        confidence = (parsed or {}).get("coverage_confidence") or meta.get("coverage_confidence")
+        if confidence:
+            conf_emoji = {"high": "🟢", "medium": "🟡", "low": "🔴"}.get(
+                str(confidence).lower(), "⚪"
+            )
+            footer_parts.append(f"{conf_emoji} {confidence.title()} coverage")
+
+        deduped = meta.get("deduped_count", 0)
+        if deduped:
+            footer_parts.append(
+                f"🔁 {deduped} cross-topic duplicate{'s' if deduped != 1 else ''} removed"
+            )
+
+        empty = meta.get("empty_sources", [])
+        if empty:
+            names = ", ".join(empty[:3])
+            if len(empty) > 3:
+                names += f" +{len(empty) - 3} more"
+            footer_parts.append(f"⚠️ Empty: {names}")
+
+        chronic = meta.get("chronically_failing", [])
+        if chronic:
+            names = ", ".join(chronic[:3])
+            footer_parts.append(f"🚨 Failing 3+ days: {names}")
+
+    if footer_parts:
+        blocks.append(
+            {
+                "type": "context",
+                "elements": [{"type": "mrkdwn", "text": "  ·  ".join(footer_parts)}],
+            }
+        )
+
     return {
         "text": f"{icon} {topic_name} digest — {window}",
         "attachments": [{"color": _DIGEST_COLOUR, "blocks": blocks}],
     }
 
 
-def format_digest_plain(topic_name: str, summary: str, lookback: str | None = None) -> str:
+def format_digest_plain(
+    topic_name: str,
+    summary: str,
+    lookback: str | None = None,
+    meta: dict | None = None,
+) -> str:
     """Plain-text digest for Discord (2000-char chunks handled by caller)."""
     today = date.today().strftime("%B %d, %Y")
     window = f"last {lookback}" if lookback else today
     icon = _topic_icon(topic_name)
     header = f"{icon}  **{topic_name}**  ·  {window}\n{'━' * 40}\n"
 
-    items = _parse_digest_items(summary)
-    if not items:
+    parsed = _parse_digest_json(summary)
+    if not parsed:
         return header + summary
 
     sep = "─" * 36
     lines: list[str] = []
-    for item in items:
+
+    # TLDR
+    if parsed["tldr"]:
+        lines.append("📌 **Top Signals**")
+        for bullet in parsed["tldr"]:
+            lines.append(f"• {bullet}")
+        lines.append(sep)
+
+    # Items sorted by severity
+    sorted_items = sorted(
+        parsed["items"],
+        key=lambda i: _SEVERITY_ORDER.get(str(i.get("severity") or "").lower(), 4),
+    )
+    for item in sorted_items:
         headline = str(item.get("headline", "")).strip()
         blurb = str(item.get("blurb", "")).strip()
         url = str(item.get("url") or "").strip()
         item_icon = str(item.get("icon") or "📰").strip()
+        severity = str(item.get("severity") or "").lower()
+        sev_emoji = _SEVERITY_EMOJI.get(severity, "")
         if not headline:
             continue
-        lines.append(f"{item_icon}  **{headline}**")
+        sev_str = f" · {sev_emoji} {severity.title()}" if sev_emoji else ""
+        trend = str(item.get("trend") or "").lower()
+        trend_str = "  🔥 Trending" if trend == "trending" else ""
+        lines.append(f"{item_icon}  **{headline}**{sev_str}{trend_str}")
         if blurb:
             lines.append(blurb)
         if url and url.startswith("http"):
             lines.append(f"<{url}>")
         lines.append(sep)
+
+    # Metadata footer
+    footer_parts: list[str] = []
+    if meta:
+        sources_ok = meta.get("sources_ok", 0)
+        sources_total = meta.get("sources_total", 0)
+        footer_parts.append(f"📡 {sources_ok}/{sources_total} sources")
+
+        confidence = parsed.get("coverage_confidence") or meta.get("coverage_confidence")
+        if confidence:
+            conf_emoji = {"high": "🟢", "medium": "🟡", "low": "🔴"}.get(
+                str(confidence).lower(), "⚪"
+            )
+            footer_parts.append(f"{conf_emoji} {confidence.title()} coverage")
+
+        deduped = meta.get("deduped_count", 0)
+        if deduped:
+            footer_parts.append(f"🔁 {deduped} duplicate{'s' if deduped != 1 else ''} removed")
+
+        empty = meta.get("empty_sources", [])
+        if empty:
+            names = ", ".join(empty[:3])
+            if len(empty) > 3:
+                names += f" +{len(empty) - 3} more"
+            footer_parts.append(f"⚠️ Empty: {names}")
+
+        chronic = meta.get("chronically_failing", [])
+        if chronic:
+            footer_parts.append(f"🚨 Failing 3+ days: {', '.join(chronic[:3])}")
+
+    if footer_parts:
+        lines.append(" · ".join(footer_parts))
 
     return header + "\n".join(lines).rstrip(sep).strip()

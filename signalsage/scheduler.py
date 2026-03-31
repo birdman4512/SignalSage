@@ -1,12 +1,16 @@
 """APScheduler-based digest scheduler — one job registered per topic."""
 
+import json
 import logging
+import re
 from collections.abc import Callable
+from datetime import date
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from signalsage.digest.fetcher import fetch_topic, parse_lookback
+from signalsage.digest.history import DigestHistory, _headline_hash
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +32,67 @@ def _parse_cron(schedule: str, timezone: str) -> CronTrigger:
     )
 
 
+def _postprocess_summary(
+    summary: str,
+    topic: str,
+    history: DigestHistory,
+    session_hashes: set[str],
+) -> tuple[str, dict]:
+    """
+    Parse the LLM JSON, apply deduplication + trend classification, re-serialise.
+
+    Returns (processed_summary, extra_meta) where extra_meta contains:
+      - deduped_count: items removed by cross-topic session dedup
+      - coverage_confidence: extracted from LLM output
+    """
+    extra: dict = {"deduped_count": 0, "coverage_confidence": None}
+
+    try:
+        text = summary.strip()
+        text = re.sub(r"^```[a-z]*\n?", "", text)
+        text = re.sub(r"\n?```$", "", text).strip()
+        parsed = json.loads(text)
+    except (json.JSONDecodeError, ValueError):
+        return summary, extra
+
+    if not isinstance(parsed, dict) or "items" not in parsed:
+        return summary, extra
+
+    # Extract coverage_confidence
+    extra["coverage_confidence"] = parsed.get("coverage_confidence") or None
+
+    items: list[dict] = [i for i in parsed.get("items", []) if isinstance(i, dict)]
+
+    # ── Feature 5: cross-topic session deduplication ─────────────────────────
+    deduped: list[dict] = []
+    for item in items:
+        h = _headline_hash(item.get("headline", ""))
+        if h in session_hashes:
+            logger.info(
+                "Deduped cross-topic item in '%s': %s", topic, item.get("headline", "")[:60]
+            )
+            extra["deduped_count"] += 1
+        else:
+            deduped.append(item)
+    items = deduped
+
+    # Add all this topic's hashes to the session set
+    for item in items:
+        session_hashes.add(_headline_hash(item.get("headline", "")))
+
+    # ── Feature 2: trend classification ─────────────────────────────────────
+    trend_map = history.classify_items(topic, items)
+    for item in items:
+        h = _headline_hash(item.get("headline", ""))
+        item["trend"] = trend_map.get(h, "new")
+
+    # Persist items to history for future trend detection
+    history.record_items(topic, items)
+
+    parsed["items"] = items
+    return json.dumps(parsed, ensure_ascii=False), extra
+
+
 class DigestScheduler:
     """Schedules one independent cron job per watchlist topic."""
 
@@ -39,12 +104,16 @@ class DigestScheduler:
         default_schedule: str = "0 6 * * *",
         timezone: str = "UTC",
         whisper_base_url: str | None = None,
+        data_dir: str = "data",
     ) -> None:
         self.summarizer = summarizer
         self.notifiers = notifiers
         self.timezone = timezone
         self.whisper_base_url = whisper_base_url
         self._scheduler = AsyncIOScheduler(timezone=timezone)
+        self._history = DigestHistory(data_dir=data_dir)
+        self._session_hashes: set[str] = set()
+        self._session_date: str = date.today().isoformat()
 
         topics = watchlist.get("topics", [])
         if not topics:
@@ -71,8 +140,16 @@ class DigestScheduler:
             )
             logger.info("Scheduled topic '%s' — cron '%s' (%s)", name, schedule, timezone)
 
+    def _reset_session_if_new_day(self) -> None:
+        today = date.today().isoformat()
+        if today != self._session_date:
+            self._session_hashes.clear()
+            self._session_date = today
+            logger.info("New day — cross-topic dedup session reset")
+
     async def _run_topic(self, topic: dict) -> None:
         """Fetch, summarize, and notify for a single topic."""
+        self._reset_session_if_new_day()
         name = topic.get("name", "Unknown")
         logger.info("Running digest for topic: %s", name)
 
@@ -92,12 +169,54 @@ class DigestScheduler:
             logger.exception("Failed to generate digest for topic '%s': %s", name, exc)
             return
 
+        # ── Source metadata ──────────────────────────────────────────────────
+        empty_sources = [s["name"] for s in fetched if not s.get("content", "").strip()]
+        if empty_sources:
+            logger.warning(
+                "Topic '%s': %d source(s) returned no content: %s",
+                name,
+                len(empty_sources),
+                ", ".join(empty_sources),
+            )
+
+        # ── Feature 6: record source health, check chronic failures ─────────
+        source_results = {s["name"]: bool(s.get("content", "").strip()) for s in fetched}
+        self._history.record_source_results(source_results)
+        chronically_failing = self._history.get_chronically_failing_sources(consecutive_days=3)
+        # Only report failures that belong to this topic's sources
+        topic_source_names = {s.get("name", "") for s in topic.get("sources", [])}
+        topic_chronic = [s for s in chronically_failing if s in topic_source_names]
+        if topic_chronic:
+            logger.warning(
+                "Topic '%s': sources failing for 3+ days: %s", name, ", ".join(topic_chronic)
+            )
+
+        # ── Features 2 & 5: dedup + trend classification ─────────────────────
+        summary, extra_meta = _postprocess_summary(
+            summary, name, self._history, self._session_hashes
+        )
+        if extra_meta["deduped_count"]:
+            logger.info(
+                "Topic '%s': removed %d cross-topic duplicate(s)",
+                name,
+                extra_meta["deduped_count"],
+            )
+
+        meta = {
+            "sources_total": len(fetched),
+            "sources_ok": len(fetched) - len(empty_sources),
+            "empty_sources": empty_sources,
+            "chronically_failing": topic_chronic,
+            "deduped_count": extra_meta["deduped_count"],
+            "coverage_confidence": extra_meta["coverage_confidence"],
+        }
+
         # Per-topic channel override (None = use each bot's configured default)
         topic_channel = topic.get("digest_channel") or None
 
         for notify in self.notifiers:
             try:
-                await notify(name, summary, lookback=lookback, channel=topic_channel)
+                await notify(name, summary, lookback=lookback, channel=topic_channel, meta=meta)
             except Exception as exc:
                 logger.error(
                     "Notifier %s failed for topic '%s': %s",

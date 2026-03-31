@@ -28,12 +28,12 @@ topics:
     lookback: "24h"
     digest_channel: "#general"
     sources:
-      - name: "Reddit News"
-        url: "https://www.reddit.com/r/news/.rss"
       - name: "ABC News Feed"
         url: "https://www.abc.net.au/news/feed/51120/rss.xml"
       - name: "ABC News"
         url: "https://www.abc.net.au/"
+      - name: "Reddit News"
+        url: "https://www.reddit.com/r/news/.rss"
 
   # ── Cybersecurity ─────────────────────────────────────────────────────────
 

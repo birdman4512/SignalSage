@@ -153,7 +153,7 @@ async def main() -> None:
         try:
             from signalsage.bots.discord_bot import DiscordBot
 
-            discord_bot = DiscordBot(cfg, processor)
+            discord_bot = DiscordBot(cfg, processor, summarizer=summarizer)
             notifiers.append(discord_bot.send_digest)
             tasks.append(asyncio.create_task(discord_bot.start_bot(), name="discord"))
             logger.info("Discord bot task created")
@@ -186,6 +186,7 @@ async def main() -> None:
                 default_schedule=digest_cfg.get("default_schedule", "0 6 * * *"),
                 timezone=digest_cfg.get("timezone", "UTC"),
                 whisper_base_url=whisper_base_url,
+                data_dir=digest_cfg.get("data_dir", "data"),
             )
             scheduler.start()
             # Give bots a scheduler reference so !digest commands work

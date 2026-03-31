@@ -17,6 +17,7 @@ services:
     env_file: .env
     volumes:
       - ./config:/app/config:ro
+      - ./data:/app/data
     networks:
       - internal   # talks to ollama
       - external   # reaches Slack, Discord, threat intel APIs

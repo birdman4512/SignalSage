@@ -58,7 +58,7 @@ async def handle_digest_command(
             for name, tags, next_run in topics:
                 tag_str = f"  `{', '.join(tags)}`" if tags else ""
                 if next_run is not None:
-                    next_str = f"  ·  next run {next_run.strftime('%-d %b %H:%M %Z')}"
+                    next_str = f"  ·  next run {next_run.day} {next_run.strftime('%b %H:%M %Z')}"
                 else:
                     next_str = ""
                 lines.append(f"• {name}{tag_str}{next_str}")

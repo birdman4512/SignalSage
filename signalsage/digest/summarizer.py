@@ -7,25 +7,35 @@ from signalsage.intel.base import IntelResult
 from signalsage.ioc.models import IOC
 from signalsage.llm.base import BaseLLM
 
-from .fetcher import fetch_topic
-
 logger = logging.getLogger(__name__)
 
 _SYSTEM_PROMPT = (
     "You are an analyst producing a structured news digest. "
     "The content below has already been fetched from the sources and is provided to you directly — "
     "you do not need to access the internet or any external URLs. "
-    "Extract the most noteworthy items and return them as a JSON array. "
-    "Each element must have exactly these four fields:\n"
-    '  "icon": a single emoji that best represents the story type. '
+    "Return a single JSON object with exactly these keys:\n"
+    '  "tldr": an array of 3-5 short plain-text strings (one sentence each) synthesising the most '
+    "important signals across ALL sources. Highlight cross-cutting themes or the single most critical "
+    "items. Do not repeat individual story headlines verbatim.\n"
+    '  "coverage_confidence": your assessment of how well the sources covered the topic — '
+    'one of "high" (many sources responded with relevant, overlapping content), '
+    '"medium" (some sources responded but coverage is patchy or thin), '
+    '"low" (few sources responded, content is sparse or off-topic).\n'
+    '  "items": an array of individual story objects. Each must have exactly these fields:\n'
+    '    "icon": a single emoji representing the story type. '
     "Choose from: 🔴 critical/severe, 🛡️ patch/fix/defence, 🦠 malware/ransomware, "
     "🔗 phishing/scam, 📢 news/announcement, 🔍 research/report, ⚠️ warning/advisory, "
     "📡 threat intel, 🏛️ policy/legal/government, 📻 radio/propagation, ☀️ solar/space weather\n"
-    '  "headline": a short, clear title (max 80 characters)\n'
-    '  "blurb": 1-2 sentences explaining what happened and why it matters\n'
-    '  "url": the direct URL to the original article or item (null if not available)\n'
-    "Return ONLY the JSON array with no other text, no markdown fences, no explanation.\n"
-    'Example: [{"icon": "🔴", "headline": "Example title", "blurb": "What happened and why it matters.", "url": "https://example.com/article"}]'
+    '    "severity": your assessment of urgency/impact — one of "critical", "high", "medium", "low"\n'
+    '    "headline": a short, clear title (max 80 characters)\n'
+    '    "blurb": 1-2 sentences explaining what happened and why it matters\n'
+    "    \"url\": the direct article URL taken from the 'URL:' line in the source content. "
+    "Never use a feed URL (e.g. ending in /feed/, /rss.xml, /atom, .rss) — set to null if no "
+    "direct article URL is available.\n"
+    "Return ONLY the JSON object with no other text, no markdown fences, no explanation.\n"
+    'Example: {"tldr": ["Ransomware activity is up 30% this week."], "coverage_confidence": "high", '
+    '"items": [{"icon": "🔴", "severity": "critical", "headline": "Example title", '
+    '"blurb": "What happened.", "url": "https://example.com/article"}]}'
 )
 
 _IOC_SYSTEM_PROMPT = (
@@ -119,22 +129,3 @@ class DigestSummarizer:
         except Exception as exc:
             logger.error("LLM error summarizing IOC %s: %s", ioc.value, exc)
             return f"⚠️ Assessment unavailable — {exc}"
-
-    async def summarize_all(self, watchlist: dict, timeout: int = 15) -> list[tuple[str, str]]:
-        topics = watchlist.get("topics", [])
-        results: list[tuple[str, str]] = []
-
-        for topic in topics:
-            name = topic.get("name", "Unknown")
-            logger.info("Fetching sources for topic: %s", name)
-            try:
-                fetched = await fetch_topic(topic.get("sources", []), self.max_chars, timeout)
-            except Exception as exc:
-                logger.error("Failed to fetch topic %s: %s", name, exc)
-                fetched = []
-
-            logger.info("Summarizing topic: %s", name)
-            summary = await self.summarize_topic(name, fetched)
-            results.append((name, summary))
-
-        return results
