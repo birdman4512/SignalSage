@@ -24,7 +24,7 @@ topics:
 
   - name: "General News"
     tags: [news, aus, australia]    # !digest news
-    schedule: "0 5 * * *"          # 5am daily
+    schedule: "0 5 * * *"          # 5:00am daily
     lookback: "24h"
     digest_channel: "#general"
     sources:
@@ -39,7 +39,7 @@ topics:
 
   - name: "Cybersecurity News"
     tags: [cybernews, secnews]      # !digest cybernews
-    schedule: "0 6 * * *"          # 6am daily
+    schedule: "0 6 * * *"          # 6:00am daily
     lookback: "24h"
     digest_channel: "#general"
     sources:
@@ -54,7 +54,7 @@ topics:
 
   - name: "Threat Research"
     tags: [research, vendors]       # !digest research
-    schedule: "0 7 * * 1,3,5"     # 7am Mon/Wed/Fri — these blogs don't update daily
+    schedule: "30 7 * * 1,3,5"    # 7:30am Mon/Wed/Fri — these blogs don't update daily
     lookback: "48h"
     digest_channel: "#general"
     sources:
@@ -73,7 +73,7 @@ topics:
 
   - name: "Government Advisories"
     tags: [advisories, gov, cisa]   # !digest advisories
-    schedule: "0 7 * * *"          # 7am daily
+    schedule: "0 7 * * *"          # 7:00am daily
     lookback: "24h"
     digest_channel: "#general"
     sources:
@@ -90,7 +90,7 @@ topics:
 
   - name: "Security Community"
     tags: [community, seccomm]      # !digest community
-    schedule: "0 8 * * *"          # 8am daily
+    schedule: "0 8 * * *"          # 8:00am daily
     lookback: "24h"
     digest_channel: "#general"
     sources:
@@ -111,7 +111,7 @@ topics:
 
   - name: "Vulnerability Alerts"
     tags: [vuln, cve]               # !digest vuln
-    schedule: "0 7 * * 1-5"        # 7am weekdays only
+    schedule: "15 7 * * 1-5"       # 7:15am weekdays only
     lookback: "24h"
     digest_channel: "#general"
     sources:
@@ -124,7 +124,7 @@ topics:
 
   - name: "Threat Intelligence"
     tags: [ti, intel, threatintel]  # !digest ti
-    schedule: "0 6 * * 1"          # 6am every Monday
+    schedule: "30 6 * * 1"         # 6:30am every Monday
     lookback: "7d"
     digest_channel: "#general"
     sources:
@@ -139,7 +139,7 @@ topics:
 
   - name: "AI & ML News"
     tags: [ai, ml, llm]             # !digest ai
-    schedule: "0 6 * * *"          # 6am daily
+    schedule: "15 6 * * *"         # 6:15am daily
     lookback: "24h"
     digest_channel: "#general"
     sources:
@@ -162,7 +162,7 @@ topics:
 
   - name: "Solar & Propagation"
     tags: [solar, propagation, spaceweather]  # !digest solar
-    schedule: "0 18 * * 4"         # 6pm Thursdays
+    schedule: "0 18 * * 4"         # 6:00pm Thursdays
     lookback: "7d"
     digest_channel: "#general"
     sources:
@@ -181,7 +181,7 @@ topics:
 
   - name: "Ham Radio News"
     tags: [ham, dx, hamradio]       # !digest ham
-    schedule: "0 18 * * 4"         # 6pm Thursdays
+    schedule: "15 18 * * 4"        # 6:15pm Thursdays
     lookback: "7d"
     digest_channel: "#general"
     sources:
