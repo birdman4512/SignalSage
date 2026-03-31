@@ -291,7 +291,9 @@ def test_format_digest_slack_meta_footer():
         "deduped_count": 2,
         "coverage_confidence": "low",
     }
-    payload = format_digest_slack_message("Test Topic", _structured_summary(), meta=meta)
+    # Summary without coverage_confidence so meta value is used for the footer
+    summary_no_conf = json.dumps({"tldr": ["Top signal"], "items": [_ITEM]})
+    payload = format_digest_slack_message("Test Topic", summary_no_conf, meta=meta)
     blocks = payload["attachments"][0]["blocks"]
     context_texts = [
         e["text"] for b in blocks if b.get("type") == "context" for e in b.get("elements", [])
@@ -346,7 +348,9 @@ def test_format_digest_plain_meta_footer():
         "deduped_count": 0,
         "coverage_confidence": "medium",
     }
-    result = format_digest_plain("Test Topic", _structured_summary(), meta=meta)
+    # Summary without coverage_confidence so meta value is used for the footer
+    summary_no_conf = json.dumps({"tldr": ["Top signal"], "items": [_ITEM]})
+    result = format_digest_plain("Test Topic", summary_no_conf, meta=meta)
     assert "2/4" in result
     assert "Medium" in result
     assert "Bad Feed" in result

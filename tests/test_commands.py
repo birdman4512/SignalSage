@@ -40,11 +40,11 @@ def test_parse_command_strips_whitespace():
 
 
 def test_parse_command_slack_mention_prefix():
-    assert parse_command("<@U12345> digest") == ("digest", [])
+    assert parse_command("<@U12345> !digest") == ("digest", [])
 
 
 def test_parse_command_slack_mention_with_args():
-    assert parse_command("<@U12345> digest list") == ("digest", ["list"])
+    assert parse_command("<@U12345> !digest list") == ("digest", ["list"])
 
 
 def test_parse_command_slack_mention_no_command():
