@@ -16,13 +16,15 @@
 #                    HTML pages are scraped with BeautifulSoup
 
 topics:
+
+  # ── General ───────────────────────────────────────────────────────────────
+
   - name: "General News"
     tags: [general, aus, news, australia]
     schedule: "0 5 * * *"          # 5am daily
-    lookback: "24h"                 # only items from the last 24 hours
-    digest_channel: "#general"   # Slack: post to this specific channel
+    lookback: "24h"
+    digest_channel: "#general"
     sources:
-      # ── News & analysis ─────────────────────────────────────────────────
       - name: "Reddit News"
         url: "https://www.reddit.com/r/news/.rss"
       - name: "ABC News Feed"
@@ -30,14 +32,14 @@ topics:
       - name: "ABC News"
         url: "https://www.abc.net.au/"
 
-  
-  - name: "Cybersecurity Update"
-    tags: [cyber, sec]
+  # ── Cybersecurity ─────────────────────────────────────────────────────────
+
+  - name: "Cybersecurity News"
+    tags: [cyber, sec, news]
     schedule: "0 6 * * *"          # 6am daily
-    lookback: "24h"                 # only items from the last 24 hours
-    digest_channel: "#general"   # Slack: post to this specific channel
+    lookback: "24h"
+    digest_channel: "#general"
     sources:
-      # ── News & analysis ─────────────────────────────────────────────────
       - name: "The Hacker News"
         url: "https://feeds.feedburner.com/TheHackersNews"
       - name: "BleepingComputer"
@@ -46,7 +48,13 @@ topics:
         url: "https://www.darkreading.com/rss.xml"
       - name: "SecurityWeek"
         url: "https://www.securityweek.com/feed/"
-      # ── Threat intelligence & research ──────────────────────────────────
+
+  - name: "Threat Research"
+    tags: [cyber, sec, research, threat, ti]
+    schedule: "0 7 * * 1,3,5"     # 7am Mon/Wed/Fri — these blogs don't update daily
+    lookback: "48h"
+    digest_channel: "#general"
+    sources:
       - name: "Mandiant Blog"
         url: "https://www.mandiant.com/resources/blog/rss.xml"
       - name: "CrowdStrike Blog"
@@ -59,49 +67,49 @@ topics:
         url: "https://blog.talosintelligence.com/rss/"
       - name: "Kaspersky Securelist"
         url: "https://securelist.com/feed/"
-      # ── Government & advisories ──────────────────────────────────────────
+
+  - name: "Government Advisories"
+    tags: [cyber, sec, gov, advisories, cisa, ncsc, acsc]
+    schedule: "0 7 * * *"          # 7am daily
+    lookback: "24h"
+    digest_channel: "#general"
+    sources:
       - name: "CISA Advisories"
         url: "https://www.cisa.gov/cybersecurity-advisories/all.xml"
       - name: "NCSC (UK)"
         url: "https://www.ncsc.gov.uk/api/1/services/news/rss-feed.xml"
       - name: "ACSC (Australia)"
         url: "https://www.cyber.gov.au/feeds/all-content.xml"
-      # ── SANS ────────────────────────────────────────────────────────────
       - name: "SANS Internet Storm Center"
         url: "https://isc.sans.edu/rssfeed_full.xml"
       - name: "SANS ISC Stormcast (podcast)"
-        # Daily ~5-min security news podcast by Johannes Ullrich
         url: "https://isc.sans.edu/dailypodcast.xml"
-      # ── Podcasts ────────────────────────────────────────────────────────
-      - name: "Security Now (podcast)"
-        # Weekly podcast by Steve Gibson & Leo Laporte — deep-dive security topics
-        url: "https://feeds.twit.tv/sn.xml"
-      - name: "Risky Business (podcast)"
-        # Weekly security news podcast with Patrick Gray
-        url: "https://risky.biz/feeds/risky-business/"
-      # Risky Bulletin feed URL needs verifying — check https://risky.biz for current RSS link
-      # - name: "Risky Bulletin"
-      #   url: "https://risky.biz/feeds/riskybiznews/"
-      # ── Reddit — high-signal security subreddits ─────────────────────────────
+
+  - name: "Security Community"
+    tags: [cyber, sec, community, reddit, podcast]
+    schedule: "0 8 * * *"          # 8am daily
+    lookback: "24h"
+    digest_channel: "#general"
+    sources:
       - name: "r/netsec"
         url: "https://www.reddit.com/r/netsec/.rss"
       - name: "r/cybersecurity"
         url: "https://www.reddit.com/r/cybersecurity/.rss"
-      - name: "r/AskNetsec"
-        url: "https://www.reddit.com/r/AskNetsec/.rss"
       - name: "r/dfir"
         url: "https://www.reddit.com/r/dfir/.rss"
       - name: "r/InfoSecNews"
         url: "https://www.reddit.com/r/InfoSecNews/.rss"
-      - name: "r/Pwned"
-        url: "https://www.reddit.com/r/Pwned/.rss"
       - name: "r/Security"
         url: "https://www.reddit.com/r/Security/.rss"
+      - name: "Security Now (podcast)"
+        url: "https://feeds.twit.tv/sn.xml"
+      - name: "Risky Business (podcast)"
+        url: "https://risky.biz/feeds/risky-business/"
 
   - name: "Vulnerability Alerts"
     tags: [vuln, cve, alerts]
-    schedule: "0 7 * * 1-5"         # 7am weekdays only
-    lookback: "24h"                  # only items from the last 24 hours
+    schedule: "0 7 * * 1-5"        # 7am weekdays only
+    lookback: "24h"
     digest_channel: "#general"
     sources:
       - name: "CISA Known Exploited Vulnerabilities"
@@ -113,8 +121,8 @@ topics:
 
   - name: "Threat Intelligence"
     tags: [threat, intel, ti]
-    schedule: "0 6 * * 1"           # 6am every Monday
-    lookback: "7d"                   # weekly — cover the past 7 days
+    schedule: "0 6 * * 1"          # 6am every Monday
+    lookback: "7d"
     digest_channel: "#general"
     sources:
       - name: "abuse.ch Blog"
@@ -124,55 +132,40 @@ topics:
       - name: "URLhaus Recent Additions"
         url: "https://urlhaus.abuse.ch/feeds/recent/"
 
-  - name: "HF Amateur Radio — Brisbane Propagation"
-    tags: [ham, radio, hf, vk4]
-    schedule: "0 18 * * 4"           # 6pm Thursdays
-    lookback: "7d"                  # daily propagation update
+  # ── HF Amateur Radio ──────────────────────────────────────────────────────
+
+  - name: "Solar & Propagation"
+    tags: [ham, radio, hf, solar, propagation, vk4]
+    schedule: "0 18 * * 4"         # 6pm Thursdays
+    lookback: "7d"
     digest_channel: "#general"
     sources:
-      # ── Australian / local ─────────────────────────────────────────────
-      - name: "WIA — Wireless Institute of Australia"
-        # Australia's peak amateur radio body; national news and notices
-        url: "https://www.wia.org.au/members/broadcast/wianews/"
-
-      - name: "Space Weather Australia (BoM)"
-        # Australian Government Bureau of Meteorology space weather service
-        # Provides HF propagation forecasts, geomagnetic alerts and solar data
-        # directly relevant to VK4 (Queensland) paths
-        url: "https://www.sws.bom.gov.au/HF_Systems/6/5"
-
-      - name: "Solar Terrestrial Activity Report"
-        # Daily solar and geomagnetic activity report from the Australian Space Forecast Centre
-        url: "https://solen.info/solar/index.html"
-
-      # ── Solar & propagation data ────────────────────────────────────────
       - name: "NOAA Space Weather Center"
-        # Daily solar flux (SFI), A-index, K-index alerts and geomagnetic storm warnings
         url: "https://www.swpc.noaa.gov/"
-
-      - name: "Radio Propagation Reports"
-        # User-submitted HF propagation reports from around the world, including Australia
-        url: "https://radio-propagation.net/"
-
-      # ── International amateur radio news ───────────────────────────────
-      - name: "DX-LOOK"
-        # Global DX (long-distance) amateur radio news, with a focus on HF propagation conditions and notable DXpeditions worldwide
-        url: "https://dxlook.com/"
-
+      - name: "Space Weather Australia (BoM)"
+        url: "https://www.sws.bom.gov.au/HF_Systems/6/5"
+      - name: "Solar Terrestrial Activity Report"
+        url: "https://solen.info/solar/index.html"
+      - name: "SpaceWeather Live"
+        url: "https://www.spaceweatherlive.com/"
       - name: "HamQSL Solar Data"
-        # Daily solar data and HF propagation forecasts, including SFI, A/K indices and geomagnetic conditions, with a focus on amateur radio operators worldwide
         url: "https://www.hamqsl.com/solar.html"
-
       - name: "QSL.net Propagation"
-        # Global HF propagation forecasts and solar data, including SFI, A/K indices and geom
         url: "https://dx.qsl.net/propagation/propagation.html"
 
-      - name: "SpaceWeather Live"
-        # Real-time solar and geomagnetic data, including solar flares, CMEs and HF propagation conditions, with a focus on amateur radio operators worldwide
-        url: "https://www.spaceweatherlive.com/"
-      
+  - name: "Ham Radio News"
+    tags: [ham, radio, hf, news, dx, vk4]
+    schedule: "0 18 * * 4"         # 6pm Thursdays
+    lookback: "7d"
+    digest_channel: "#general"
+    sources:
+      - name: "WIA — Wireless Institute of Australia"
+        url: "https://www.wia.org.au/members/broadcast/wianews/"
+      - name: "DX-LOOK"
+        url: "https://dxlook.com/"
+      - name: "Radio Propagation Reports"
+        url: "https://radio-propagation.net/"
       - name: "Reddit: Amateur Radio"
-        # User-submitted news, discussions and updates on amateur radio, including HF propagation reports and DXpedition announcements
         url: "https://www.reddit.com/r/amateurradio/new/.rss"
 
 

@@ -39,9 +39,10 @@ _IOC_SYSTEM_PROMPT = (
 class DigestSummarizer:
     """Fetches topic sources and summarizes them using a configured LLM."""
 
-    def __init__(self, llm: BaseLLM, max_chars: int = 3000) -> None:
+    def __init__(self, llm: BaseLLM, max_chars: int = 3000, max_total_chars: int = 20000) -> None:
         self.llm = llm
         self.max_chars = max_chars
+        self.max_total_chars = max_total_chars
 
     async def summarize_topic(
         self, topic_name: str, sources: list[dict], lookback: str | None = None
@@ -49,11 +50,25 @@ class DigestSummarizer:
         today = date.today().strftime("%B %d, %Y")
 
         source_blocks: list[str] = []
+        total_chars = 0
+        skipped = 0
         for src in sources:
             content = src.get("content", "").strip()
             if not content:
                 continue
-            source_blocks.append(f"### {src['name']}\n{content}\nSource: {src['url']}\n")
+            block = f"### {src['name']}\n{content}\nSource: {src['url']}\n"
+            if total_chars + len(block) > self.max_total_chars:
+                skipped += 1
+                continue
+            source_blocks.append(block)
+            total_chars += len(block)
+        if skipped:
+            logger.info(
+                "Topic '%s': skipped %d source(s) — total content would exceed %d chars",
+                topic_name,
+                skipped,
+                self.max_total_chars,
+            )
 
         if not source_blocks:
             window = f"the last {lookback}" if lookback else today

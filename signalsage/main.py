@@ -119,6 +119,7 @@ async def main() -> None:
         summarizer = DigestSummarizer(
             llm=llm,
             max_chars=digest_cfg.get("max_chars_per_source", 3000),
+            max_total_chars=digest_cfg.get("max_total_chars_per_topic", 20000),
         )
         logger.info("Digest summarizer ready (provider: %s)", llm_provider)
     else:

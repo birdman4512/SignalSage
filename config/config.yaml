@@ -53,6 +53,7 @@ digest:
   default_schedule: "0 6 * * *"
   timezone: "Australia/Brisbane"
   max_chars_per_source: 3000
+  max_total_chars_per_topic: 20000   # cap total content sent to LLM per topic (~5k tokens)
 
   # LLM backend: "ollama" (local, free) or "anthropic" (paid)
   llm_provider: "${LLM_PROVIDER:-ollama}"
