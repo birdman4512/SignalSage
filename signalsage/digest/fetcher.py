@@ -346,7 +346,12 @@ async def fetch_topic(
         content, canonical_url = await fetch_source(
             url, max_chars, timeout, lookback_seconds, whisper_base_url
         )
-        return {"name": name, "url": canonical_url or url, "content": content, "image_url": image_url}
+        return {
+            "name": name,
+            "url": canonical_url or url,
+            "content": content,
+            "image_url": image_url,
+        }
 
     tasks = [_fetch_one(s) for s in sources]
     results = await asyncio.gather(*tasks, return_exceptions=True)
