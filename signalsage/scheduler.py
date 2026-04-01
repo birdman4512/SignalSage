@@ -179,7 +179,14 @@ class DigestScheduler:
             )
             sources_ok = sum(1 for s in fetched if s.get("content", "").strip())
             if progress:
-                await progress(f"🤖 Summarizing {sources_ok}/{len(fetched)} source(s) with LLM…")
+                total_chars = sum(len(s.get("content", "")) for s in fetched)
+                size_hint = (
+                    f"~{total_chars // 1000}k chars" if total_chars >= 1000 else f"{total_chars} chars"
+                )
+                await progress(
+                    f"🤖 Summarizing {sources_ok}/{len(fetched)} source(s) ({size_hint}) — "
+                    f"this may take a minute…"
+                )
             summary = await self.summarizer.summarize_topic(name, fetched, lookback=lookback)
         except Exception as exc:
             logger.exception("Failed to generate digest for topic '%s': %s", name, exc)

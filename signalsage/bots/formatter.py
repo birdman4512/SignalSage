@@ -356,6 +356,9 @@ def _parse_digest_json(summary: str) -> dict | None:
         text = re.sub(r'(?<!["\w]):([\w]+):(?!["\w])', r'":\1:"', text)
         # Fix emoji shortcodes that some models emit (e.g. :shield: → 🛡️)
         text = _fix_shortcodes(text)
+        # Quote unquoted emoji/non-string values in "icon" fields
+        # e.g. "icon": 🔴, → "icon": "🔴",
+        text = re.sub(r'("icon"\s*:\s*)(?!")(\S+?)(\s*[,}\]])', r'\1"\2"\3', text)
         parsed = json.loads(text)
         if isinstance(parsed, dict) and "items" in parsed:
             tldr = [str(b) for b in parsed.get("tldr", []) if str(b).strip()]
@@ -413,7 +416,7 @@ def format_digest_slack_message(
             blocks.append(
                 {
                     "type": "section",
-                    "text": {"type": "mrkdwn", "text": f"*📌 Top Signals*\n{bullets}"},
+                    "text": {"type": "mrkdwn", "text": f"*📌 Summary*\n{bullets}"},
                 }
             )
             blocks.append({"type": "divider"})
@@ -552,7 +555,7 @@ def format_digest_plain(
 
     # TLDR
     if parsed["tldr"]:
-        lines.append("📌 **Top Signals**")
+        lines.append("📌 **Summary**")
         for bullet in parsed["tldr"]:
             lines.append(f"• {bullet}")
         lines.append(sep)
