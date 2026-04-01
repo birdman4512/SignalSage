@@ -53,9 +53,7 @@ class BGPViewProvider(BaseProvider):
             return self._error(ioc, str(exc))
 
         name = info.get("name", "")
-        description = info.get("description_short", "") or (
-            info.get("description_full") or [""]
-        )[0]
+        description = info.get("description_short", "") or (info.get("description_full") or [""])[0]
         country = info.get("country_code", "")
 
         ipv4_prefixes: list[dict] = prefix_data.get("ipv4_prefixes", [])

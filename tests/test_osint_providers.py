@@ -115,11 +115,19 @@ _RDAP_RESPONSE = {
 
 async def test_whois_age_new_domain_flagged(whois):
     ioc = IOC(value="brandnew.com", type=IOCType.DOMAIN)
-    with patch.object(whois, "_lookup_rdap", new=AsyncMock(return_value=(
-        __import__("datetime").datetime(2026, 3, 20, tzinfo=__import__("datetime").timezone.utc),
-        "GoDaddy",
-        "2027-03-20",
-    ))):
+    with patch.object(
+        whois,
+        "_lookup_rdap",
+        new=AsyncMock(
+            return_value=(
+                __import__("datetime").datetime(
+                    2026, 3, 20, tzinfo=__import__("datetime").timezone.utc
+                ),
+                "GoDaddy",
+                "2027-03-20",
+            )
+        ),
+    ):
         result = await whois.lookup(ioc)
     assert result is not None
     assert result.malicious is True
@@ -131,7 +139,9 @@ async def test_whois_age_old_domain_not_flagged(whois):
 
     ioc = IOC(value="old.com", type=IOCType.DOMAIN)
     old_date = datetime.now(UTC) - timedelta(days=3650)
-    with patch.object(whois, "_lookup_rdap", new=AsyncMock(return_value=(old_date, "Registrar", ""))):
+    with patch.object(
+        whois, "_lookup_rdap", new=AsyncMock(return_value=(old_date, "Registrar", ""))
+    ):
         result = await whois.lookup(ioc)
     assert result is not None
     assert result.malicious is False
@@ -156,10 +166,26 @@ def pdns():
     return CIRCLPDNSProvider(api_key="user:pass")
 
 
-_PDNS_RECORDS = "\n".join([
-    json.dumps({"rdata": "1.2.3.4", "rrtype": "A", "time_first": "2023-01-01", "time_last": "2024-01-01"}),
-    json.dumps({"rdata": "5.6.7.8", "rrtype": "A", "time_first": "2022-01-01", "time_last": "2023-06-01"}),
-])
+_PDNS_RECORDS = "\n".join(
+    [
+        json.dumps(
+            {
+                "rdata": "1.2.3.4",
+                "rrtype": "A",
+                "time_first": "2023-01-01",
+                "time_last": "2024-01-01",
+            }
+        ),
+        json.dumps(
+            {
+                "rdata": "5.6.7.8",
+                "rrtype": "A",
+                "time_first": "2022-01-01",
+                "time_last": "2023-06-01",
+            }
+        ),
+    ]
+)
 
 
 async def test_pdns_domain_returns_resolutions(pdns):
@@ -175,9 +201,18 @@ async def test_pdns_domain_returns_resolutions(pdns):
 
 
 async def test_pdns_ip_returns_domains(pdns):
-    records = "\n".join([
-        json.dumps({"rdata": "evil.com.", "rrtype": "A", "time_first": "2023-01-01", "time_last": "2024-01-01"}),
-    ])
+    records = "\n".join(
+        [
+            json.dumps(
+                {
+                    "rdata": "evil.com.",
+                    "rrtype": "A",
+                    "time_first": "2023-01-01",
+                    "time_last": "2024-01-01",
+                }
+            ),
+        ]
+    )
     ioc = IOC(value="1.2.3.4", type=IOCType.IPV4)
     with patch("httpx.AsyncClient") as mock_cls:
         mock_cls.return_value.__aenter__.return_value.get = AsyncMock(

@@ -74,10 +74,7 @@ class HIBPProvider(BaseProvider):
         sensitive = any(b.get("IsSensitive") for b in breaches)
         verified = sum(1 for b in breaches if b.get("IsVerified"))
 
-        summary = (
-            f"Found in {total} breach{'es' if total != 1 else ''}: "
-            f"{', '.join(names)}"
-        )
+        summary = f"Found in {total} breach{'es' if total != 1 else ''}: {', '.join(names)}"
         if extra:
             summary += f" +{extra} more"
         if data_classes:

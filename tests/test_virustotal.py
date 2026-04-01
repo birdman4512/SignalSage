@@ -19,7 +19,12 @@ def _mock_response(status: int, body: dict) -> MagicMock:
 _IP_DATA = {
     "data": {
         "attributes": {
-            "last_analysis_stats": {"malicious": 3, "suspicious": 1, "harmless": 60, "undetected": 10},
+            "last_analysis_stats": {
+                "malicious": 3,
+                "suspicious": 1,
+                "harmless": 60,
+                "undetected": 10,
+            },
             "country": "US",
             "as_owner": "CLOUDFLARENET",
             "network": "1.1.1.0/24",
@@ -37,7 +42,12 @@ _IP_RESOLUTIONS = {
 _DOMAIN_DATA = {
     "data": {
         "attributes": {
-            "last_analysis_stats": {"malicious": 0, "suspicious": 0, "harmless": 70, "undetected": 5},
+            "last_analysis_stats": {
+                "malicious": 0,
+                "suspicious": 0,
+                "harmless": 70,
+                "undetected": 5,
+            },
             "registrar": "GoDaddy",
             "creation_date": 1577836800,
             "categories": {},

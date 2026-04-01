@@ -124,9 +124,7 @@ class WHOISAgeProvider(BaseProvider):
 
         for url in urls_to_try:
             try:
-                async with httpx.AsyncClient(
-                    timeout=self.timeout, follow_redirects=True
-                ) as client:
+                async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=True) as client:
                     resp = await client.get(url)
                     if resp.status_code == 404:
                         continue
@@ -188,10 +186,7 @@ class WHOISAgeProvider(BaseProvider):
 
         created_str = reg_data.get("createdDate", "") or record.get("createdDate", "")
         expires_str = reg_data.get("expiresDate", "") or record.get("expiresDate", "")
-        registrar = (
-            record.get("registrarName", "")
-            or reg_data.get("registrarName", "")
-        )
+        registrar = record.get("registrarName", "") or reg_data.get("registrarName", "")
 
         created = _parse_date(created_str) if created_str else None
         expires = expires_str[:10] if expires_str else ""

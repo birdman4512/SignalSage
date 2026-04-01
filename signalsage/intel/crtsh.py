@@ -73,9 +73,7 @@ class CRTShProvider(BaseProvider):
         unique_names = len(names)
 
         # Flag wildcard certs
-        has_wildcard = any(
-            ("*." + ioc.value) in (e.get("name_value", "")) for e in entries
-        )
+        has_wildcard = any(("*." + ioc.value) in (e.get("name_value", "")) for e in entries)
 
         age_str = ""
         if earliest:
