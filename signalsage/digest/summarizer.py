@@ -22,10 +22,11 @@ _SYSTEM_PROMPT = (
     '"medium" (some sources responded but coverage is patchy or thin), '
     '"low" (few sources responded, content is sparse or off-topic).\n'
     '  "items": an array of individual story objects. Each must have exactly these fields:\n'
-    '    "icon": a single emoji representing the story type. '
+    '    "icon": a single emoji representing the story type (MUST NOT be empty). '
     "Choose from: 🔴 critical/severe, 🛡️ patch/fix/defence, 🦠 malware/ransomware, "
     "🔗 phishing/scam, 📢 news/announcement, 🔍 research/report, ⚠️ warning/advisory, "
-    "📡 threat intel, 🏛️ policy/legal/government, 📻 radio/propagation, ☀️ solar/space weather\n"
+    "📡 threat intel, 🏛️ policy/legal/government, 📻 radio/propagation, ☀️ solar/space weather, "
+    "🤖 AI/ML/LLM. Use 📰 as a fallback if none of the above fit.\n"
     '    "severity": your assessment of urgency/impact — one of "critical", "high", "medium", "low"\n'
     '    "headline": a short, clear title (max 80 characters)\n'
     '    "blurb": 1-2 sentences explaining what happened and why it matters\n'

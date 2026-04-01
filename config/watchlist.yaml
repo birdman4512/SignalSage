@@ -144,7 +144,7 @@ topics:
     digest_channel: "#general"
     sources:
       - name: "The Verge AI"
-        url: "https://www.theverge.com/ai-artificial-intelligence/rss/index.xml"
+        url: "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml"
       - name: "Ars Technica AI"
         url: "https://arstechnica.com/tag/ai/feed/"
       - name: "MIT Technology Review"

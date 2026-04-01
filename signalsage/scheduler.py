@@ -240,19 +240,33 @@ class DigestScheduler:
     async def run_topic_now(self, topic_query: str) -> bool:
         """Run a topic whose name or tags contain *topic_query* (case-insensitive).
 
+        Exact tag matches take priority over partial name matches so that e.g.
+        ``!digest news`` runs the topic tagged ``news`` rather than the first
+        topic whose name happens to contain the word "news".
+
         Returns True if a matching topic was found and triggered, False otherwise.
         """
         query = topic_query.strip().lower()
-        for job in self._scheduler.get_jobs():
-            if not job.id.startswith("digest_"):
-                continue
+        jobs = [j for j in self._scheduler.get_jobs() if j.id.startswith("digest_")]
+
+        # Pass 1: exact tag match
+        for job in jobs:
             topic = job.args[0]
-            name: str = topic["name"]
-            tags: list[str] = [t.lower() for t in topic.get("tags", [])]
-            if query in name.lower() or name.lower() in query or query in tags:
-                logger.info("Triggering on-demand digest for topic '%s'", name)
+            tags = [t.lower() for t in topic.get("tags", [])]
+            if query in tags:
+                logger.info("Triggering on-demand digest for topic '%s'", topic["name"])
                 await job.func(*job.args)
                 return True
+
+        # Pass 2: partial name match
+        for job in jobs:
+            topic = job.args[0]
+            name = topic["name"].lower()
+            if query in name or name in query:
+                logger.info("Triggering on-demand digest for topic '%s'", topic["name"])
+                await job.func(*job.args)
+                return True
+
         logger.warning("No topic matching query '%s'", topic_query)
         return False
 

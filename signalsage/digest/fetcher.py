@@ -185,7 +185,7 @@ async def _extract_feed_content(
             else:
                 logger.info("Audio enclosure found but Whisper disabled — skipping: %s", audio_url)
         else:
-            logger.info("No audio enclosure in entry: %r", title)
+            logger.debug("No audio enclosure in entry: %r", title)
 
         text = f"Title: {title}\n{summary}"
         if link:

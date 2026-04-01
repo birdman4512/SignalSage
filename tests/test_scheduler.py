@@ -166,6 +166,26 @@ async def test_run_topic_now_no_match_returns_false(tmp_path):
     assert found is False
 
 
+async def test_run_topic_now_tag_priority_over_name(tmp_path):
+    """Exact tag match must win over partial name match regardless of job order."""
+    notifier = AsyncMock()
+    # "AI & ML News" (alphabetically first) contains "news" in its name;
+    # "General News" has "news" as an explicit tag — it should be triggered.
+    watchlist = {
+        "topics": [
+            {"name": "AI & ML News", "tags": ["ai", "ml"], "sources": []},
+            {"name": "General News", "tags": ["news", "aus"], "sources": []},
+        ]
+    }
+    with patch("signalsage.scheduler.fetch_topic", new=AsyncMock(return_value=[])):
+        scheduler = _make_scheduler(watchlist, notifiers=[notifier], tmp_path=tmp_path)
+        found = await scheduler.run_topic_now("news")
+    assert found is True
+    # The notifier must have been called with "General News", not "AI & ML News"
+    called_name = notifier.call_args[0][0]
+    assert called_name == "General News"
+
+
 # ---------------------------------------------------------------------------
 # Cross-topic deduplication
 # ---------------------------------------------------------------------------
