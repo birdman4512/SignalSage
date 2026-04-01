@@ -528,6 +528,18 @@ def format_digest_slack_message(
             }
         )
 
+    # ── images ───────────────────────────────────────────────────────────────
+    for img_url in (meta or {}).get("images", []):
+        if img_url and str(img_url).startswith("http"):
+            blocks.append({"type": "divider"})
+            blocks.append(
+                {
+                    "type": "image",
+                    "image_url": img_url,
+                    "alt_text": f"{topic_name} chart",
+                }
+            )
+
     return {
         "text": f"{icon} {topic_name} digest — {window}",
         "attachments": [{"color": _DIGEST_COLOUR, "blocks": blocks}],
@@ -615,5 +627,10 @@ def format_digest_plain(
 
     if footer_parts:
         lines.append(" · ".join(footer_parts))
+
+    # Images — Discord auto-embeds bare URLs
+    for img_url in (meta or {}).get("images", []):
+        if img_url and str(img_url).startswith("http"):
+            lines.append(img_url)
 
     return header + "\n".join(lines).rstrip(sep).strip()

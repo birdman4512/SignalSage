@@ -370,3 +370,25 @@ def test_format_digest_plain_meta_footer():
 def test_format_digest_plain_fallback():
     result = format_digest_plain("Test Topic", "Plain text summary here.")
     assert "Plain text summary here." in result
+
+
+def test_format_digest_slack_images():
+    meta = {"sources_ok": 1, "sources_total": 1, "images": ["https://example.com/chart.png"]}
+    payload = format_digest_slack_message("Solar", _structured_summary(), meta=meta)
+    blocks = payload["attachments"][0]["blocks"]
+    image_blocks = [b for b in blocks if b.get("type") == "image"]
+    assert len(image_blocks) == 1
+    assert image_blocks[0]["image_url"] == "https://example.com/chart.png"
+
+
+def test_format_digest_slack_images_skips_non_http():
+    meta = {"sources_ok": 1, "sources_total": 1, "images": ["not-a-url"]}
+    payload = format_digest_slack_message("Solar", _structured_summary(), meta=meta)
+    blocks = payload["attachments"][0]["blocks"]
+    assert not any(b.get("type") == "image" for b in blocks)
+
+
+def test_format_digest_plain_images():
+    meta = {"sources_ok": 1, "sources_total": 1, "images": ["https://example.com/chart.png"]}
+    result = format_digest_plain("Solar", _structured_summary(), meta=meta)
+    assert "https://example.com/chart.png" in result

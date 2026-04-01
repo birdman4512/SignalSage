@@ -340,12 +340,13 @@ async def fetch_topic(
     async def _fetch_one(source: dict) -> dict:
         name = source.get("name", "Unknown")
         url = source.get("url", "")
+        image_url = source.get("image_url") or None
         if not url:
-            return {"name": name, "url": url, "content": ""}
+            return {"name": name, "url": url, "content": "", "image_url": image_url}
         content, canonical_url = await fetch_source(
             url, max_chars, timeout, lookback_seconds, whisper_base_url
         )
-        return {"name": name, "url": canonical_url or url, "content": content}
+        return {"name": name, "url": canonical_url or url, "content": content, "image_url": image_url}
 
     tasks = [_fetch_one(s) for s in sources]
     results = await asyncio.gather(*tasks, return_exceptions=True)

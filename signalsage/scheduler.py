@@ -236,6 +236,9 @@ class DigestScheduler:
                 extra_meta["deduped_count"],
             )
 
+        # Collect image URLs configured on individual sources
+        images = [s["image_url"] for s in fetched if s.get("image_url")]
+
         meta = {
             "sources_total": len(fetched),
             "sources_ok": len(fetched) - len(empty_sources),
@@ -243,6 +246,7 @@ class DigestScheduler:
             "chronically_failing": topic_chronic,
             "deduped_count": extra_meta["deduped_count"],
             "coverage_confidence": extra_meta["coverage_confidence"],
+            "images": images,
         }
 
         # Per-topic channel override (None = use each bot's configured default)
