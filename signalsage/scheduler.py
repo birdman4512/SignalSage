@@ -3,6 +3,7 @@
 import json
 import logging
 import re
+import time
 from collections.abc import Callable
 from datetime import date
 
@@ -178,18 +179,26 @@ class DigestScheduler:
                 whisper_base_url=self.whisper_base_url,
             )
             sources_ok = sum(1 for s in fetched if s.get("content", "").strip())
+            total_chars = sum(len(s.get("content", "")) for s in fetched)
             if progress:
-                total_chars = sum(len(s.get("content", "")) for s in fetched)
                 size_hint = (
                     f"~{total_chars // 1000}k chars"
                     if total_chars >= 1000
                     else f"{total_chars} chars"
                 )
+                eta = self._history.estimate_llm_seconds(total_chars)
+                if eta is not None:
+                    eta_str = f"~{max(1, round(eta))}s" if eta < 90 else f"~{round(eta / 60)}m"
+                    time_hint = f", ETA {eta_str}"
+                else:
+                    time_hint = " — this may take a minute"
                 await progress(
                     f"🤖 Summarizing {sources_ok}/{len(fetched)} source(s)"
-                    f" ({size_hint}) — this may take a minute…"
+                    f" ({size_hint}{time_hint})…"
                 )
+            t0 = time.monotonic()
             summary = await self.summarizer.summarize_topic(name, fetched, lookback=lookback)
+            self._history.record_llm_timing(total_chars, time.monotonic() - t0)
         except Exception as exc:
             logger.exception("Failed to generate digest for topic '%s': %s", name, exc)
             return

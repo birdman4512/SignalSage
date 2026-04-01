@@ -216,6 +216,17 @@ def test_parse_digest_json_bare_shortcode():
     assert result["items"][0]["icon"] == "🛡️"
 
 
+def test_parse_digest_json_unquoted_emoji_icon():
+    """LLMs sometimes emit unquoted emoji: "icon": 🔴, — must still parse."""
+    summary = (
+        '{"tldr": [], "items": [{"icon": 🔴, "severity": "critical", '
+        '"headline": "X", "blurb": "Y", "url": null}]}'
+    )
+    result = _parse_digest_json(summary)
+    assert result is not None
+    assert result["items"][0]["icon"] == "🔴"
+
+
 def test_parse_digest_json_legacy_flat_array():
     summary = json.dumps([_ITEM])
     result = _parse_digest_json(summary)

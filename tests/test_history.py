@@ -150,3 +150,42 @@ def test_prune_keeps_recent_entries(tmp_path):
     history._history["Topic"] = {recent_date: []}
     history.record_items("Topic", [])  # triggers _prune
     assert recent_date in history._history.get("Topic", {})
+
+
+# ---------------------------------------------------------------------------
+# LLM timing
+# ---------------------------------------------------------------------------
+
+
+def test_estimate_returns_none_with_fewer_than_3_samples(tmp_path):
+    history = DigestHistory(data_dir=str(tmp_path))
+    history.record_llm_timing(10000, 5.0)
+    history.record_llm_timing(10000, 5.0)
+    assert history.estimate_llm_seconds(10000) is None
+
+
+def test_estimate_uses_chars_per_second_rate(tmp_path):
+    history = DigestHistory(data_dir=str(tmp_path))
+    # 3 samples: 10k chars took 10s each → 1000 chars/s
+    for _ in range(3):
+        history.record_llm_timing(10000, 10.0)
+    est = history.estimate_llm_seconds(5000)
+    assert est is not None
+    assert abs(est - 5.0) < 0.01
+
+
+def test_timing_persists_across_instances(tmp_path):
+    h1 = DigestHistory(data_dir=str(tmp_path))
+    for _ in range(3):
+        h1.record_llm_timing(10000, 10.0)
+    h2 = DigestHistory(data_dir=str(tmp_path))
+    assert h2.estimate_llm_seconds(10000) is not None
+
+
+def test_timing_rolling_window_capped(tmp_path):
+    from signalsage.digest.history import _LLM_TIMING_SAMPLES
+
+    history = DigestHistory(data_dir=str(tmp_path))
+    for i in range(_LLM_TIMING_SAMPLES + 10):
+        history.record_llm_timing(1000, float(i))
+    assert len(history._timing["samples"]) == _LLM_TIMING_SAMPLES

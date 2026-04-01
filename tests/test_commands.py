@@ -124,7 +124,7 @@ async def test_handle_digest_by_tag_found():
     scheduler = MagicMock()
     scheduler.run_topic_now = AsyncMock(return_value=True)
     await handle_digest_command(["cyber"], scheduler, reply)
-    scheduler.run_topic_now.assert_called_once_with("cyber")
+    scheduler.run_topic_now.assert_called_once_with("cyber", progress=reply)
 
 
 async def test_handle_digest_by_tag_not_found_lists_available():

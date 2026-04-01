@@ -166,6 +166,19 @@ async def test_run_topic_now_no_match_returns_false(tmp_path):
     assert found is False
 
 
+async def test_run_topic_now_progress_callback(tmp_path):
+    """progress callable is invoked with status messages during the run."""
+    progress = AsyncMock()
+    watchlist = {"topics": [{"name": "Cyber News", "tags": ["cyber"], "sources": []}]}
+    with patch("signalsage.scheduler.fetch_topic", new=AsyncMock(return_value=[])):
+        scheduler = _make_scheduler(watchlist, tmp_path=tmp_path)
+        await scheduler.run_topic_now("cyber", progress=progress)
+    assert progress.call_count >= 2
+    messages = [c.args[0] for c in progress.call_args_list]
+    assert any("Fetch" in m or "fetch" in m for m in messages)
+    assert any("Summar" in m for m in messages)
+
+
 async def test_run_topic_now_tag_priority_over_name(tmp_path):
     """Exact tag match must win over partial name match regardless of job order."""
     notifier = AsyncMock()

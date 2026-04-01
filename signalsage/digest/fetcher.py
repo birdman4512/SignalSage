@@ -310,8 +310,10 @@ async def fetch_source(
         except Exception as exc:
             logger.warning("Feedparser failed for %s: %s", url, exc)
 
-    # Fall back to HTML extraction
+    # Fall back to HTML extraction — append the page URL so the LLM can reference it
     content = _extract_web_content(raw_content, max_chars)
+    if content:
+        content = f"{content}\nURL: {final_url}"
     return content, final_url
 
 

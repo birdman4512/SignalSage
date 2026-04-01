@@ -17,9 +17,12 @@ def _headline_hash(headline: str) -> str:
     return hashlib.md5(normalised.encode()).hexdigest()[:12]
 
 
+_LLM_TIMING_SAMPLES = 50  # rolling window size
+
+
 class DigestHistory:
     """
-    Persists two data stores under *data_dir*:
+    Persists three data stores under *data_dir*:
 
     digest_history.json
         {topic: {date_iso: [{"hash": str, "headline": str}, ...]}}
@@ -28,6 +31,10 @@ class DigestHistory:
     source_health.json
         {source_name: {date_iso: bool}}   True = returned content, False = empty/failed
         Used for consecutive-failure alerting.
+
+    llm_timing.json
+        {"samples": [{"chars": int, "seconds": float}, ...]}
+        Rolling window of LLM call durations used to estimate future ETAs.
     """
 
     def __init__(self, data_dir: str = "data") -> None:
@@ -35,8 +42,10 @@ class DigestHistory:
         self._dir.mkdir(parents=True, exist_ok=True)
         self._history_path = self._dir / "digest_history.json"
         self._health_path = self._dir / "source_health.json"
+        self._timing_path = self._dir / "llm_timing.json"
         self._history: dict = self._load(self._history_path)
         self._health: dict = self._load(self._health_path)
+        self._timing: dict = self._load(self._timing_path) or {"samples": []}
 
     # ── I/O helpers ─────────────────────────────────────────────────────────
 
@@ -123,3 +132,29 @@ class DigestHistory:
             if streak >= consecutive_days:
                 failing.append(source)
         return failing
+
+    # ── LLM timing ───────────────────────────────────────────────────────────
+
+    def record_llm_timing(self, chars: int, seconds: float) -> None:
+        """Record one LLM call duration. Keeps the last _LLM_TIMING_SAMPLES samples."""
+        samples: list = self._timing.setdefault("samples", [])
+        samples.append({"chars": chars, "seconds": seconds})
+        if len(samples) > _LLM_TIMING_SAMPLES:
+            self._timing["samples"] = samples[-_LLM_TIMING_SAMPLES:]
+        self._save(self._timing_path, self._timing)
+
+    def estimate_llm_seconds(self, chars: int) -> float | None:
+        """
+        Return an estimated LLM processing time in seconds for *chars* input characters,
+        based on the historical chars-per-second rate from recorded samples.
+        Returns None if fewer than 3 samples are available.
+        """
+        samples: list = self._timing.get("samples", [])
+        if len(samples) < 3:
+            return None
+        total_chars = sum(s["chars"] for s in samples)
+        total_seconds = sum(s["seconds"] for s in samples)
+        if total_seconds == 0:
+            return None
+        chars_per_second = total_chars / total_seconds
+        return chars / chars_per_second
