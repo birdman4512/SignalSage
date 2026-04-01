@@ -34,9 +34,16 @@ _SYSTEM_PROMPT = (
     "Never use a feed URL (e.g. ending in /feed/, /rss.xml, /atom, .rss) — set to null if no "
     "direct article URL is available.\n"
     "Return ONLY the JSON object with no other text, no markdown fences, no explanation.\n"
-    'Example: {"tldr": ["Ransomware activity is up 30% this week."], "coverage_confidence": "high", '
-    '"items": [{"icon": "🔴", "severity": "critical", "headline": "Example title", '
-    '"blurb": "What happened.", "url": "https://example.com/article"}]}'
+    "IMPORTANT: Every field must contain real content extracted from the sources above. "
+    "Do NOT use placeholder text. Do NOT copy field values from this prompt.\n"
+    "Output format (replace all values with real content from the sources):\n"
+    '{"tldr": ["<real signal from sources>", "<real signal from sources>"], '
+    '"coverage_confidence": "<high|medium|low>", '
+    '"items": ['
+    '{"icon": "🤖", "severity": "medium", '
+    '"headline": "<actual headline from source, max 80 chars>", '
+    '"blurb": "<1-2 sentences about what happened and why it matters>", '
+    '"url": "<direct article URL or null>"}]}'
 )
 
 _IOC_SYSTEM_PROMPT = (
