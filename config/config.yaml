@@ -47,6 +47,16 @@ intel:
     urlscan:
       enabled: true
       # api_key: ${URLSCAN_API_KEY}   # optional — lifts rate limits
+    crtsh:
+      enabled: true
+    whois_age:
+      enabled: true
+      # api_key: ${WHOISXML_API_KEY}  # optional — uses free RDAP without key
+    circl_pdns:
+      enabled: true
+    hibp:
+      enabled: true
+      api_key: ${HIBP_API_KEY}        # required — https://haveibeenpwned.com/API/Key
 
 digest:
   # Fallback schedule for topics that don't define their own (5-part cron)

@@ -3,6 +3,8 @@
 import logging
 from collections.abc import Awaitable, Callable
 
+from signalsage.ioc.models import IOC, IOCType
+
 logger = logging.getLogger(__name__)
 
 COMMAND_PREFIX = "!"
@@ -13,6 +15,10 @@ HELP_TEXT = """\
 • `!digest list` — show scheduled topics and their tags
 • `!digest <tag>` — run a topic by tag (e.g. `!digest cyber`, `!digest vuln`, `!digest ti`)
 • `!digest <name>` — run a topic by partial name match (case-insensitive)
+
+• `!osint email <address>` — breach check via Have I Been Pwned
+• `!osint domain <domain>` — crt.sh, WHOIS age & passive DNS lookup
+• `!osint ip <address>` — passive DNS lookup for an IP
 
 *IOC enrichment* happens automatically — just post any IP, hash, domain, URL or CVE.\
 """
@@ -77,3 +83,56 @@ async def handle_digest_command(
             names = scheduler.get_topic_names()
             listing = "\n".join(f"• {n}" for n in names) if names else "  (none)"
             await reply(f"⚠️ No topic matching *{topic_query}*. Available topics:\n{listing}")
+
+
+_OSINT_USAGE = (
+    "Usage:\n"
+    "• `!osint email <address>` — breach check\n"
+    "• `!osint domain <domain>` — crt.sh + WHOIS age + passive DNS\n"
+    "• `!osint ip <address>` — passive DNS\n"
+)
+
+_OSINT_TYPE_MAP = {
+    "email": IOCType.EMAIL,
+    "domain": IOCType.DOMAIN,
+    "ip": IOCType.IPV4,
+}
+
+
+async def handle_osint_command(
+    args: list[str],
+    processor,
+    reply: Callable[[str], Awaitable[None]],
+) -> None:
+    """Run an on-demand OSINT lookup and post results via *reply*."""
+    if len(args) < 2:
+        await reply(_OSINT_USAGE)
+        return
+
+    subcommand = args[0].lower()
+    value = args[1].strip()
+
+    ioc_type = _OSINT_TYPE_MAP.get(subcommand)
+    if ioc_type is None:
+        await reply(f"⚠️ Unknown OSINT subcommand `{subcommand}`.\n{_OSINT_USAGE}")
+        return
+
+    await reply(f"🔍 Running OSINT lookup for `{value}`…")
+
+    ioc = IOC(value=value, type=ioc_type, raw=value)
+    results = await processor.lookup_ioc(ioc)
+
+    if not results:
+        await reply(f"No OSINT results found for `{value}`.")
+        return
+
+    sep = "─" * 36
+    lines = [f"🔍 *OSINT: `{value}`*", sep]
+    for result in results:
+        if result.error:
+            lines.append(f"⚠️ *{result.provider}*: {result.error}")
+        else:
+            lines.append(f"*{result.provider}*: {result.summary}")
+            if result.report_url:
+                lines.append(f"  <{result.report_url}|View report>")
+    await reply("\n".join(lines))

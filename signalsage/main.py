@@ -36,7 +36,10 @@ async def main() -> None:
     from signalsage.intel.abuseipdb import AbuseIPDBProvider
     from signalsage.intel.base import BaseProvider
     from signalsage.intel.circl_cve import CIRCLCVEProvider
+    from signalsage.intel.circl_pdns import CIRCLPDNSProvider
+    from signalsage.intel.crtsh import CRTShProvider
     from signalsage.intel.greynoise import GreyNoiseProvider
+    from signalsage.intel.hibp import HIBPProvider
     from signalsage.intel.ipinfo import IPInfoProvider
     from signalsage.intel.malwarebazaar import MalwareBazaarProvider
     from signalsage.intel.otx import OTXProvider
@@ -45,6 +48,7 @@ async def main() -> None:
     from signalsage.intel.urlhaus import URLhausProvider
     from signalsage.intel.urlscan import URLScanProvider
     from signalsage.intel.virustotal import VirusTotalProvider
+    from signalsage.intel.whois_age import WHOISAgeProvider
 
     providers: list[BaseProvider] = []
 
@@ -67,6 +71,10 @@ async def main() -> None:
     add_provider(IPInfoProvider, "ipinfo")
     add_provider(CIRCLCVEProvider, "circl_cve")
     add_provider(URLScanProvider, "urlscan")
+    add_provider(CRTShProvider, "crtsh")
+    add_provider(WHOISAgeProvider, "whois_age")
+    add_provider(CIRCLPDNSProvider, "circl_pdns")
+    add_provider(HIBPProvider, "hibp")
 
     # ------------------------------------------------------------------ #
     # IOC Processor                                                        #

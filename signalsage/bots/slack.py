@@ -8,7 +8,7 @@ from slack_bolt.async_app import AsyncApp
 
 from signalsage.ioc.processor import IOCProcessor
 
-from .commands import HELP_TEXT, handle_digest_command, parse_command
+from .commands import HELP_TEXT, handle_digest_command, handle_osint_command, parse_command
 from .formatter import format_digest_slack_message, format_slack_message
 
 logger = logging.getLogger(__name__)
@@ -61,6 +61,12 @@ class SlackBot:
                     await handle_digest_command(
                         cmd_args,
                         self.scheduler,
+                        reply=lambda msg: say(text=msg),
+                    )
+                elif cmd_name == "osint":
+                    await handle_osint_command(
+                        cmd_args,
+                        self.ioc_processor,
                         reply=lambda msg: say(text=msg),
                     )
                 elif cmd_name in ("help", "?"):

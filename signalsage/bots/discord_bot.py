@@ -6,7 +6,7 @@ import discord
 
 from signalsage.ioc.processor import IOCProcessor
 
-from .commands import HELP_TEXT, handle_digest_command, parse_command
+from .commands import HELP_TEXT, handle_digest_command, handle_osint_command, parse_command
 from .formatter import Platform, format_digest_plain, format_results, split_message
 
 logger = logging.getLogger(__name__)
@@ -49,6 +49,12 @@ class DiscordBot(discord.Client):
                 await handle_digest_command(
                     cmd_args,
                     self.scheduler,
+                    reply=message.channel.send,
+                )
+            elif cmd_name == "osint":
+                await handle_osint_command(
+                    cmd_args,
+                    self.ioc_processor,
                     reply=message.channel.send,
                 )
             elif cmd_name in ("help", "?"):

@@ -46,6 +46,15 @@ class IOCProcessor:
                 results.append((ioc, intel))
         return results
 
+    async def lookup_ioc(self, ioc: IOC) -> list[IntelResult]:
+        """Look up a single IOC directly (skips extraction and message-level cache).
+
+        Used by on-demand OSINT commands. Returns an empty list if no providers
+        support the IOC type or all providers return None.
+        """
+        result = await self._lookup(ioc)
+        return result or []
+
     async def _lookup(self, ioc: IOC) -> list[IntelResult] | None:
         """Look up a single IOC across all applicable providers, using cache."""
         key = f"{ioc.type.value}:{ioc.value}"

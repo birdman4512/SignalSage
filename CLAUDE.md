@@ -68,6 +68,8 @@ Copy `.env.example` to `.env` and fill in your credentials:
 | `ABUSEIPDB_API_KEY` | AbuseIPDB API key |
 | `OTX_API_KEY` | AlienVault OTX API key (optional, works unauthenticated) |
 | `IPINFO_API_KEY` | IPInfo API key (optional, works unauthenticated) |
+| `HIBP_API_KEY` | Have I Been Pwned API key — https://haveibeenpwned.com/API/Key |
+| `WHOISXML_API_KEY` | WhoisXML API key (optional — falls back to free RDAP without key) |
 | `ANTHROPIC_API_KEY` | Anthropic API key (only needed when `digest.llm_provider: anthropic`) |
 
 ### `config/config.yaml`
@@ -158,6 +160,9 @@ Both Slack and Discord support the `!` command prefix (or `@SignalSage` mention 
 | `!digest list` | Show all scheduled topics and their tags |
 | `!digest <tag>` | Run topics matching a tag (e.g. `!digest cyber`) |
 | `!digest <name>` | Run a topic by partial name match (case-insensitive) |
+| `!osint email <address>` | Have I Been Pwned breach check for an email address |
+| `!osint domain <domain>` | crt.sh cert transparency + WHOIS age + passive DNS |
+| `!osint ip <address>` | CIRCL passive DNS for an IP address |
 
 IOC enrichment is automatic — no command needed. Command parsing lives in `bots/commands.py` and is shared by both bot implementations.
 
@@ -314,6 +319,10 @@ RSS/Atom feeds (`.xml`, `.rss`, `.atom`) are automatically detected and parsed w
 | **MalwareBazaar** | No key required | Completely free, no registration needed. |
 | **IPInfo** | 50,000 req/month (free) | Works without key up to rate limit. |
 | **CIRCL CVE** | No key required | Completely free public API. |
+| **crt.sh** | No key required | Certificate transparency — domain lookups. |
+| **WHOIS Age** | No key required | Uses free RDAP. Optional `WHOISXML_API_KEY` lifts rate limits. |
+| **CIRCL PDNS** | No key required | Passive DNS — domain and IP lookups. |
+| **HIBP** | Paid key required | Have I Been Pwned — email breach lookups. ~$3.50/month. |
 | **Ollama** | Free (local) | Requires local GPU/CPU. Default digest LLM. Pull models with `ollama pull <model>`. |
 | **Anthropic Claude** | Pay per token | Optional digest LLM. ~$0.25/MTok input, $1.25/MTok output for Haiku. |
 
