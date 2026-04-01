@@ -181,11 +181,13 @@ class DigestScheduler:
             if progress:
                 total_chars = sum(len(s.get("content", "")) for s in fetched)
                 size_hint = (
-                    f"~{total_chars // 1000}k chars" if total_chars >= 1000 else f"{total_chars} chars"
+                    f"~{total_chars // 1000}k chars"
+                    if total_chars >= 1000
+                    else f"{total_chars} chars"
                 )
                 await progress(
-                    f"🤖 Summarizing {sources_ok}/{len(fetched)} source(s) ({size_hint}) — "
-                    f"this may take a minute…"
+                    f"🤖 Summarizing {sources_ok}/{len(fetched)} source(s)"
+                    f" ({size_hint}) — this may take a minute…"
                 )
             summary = await self.summarizer.summarize_topic(name, fetched, lookback=lookback)
         except Exception as exc:
