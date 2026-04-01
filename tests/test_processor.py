@@ -101,6 +101,25 @@ async def test_cache_avoids_duplicate_lookups():
     assert provider.lookup.call_count == 1
 
 
+async def test_concurrent_lookups_deduped():
+    """Two concurrent lookups for the same IOC must only call the provider once."""
+    import asyncio
+
+    provider = _make_provider()
+    processor = IOCProcessor([provider], cache_ttl=60)
+
+    from signalsage.ioc.models import IOC, IOCType
+
+    ioc = IOC(value="8.8.8.8", type=IOCType.IPV4)
+    results = await asyncio.gather(
+        processor.lookup_ioc(ioc),
+        processor.lookup_ioc(ioc),
+    )
+    # Both calls must return results, provider called only once
+    assert all(len(r) > 0 for r in results)
+    assert provider.lookup.call_count == 1
+
+
 # ---------------------------------------------------------------------------
 # Provider errors are handled gracefully
 # ---------------------------------------------------------------------------

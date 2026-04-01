@@ -16,7 +16,8 @@ _BASE = "https://www.circl.lu/pdns/query"
 class CIRCLPDNSProvider(BaseProvider):
     name = "CIRCL PDNS"
     supported_types = [IOCType.DOMAIN, IOCType.IPV4]
-    requires_key = False
+    # CIRCL PDNS requires a free account — register at https://www.circl.lu/services/passive-dns/
+    requires_key = True
 
     async def lookup(self, ioc: IOC) -> IntelResult | None:
         url = f"{_BASE}/{ioc.value}"
@@ -25,6 +26,9 @@ class CIRCLPDNSProvider(BaseProvider):
                 timeout=self.timeout,
                 # CIRCL PDNS returns newline-delimited JSON, not a JSON array
                 headers={"Accept": "application/json"},
+                auth=(self.api_key.split(":", 1)[0], self.api_key.split(":", 1)[1])
+                if ":" in (self.api_key or "")
+                else None,
             ) as client:
                 resp = await client.get(url)
                 if resp.status_code == 404:

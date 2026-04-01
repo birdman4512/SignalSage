@@ -19,8 +19,9 @@ HELP_TEXT = """\
 • `!osint email <address>` — breach check via Have I Been Pwned
 • `!osint domain <domain>` — crt.sh, WHOIS age & passive DNS lookup
 • `!osint ip <address>` — passive DNS lookup for an IP
+• `!osint asn <AS1234>` — BGPView ASN lookup (prefixes, IP ranges, org info)
 
-*IOC enrichment* happens automatically — just post any IP, hash, domain, URL or CVE.\
+*IOC enrichment* happens automatically — just post any IP, hash, domain, URL, CVE or ASN.\
 """
 
 
@@ -90,12 +91,14 @@ _OSINT_USAGE = (
     "• `!osint email <address>` — breach check\n"
     "• `!osint domain <domain>` — crt.sh + WHOIS age + passive DNS\n"
     "• `!osint ip <address>` — passive DNS\n"
+    "• `!osint asn <AS1234>` — BGPView ASN info\n"
 )
 
 _OSINT_TYPE_MAP = {
     "email": IOCType.EMAIL,
     "domain": IOCType.DOMAIN,
     "ip": IOCType.IPV4,
+    "asn": IOCType.ASN,
 }
 
 

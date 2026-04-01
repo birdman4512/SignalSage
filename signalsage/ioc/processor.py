@@ -25,6 +25,7 @@ class IOCProcessor:
         self.providers = providers
         self.cache: TTLCache = TTLCache(maxsize=1000, ttl=cache_ttl)
         self.max_per_msg = max_per_msg
+        self._inflight: dict[str, asyncio.Event] = {}
 
     async def process(self, text: str) -> list[tuple[IOC, list[IntelResult]]]:
         """Extract IOCs from text and look them up against all applicable providers."""
@@ -56,30 +57,45 @@ class IOCProcessor:
         return result or []
 
     async def _lookup(self, ioc: IOC) -> list[IntelResult] | None:
-        """Look up a single IOC across all applicable providers, using cache."""
+        """Look up a single IOC across all applicable providers, using cache.
+
+        Uses a per-key in-flight event to prevent concurrent duplicate lookups
+        for the same IOC from racing and producing double reports.
+        """
         key = f"{ioc.type.value}:{ioc.value}"
         if key in self.cache:
             logger.debug("Cache hit for %s", key)
             return self.cache[key]  # type: ignore[return-value]
 
+        # If another coroutine is already fetching this key, wait for it
+        if key in self._inflight:
+            await self._inflight[key].wait()
+            return self.cache.get(key)  # type: ignore[return-value]
+
         applicable = [p for p in self.providers if p.enabled and p.supports(ioc.type)]
         if not applicable:
             return None
 
-        logger.info(
-            "Looking up %s (%s) via %d providers", ioc.value, ioc.type.value, len(applicable)
-        )
-        raw = await asyncio.gather(
-            *[p.lookup(ioc) for p in applicable],
-            return_exceptions=True,
-        )
+        event = asyncio.Event()
+        self._inflight[key] = event
+        try:
+            logger.info(
+                "Looking up %s (%s) via %d providers", ioc.value, ioc.type.value, len(applicable)
+            )
+            raw = await asyncio.gather(
+                *[p.lookup(ioc) for p in applicable],
+                return_exceptions=True,
+            )
 
-        results: list[IntelResult] = []
-        for item in raw:
-            if isinstance(item, IntelResult):
-                results.append(item)
-            elif isinstance(item, Exception):
-                logger.warning("Provider lookup raised exception: %s", item)
+            results: list[IntelResult] = []
+            for item in raw:
+                if isinstance(item, IntelResult):
+                    results.append(item)
+                elif isinstance(item, Exception):
+                    logger.warning("Provider lookup raised exception: %s", item)
 
-        self.cache[key] = results
-        return results
+            self.cache[key] = results
+            return results
+        finally:
+            self._inflight.pop(key, None)
+            event.set()

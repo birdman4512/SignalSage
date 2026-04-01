@@ -13,7 +13,10 @@ logger = logging.getLogger(__name__)
 
 # WhoisXML API — free tier: 500 requests/month. No key = RDAP fallback.
 _WHOISXML_URL = "https://www.whoisxmlapi.com/whoisserver/WhoisService"
-_RDAP_URL = "https://rdap.org/domain/{domain}"
+# IANA bootstrap discovers the authoritative RDAP server for any TLD/ccTLD
+_RDAP_BOOTSTRAP_URL = "https://data.iana.org/rdap/dns.json"
+# rdap.org is a convenient proxy but doesn't cover all ccTLDs (e.g. .au)
+_RDAP_PROXY_URL = "https://rdap.org/domain/{domain}"
 
 # Domain younger than this is suspicious
 _NEW_DOMAIN_DAYS = 30
@@ -89,19 +92,56 @@ class WHOISAgeProvider(BaseProvider):
         )
 
     async def _lookup_rdap(self, ioc: IOC) -> tuple[datetime | None, str, str]:
-        """Use the free RDAP protocol — no key needed."""
-        url = _RDAP_URL.format(domain=ioc.value)
+        """Use the free RDAP protocol — no key needed.
+
+        Tries the authoritative RDAP server for the domain's TLD first (via the
+        IANA bootstrap registry), then falls back to the rdap.org proxy.
+        """
+        import tldextract
+
+        base_url: str | None = None
+
+        # Discover authoritative RDAP server from IANA bootstrap
         try:
-            async with httpx.AsyncClient(
-                timeout=self.timeout, follow_redirects=True
-            ) as client:
-                resp = await client.get(url)
-                if resp.status_code == 404:
-                    return None, "", ""
-                resp.raise_for_status()
-                data = resp.json()
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                boot_resp = await client.get(_RDAP_BOOTSTRAP_URL)
+                if boot_resp.status_code == 200:
+                    bootstrap = boot_resp.json()
+                    ext = tldextract.extract(ioc.value)
+                    tld = ext.suffix.lower() if ext.suffix else ""
+                    for entry in bootstrap.get("services", []):
+                        tlds, servers = entry[0], entry[1]
+                        if tld in [t.lower() for t in tlds] and servers:
+                            base_url = servers[0].rstrip("/")
+                            break
         except Exception as exc:
-            logger.debug("RDAP lookup failed for %s: %s", ioc.value, exc)
+            logger.debug("RDAP bootstrap lookup failed: %s", exc)
+
+        urls_to_try = []
+        if base_url:
+            urls_to_try.append(f"{base_url}/domain/{ioc.value}")
+        urls_to_try.append(_RDAP_PROXY_URL.format(domain=ioc.value))
+
+        for url in urls_to_try:
+            try:
+                async with httpx.AsyncClient(
+                    timeout=self.timeout, follow_redirects=True
+                ) as client:
+                    resp = await client.get(url)
+                    if resp.status_code == 404:
+                        continue
+                    if resp.status_code != 200:
+                        continue
+                    data = resp.json()
+                    if data:
+                        break
+            except Exception as exc:
+                logger.debug("RDAP lookup failed for %s via %s: %s", ioc.value, url, exc)
+                data = None
+        else:
+            return None, "", ""
+
+        if not data:
             return None, "", ""
 
         created: datetime | None = None

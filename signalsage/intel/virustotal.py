@@ -66,6 +66,15 @@ class VirusTotalProvider(BaseProvider):
             "as_owner": data.get("as_owner", ""),
             "network": data.get("network", ""),
         }
+
+        # Best-effort passive DNS: domains that have resolved to this IP
+        hostnames = await self._fetch_resolutions_ip(client, ioc, headers)
+        if hostnames:
+            result.details["passive_dns"] = hostnames
+            result.summary += f"\nPassive DNS: {', '.join(hostnames[:5])}"
+            if len(hostnames) > 5:
+                result.summary += f" +{len(hostnames) - 5} more"
+
         return result
 
     async def _lookup_domain(
@@ -86,7 +95,58 @@ class VirusTotalProvider(BaseProvider):
             "creation_date": data.get("creation_date", ""),
             "categories": data.get("categories", {}),
         }
+
+        # Best-effort passive DNS: IPs this domain has resolved to
+        resolutions = await self._fetch_resolutions_domain(client, ioc, headers)
+        if resolutions:
+            result.details["passive_dns"] = resolutions
+            result.summary += f"\nPassive DNS: {', '.join(resolutions[:5])}"
+            if len(resolutions) > 5:
+                result.summary += f" +{len(resolutions) - 5} more"
+
         return result
+
+    async def _fetch_resolutions_domain(
+        self, client: httpx.AsyncClient, ioc: IOC, headers: dict
+    ) -> list[str]:
+        """Return up to 10 IPs this domain has resolved to (best-effort, silent on error)."""
+        try:
+            resp = await client.get(
+                f"{_BASE}/domains/{ioc.value}/resolutions",
+                headers=headers,
+                params={"limit": 10},
+            )
+            if resp.status_code != 200:
+                return []
+            items = resp.json().get("data", [])
+            return [
+                item["attributes"]["ip_address"]
+                for item in items
+                if item.get("attributes", {}).get("ip_address")
+            ]
+        except Exception:
+            return []
+
+    async def _fetch_resolutions_ip(
+        self, client: httpx.AsyncClient, ioc: IOC, headers: dict
+    ) -> list[str]:
+        """Return up to 10 hostnames that have pointed to this IP (best-effort, silent on error)."""
+        try:
+            resp = await client.get(
+                f"{_BASE}/ip_addresses/{ioc.value}/resolutions",
+                headers=headers,
+                params={"limit": 10},
+            )
+            if resp.status_code != 200:
+                return []
+            items = resp.json().get("data", [])
+            return [
+                item["attributes"]["host_name"]
+                for item in items
+                if item.get("attributes", {}).get("host_name")
+            ]
+        except Exception:
+            return []
 
     async def _lookup_url(self, client: httpx.AsyncClient, ioc: IOC, headers: dict) -> IntelResult:
         url_id = base64.urlsafe_b64encode(ioc.value.encode()).decode().rstrip("=")

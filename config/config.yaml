@@ -54,9 +54,12 @@ intel:
       # api_key: ${WHOISXML_API_KEY}  # optional — uses free RDAP without key
     circl_pdns:
       enabled: true
+      api_key: ${CIRCL_PDNS_KEY}      # "user:password" — free account at circl.lu/services/passive-dns/
     hibp:
       enabled: true
       api_key: ${HIBP_API_KEY}        # required — https://haveibeenpwned.com/API/Key
+    bgpview:
+      enabled: true                   # free, no key required — https://bgpview.io/
 
 digest:
   # Fallback schedule for topics that don't define their own (5-part cron)

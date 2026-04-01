@@ -73,6 +73,9 @@ _MD5_RE = re.compile(r"\b([0-9a-fA-F]{32})\b")
 # CVE
 _CVE_RE = re.compile(r"\b(CVE-\d{4}-\d{4,7})\b", re.IGNORECASE)
 
+# ASN (Autonomous System Number) — e.g. AS1234, AS 1234
+_ASN_RE = re.compile(r"\b(AS\d{1,10})\b", re.IGNORECASE)
+
 # URLs (standard + defanged hxxp/hxxps, also [.] and (.) in domain)
 _URL_RE = re.compile(
     r"(?:https?|hxxps?)"  # scheme (including defanged)
@@ -174,6 +177,13 @@ def extract(text: str) -> list[IOC]:
         _mark(m)
         _add(m.group(1).upper(), IOCType.CVE, m.group(0))
 
+    # --- ASNs ---
+    for m in _ASN_RE.finditer(clean):
+        if _span_used(m):
+            continue
+        _mark(m)
+        _add(m.group(1).upper(), IOCType.ASN, m.group(0))
+
     # --- URLs ---
     for m in _URL_RE.finditer(clean):
         if _span_used(m):
@@ -184,7 +194,8 @@ def extract(text: str) -> list[IOC]:
             continue
         _mark(m)
         _add(url, IOCType.URL, raw)
-        # Also extract domain from URL
+        # Also extract domain from URL so domain-level providers (WHOIS, crt.sh,
+        # PDNS) run alongside URL-level providers (VT, URLhaus, etc.).
         try:
             ext = tldextract.extract(url)
             if ext.domain and ext.suffix:

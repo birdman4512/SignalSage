@@ -15,6 +15,7 @@ class IOCType(Enum):
     SHA512 = "sha512"
     EMAIL = "email"
     CVE = "cve"
+    ASN = "asn"
 
 
 HASH_TYPES = frozenset({IOCType.MD5, IOCType.SHA1, IOCType.SHA256, IOCType.SHA512})

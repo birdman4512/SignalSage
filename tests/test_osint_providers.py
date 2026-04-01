@@ -153,7 +153,7 @@ async def test_whois_age_unavailable(whois):
 
 @pytest.fixture
 def pdns():
-    return CIRCLPDNSProvider()
+    return CIRCLPDNSProvider(api_key="user:pass")
 
 
 _PDNS_RECORDS = "\n".join([
@@ -291,4 +291,9 @@ async def test_hibp_sensitive_breach_flagged(hibp):
 
 async def test_hibp_disabled_without_key():
     provider = HIBPProvider(api_key=None)
+    assert provider.enabled is False
+
+
+def test_circl_pdns_disabled_without_key():
+    provider = CIRCLPDNSProvider(api_key=None)
     assert provider.enabled is False

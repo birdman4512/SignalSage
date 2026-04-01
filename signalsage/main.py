@@ -35,6 +35,7 @@ async def main() -> None:
     # ------------------------------------------------------------------ #
     from signalsage.intel.abuseipdb import AbuseIPDBProvider
     from signalsage.intel.base import BaseProvider
+    from signalsage.intel.bgpview import BGPViewProvider
     from signalsage.intel.circl_cve import CIRCLCVEProvider
     from signalsage.intel.circl_pdns import CIRCLPDNSProvider
     from signalsage.intel.crtsh import CRTShProvider
@@ -75,6 +76,7 @@ async def main() -> None:
     add_provider(WHOISAgeProvider, "whois_age")
     add_provider(CIRCLPDNSProvider, "circl_pdns")
     add_provider(HIBPProvider, "hibp")
+    add_provider(BGPViewProvider, "bgpview")
 
     # ------------------------------------------------------------------ #
     # IOC Processor                                                        #

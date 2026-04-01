@@ -1,5 +1,6 @@
 """APScheduler-based digest scheduler — one job registered per topic."""
 
+import asyncio
 import json
 import logging
 import re
@@ -7,6 +8,8 @@ import time
 from collections.abc import Callable
 from datetime import date
 
+from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED
+from apscheduler.executors.asyncio import AsyncIOExecutor
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
@@ -116,7 +119,11 @@ class DigestScheduler:
         self.notifiers = notifiers
         self.timezone = timezone
         self.whisper_base_url = whisper_base_url
-        self._scheduler = AsyncIOScheduler(timezone=timezone)
+        self._scheduler = AsyncIOScheduler(
+            timezone=timezone,
+            executors={"default": AsyncIOExecutor()},
+        )
+        self._scheduler.add_listener(self._on_job_executed, EVENT_JOB_EXECUTED | EVENT_JOB_ERROR)
         self._history = DigestHistory(data_dir=data_dir)
         self._session_hashes: set[str] = set()
         self._session_date: str = date.today().isoformat()
@@ -145,6 +152,17 @@ class DigestScheduler:
                 replace_existing=True,
             )
             logger.info("Scheduled topic '%s' — cron '%s' (%s)", name, schedule, timezone)
+
+    def _on_job_executed(self, event) -> None:
+        if event.exception:
+            logger.error(
+                "Scheduled digest job '%s' raised an exception: %s",
+                event.job_id,
+                event.exception,
+                exc_info=event.traceback,
+            )
+        else:
+            logger.debug("Scheduled digest job '%s' completed", event.job_id)
 
     def _reset_session_if_new_day(self) -> None:
         today = date.today().isoformat()
@@ -320,7 +338,15 @@ class DigestScheduler:
                 await job.func(*job.args)
 
     def start(self) -> None:
-        self._scheduler.start()
+        # Explicitly bind to the running event loop so APScheduler 3.x doesn't
+        # create a new loop and silently fail to fire jobs in an async context.
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = None
+        self._scheduler.start(paused=False)
+        if loop and loop.is_running():
+            self._scheduler._eventloop = loop  # type: ignore[attr-defined]
         logger.info("Digest scheduler started (%d topic(s))", len(self._scheduler.get_jobs()))
 
     def shutdown(self) -> None:
