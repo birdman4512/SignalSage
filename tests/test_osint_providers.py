@@ -5,11 +5,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from signalsage.ioc.models import IOC, IOCType
 from signalsage.intel.circl_pdns import CIRCLPDNSProvider
 from signalsage.intel.crtsh import CRTShProvider
 from signalsage.intel.hibp import HIBPProvider
 from signalsage.intel.whois_age import WHOISAgeProvider
+from signalsage.ioc.models import IOC, IOCType
 
 
 def _mock_response(status: int, body) -> MagicMock:
