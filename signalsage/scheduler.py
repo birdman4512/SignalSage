@@ -89,6 +89,11 @@ def _postprocess_summary(
     # Persist items to history for future trend detection
     history.record_items(topic, items)
 
+    # ── Icon fallback — ensure no item has an empty icon ─────────────────────
+    for item in items:
+        if not str(item.get("icon") or "").strip():
+            item["icon"] = "📰"
+
     parsed["items"] = items
     return json.dumps(parsed, ensure_ascii=False), extra
 
@@ -147,23 +152,34 @@ class DigestScheduler:
             self._session_date = today
             logger.info("New day — cross-topic dedup session reset")
 
-    async def _run_topic(self, topic: dict) -> None:
-        """Fetch, summarize, and notify for a single topic."""
+    async def _run_topic(self, topic: dict, progress=None) -> None:
+        """Fetch, summarize, and notify for a single topic.
+
+        Args:
+            progress: Optional async callable(str) for on-demand status updates.
+                      Not used for scheduled runs — only wired up by run_topic_now.
+        """
         self._reset_session_if_new_day()
         name = topic.get("name", "Unknown")
         logger.info("Running digest for topic: %s", name)
 
         lookback = topic.get("lookback") or None
         lookback_seconds = parse_lookback(lookback)
+        sources = topic.get("sources", [])
 
         try:
+            if progress:
+                await progress(f"📡 Fetching {len(sources)} source(s) for *{name}*…")
             fetched = await fetch_topic(
-                topic.get("sources", []),
+                sources,
                 self.summarizer.max_chars,
                 timeout=15,
                 lookback_seconds=lookback_seconds,
                 whisper_base_url=self.whisper_base_url,
             )
+            sources_ok = sum(1 for s in fetched if s.get("content", "").strip())
+            if progress:
+                await progress(f"🤖 Summarizing {sources_ok}/{len(fetched)} source(s) with LLM…")
             summary = await self.summarizer.summarize_topic(name, fetched, lookback=lookback)
         except Exception as exc:
             logger.exception("Failed to generate digest for topic '%s': %s", name, exc)
@@ -237,12 +253,16 @@ class DigestScheduler:
             if job.id.startswith("digest_")
         ]
 
-    async def run_topic_now(self, topic_query: str) -> bool:
+    async def run_topic_now(self, topic_query: str, progress=None) -> bool:
         """Run a topic whose name or tags contain *topic_query* (case-insensitive).
 
         Exact tag matches take priority over partial name matches so that e.g.
         ``!digest news`` runs the topic tagged ``news`` rather than the first
         topic whose name happens to contain the word "news".
+
+        Args:
+            progress: Optional async callable(str) forwarded to _run_topic for
+                      stage status updates.
 
         Returns True if a matching topic was found and triggered, False otherwise.
         """
@@ -255,7 +275,7 @@ class DigestScheduler:
             tags = [t.lower() for t in topic.get("tags", [])]
             if query in tags:
                 logger.info("Triggering on-demand digest for topic '%s'", topic["name"])
-                await job.func(*job.args)
+                await self._run_topic(topic, progress=progress)
                 return True
 
         # Pass 2: partial name match
@@ -264,7 +284,7 @@ class DigestScheduler:
             name = topic["name"].lower()
             if query in name or name in query:
                 logger.info("Triggering on-demand digest for topic '%s'", topic["name"])
-                await job.func(*job.args)
+                await self._run_topic(topic, progress=progress)
                 return True
 
         logger.warning("No topic matching query '%s'", topic_query)

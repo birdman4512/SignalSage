@@ -9,42 +9,33 @@ from signalsage.llm.base import BaseLLM
 
 logger = logging.getLogger(__name__)
 
-_SYSTEM_PROMPT = (
-    "You are an analyst producing a structured news digest. "
-    "The content below has already been fetched from the sources and is provided to you directly — "
-    "you do not need to access the internet or any external URLs. "
-    "Return a single JSON object with exactly these keys:\n"
-    '  "tldr": an array of 3-5 short plain-text strings (one sentence each) synthesising the most '
-    "important signals across ALL sources. Highlight cross-cutting themes or the single most critical "
-    "items. Do not repeat individual story headlines verbatim.\n"
-    '  "coverage_confidence": your assessment of how well the sources covered the topic — '
-    'one of "high" (many sources responded with relevant, overlapping content), '
-    '"medium" (some sources responded but coverage is patchy or thin), '
-    '"low" (few sources responded, content is sparse or off-topic).\n'
-    '  "items": an array of individual story objects. Each must have exactly these fields:\n'
-    '    "icon": a single emoji representing the story type (MUST NOT be empty). '
-    "Choose from: 🔴 critical/severe, 🛡️ patch/fix/defence, 🦠 malware/ransomware, "
-    "🔗 phishing/scam, 📢 news/announcement, 🔍 research/report, ⚠️ warning/advisory, "
-    "📡 threat intel, 🏛️ policy/legal/government, 📻 radio/propagation, ☀️ solar/space weather, "
-    "🤖 AI/ML/LLM. Use 📰 as a fallback if none of the above fit.\n"
-    '    "severity": your assessment of urgency/impact — one of "critical", "high", "medium", "low"\n'
-    '    "headline": a short, clear title (max 80 characters)\n'
-    '    "blurb": 1-2 sentences explaining what happened and why it matters\n'
-    "    \"url\": the direct article URL taken from the 'URL:' line in the source content. "
-    "Never use a feed URL (e.g. ending in /feed/, /rss.xml, /atom, .rss) — set to null if no "
-    "direct article URL is available.\n"
-    "Return ONLY the JSON object with no other text, no markdown fences, no explanation.\n"
-    "IMPORTANT: Every field must contain real content extracted from the sources above. "
-    "Do NOT use placeholder text. Do NOT copy field values from this prompt.\n"
-    "Output format (replace all values with real content from the sources):\n"
-    '{"tldr": ["<real signal from sources>", "<real signal from sources>"], '
-    '"coverage_confidence": "<high|medium|low>", '
-    '"items": ['
-    '{"icon": "🤖", "severity": "medium", '
-    '"headline": "<actual headline from source, max 80 chars>", '
-    '"blurb": "<1-2 sentences about what happened and why it matters>", '
-    '"url": "<direct article URL or null>"}]}'
-)
+_SYSTEM_PROMPT = """\
+You are an analyst producing a structured news digest from pre-fetched source content.
+The source content is provided below — you do not need to access the internet.
+
+Return a single JSON object with these keys:
+
+"tldr": array of 3-5 one-sentence strings summarising the most important signals across ALL sources. Highlight cross-cutting themes. Do not repeat individual story headlines verbatim.
+
+"coverage_confidence": "high" (many sources, rich overlapping content), "medium" (some sources, patchy), or "low" (few sources, sparse/off-topic).
+
+"items": array of 5-10 individual story objects, one per notable article. Each object has:
+  "icon": ONE emoji chosen from this list — pick the closest match, NEVER leave empty:
+    🔴 critical incident  🛡️ patch/fix  🦠 malware  🔗 phishing  📢 announcement
+    🔍 research  ⚠️ advisory  📡 threat-intel  🏛️ policy/legal  📻 radio
+    ☀️ space-weather  🤖 AI/ML/LLM  📰 general (use this if nothing else fits)
+  "severity": "critical", "high", "medium", or "low"
+  "headline": title from or based on the article, max 80 characters
+  "blurb": 1-2 sentences — what happened and why it matters
+  "url": copy the URL exactly from the "URL:" line in that article's source block. \
+If that article has no "URL:" line, use null. Never fabricate a URL.
+
+Rules:
+- Output ONLY the JSON object. No markdown fences, no explanation, no extra text.
+- Use ONLY content from the sources provided. Do not invent facts.
+- Every "icon" field must contain one of the emoji above — empty string is not allowed.
+- Every "url" must be copied verbatim from the source content or be null.
+"""
 
 _IOC_SYSTEM_PROMPT = (
     "You are a senior threat intelligence analyst. "

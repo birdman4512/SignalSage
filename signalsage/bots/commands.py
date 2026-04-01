@@ -72,7 +72,7 @@ async def handle_digest_command(
     else:
         topic_query = " ".join(args)
         await reply(f"⏳ Running digest for *{topic_query}*…")
-        found = await scheduler.run_topic_now(topic_query)
+        found = await scheduler.run_topic_now(topic_query, progress=reply)
         if not found:
             names = scheduler.get_topic_names()
             listing = "\n".join(f"• {n}" for n in names) if names else "  (none)"
