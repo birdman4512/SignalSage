@@ -1,11 +1,15 @@
 """LLM-powered digest summarizer."""
 
+import asyncio
 import logging
 from datetime import date
 
 from signalsage.intel.base import IntelResult
 from signalsage.ioc.models import IOC
 from signalsage.llm.base import BaseLLM
+
+_LLM_RETRIES = 2
+_LLM_RETRY_DELAY = 5  # seconds between retries
 
 logger = logging.getLogger(__name__)
 
@@ -97,11 +101,47 @@ class DigestSummarizer:
             + "\n--- END CONTENT ---"
         )
 
-        try:
-            return await self.llm.complete(system=_SYSTEM_PROMPT, user=user_prompt, max_tokens=2048)
-        except Exception as exc:
-            logger.error("LLM error for topic %s: %s", topic_name, exc)
-            return f"Summary unavailable: {exc}"
+        for attempt in range(1 + _LLM_RETRIES):
+            try:
+                return await self.llm.complete(
+                    system=_SYSTEM_PROMPT, user=user_prompt, max_tokens=2048
+                )
+            except Exception as exc:
+                if attempt < _LLM_RETRIES:
+                    logger.warning(
+                        "LLM error for topic %s (attempt %d/%d): %s — retrying in %ds",
+                        topic_name,
+                        attempt + 1,
+                        1 + _LLM_RETRIES,
+                        exc,
+                        _LLM_RETRY_DELAY,
+                    )
+                    await asyncio.sleep(_LLM_RETRY_DELAY)
+                else:
+                    logger.error(
+                        "LLM error for topic %s after %d attempt(s): %s",
+                        topic_name,
+                        1 + _LLM_RETRIES,
+                        exc,
+                    )
+
+        # All retries exhausted — produce a minimal fallback from raw headlines
+        return self._fallback_summary(source_blocks)
+
+    def _fallback_summary(self, source_blocks: list[str]) -> str:
+        """
+        Return a minimal plain-text summary built from raw source headlines
+        when the LLM is unavailable.  Extracts the first line of each source
+        block (the ### Source Name heading) so users still see what was fetched.
+        """
+        lines = ["⚠️ LLM summary unavailable — showing raw source headlines:\n"]
+        for block in source_blocks:
+            for line in block.splitlines():
+                line = line.strip()
+                if line.startswith("### "):
+                    lines.append(f"• {line[4:]}")
+                    break
+        return "\n".join(lines)
 
     async def summarize_ioc(self, ioc: IOC, results: list[IntelResult]) -> str:
         """Generate a plain-English assessment of an IOC from its enrichment results."""
