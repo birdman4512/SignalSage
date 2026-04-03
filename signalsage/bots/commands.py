@@ -25,6 +25,21 @@ HELP_TEXT = """\
 """
 
 
+def _strip_slack_link(token: str) -> str:
+    """Unwrap Slack auto-linked tokens.
+
+    Slack formats URLs/domains as ``<http://example.com|example.com>`` or
+    bare ``<http://example.com>``.  Extract the display text (after ``|``) when
+    present, otherwise the raw URL between the angle brackets.
+    """
+    if token.startswith("<") and token.endswith(">"):
+        inner = token[1:-1]
+        if "|" in inner:
+            return inner.split("|", 1)[1]
+        return inner
+    return token
+
+
 def parse_command(text: str) -> tuple[str, list[str]] | None:
     """Return *(command, args)* if *text* starts with the command prefix, else None."""
     stripped = text.strip()
@@ -40,7 +55,9 @@ def parse_command(text: str) -> tuple[str, list[str]] | None:
     parts = stripped[len(COMMAND_PREFIX) :].split()
     if not parts:
         return None
-    return parts[0].lower(), parts[1:]
+    # Strip Slack auto-link formatting from every argument token
+    args = [_strip_slack_link(p) for p in parts[1:]]
+    return parts[0].lower(), args
 
 
 async def handle_digest_command(
