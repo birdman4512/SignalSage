@@ -171,12 +171,16 @@ class DigestScheduler:
             self._session_date = today
             logger.info("New day — cross-topic dedup session reset")
 
-    async def _run_topic(self, topic: dict, progress=None) -> None:
+    async def _run_topic(self, topic: dict, progress=None, override_channel=None) -> None:
         """Fetch, summarize, and notify for a single topic.
 
         Args:
             progress: Optional async callable(str) for on-demand status updates.
                       Not used for scheduled runs — only wired up by run_topic_now.
+            override_channel: Channel to fall back to when neither the topic nor
+                              the bot has a digest_channel configured.  Passed by
+                              on-demand ``!digest`` commands so the result always
+                              appears in the channel where the command was typed.
         """
         self._reset_session_if_new_day()
         name = topic.get("name", "Unknown")
@@ -267,8 +271,9 @@ class DigestScheduler:
             "images": images,
         }
 
-        # Per-topic channel override (None = use each bot's configured default)
-        topic_channel = topic.get("digest_channel") or None
+        # Per-topic channel override; fall back to the on-demand caller's channel
+        # when neither the topic nor the bot has a digest_channel configured.
+        topic_channel = topic.get("digest_channel") or override_channel or None
 
         for notify in self.notifiers:
             try:
@@ -293,7 +298,9 @@ class DigestScheduler:
             if job.id.startswith("digest_")
         ]
 
-    async def run_topic_now(self, topic_query: str, progress=None) -> bool:
+    async def run_topic_now(
+        self, topic_query: str, progress=None, override_channel=None
+    ) -> bool:
         """Run a topic whose name or tags contain *topic_query* (case-insensitive).
 
         Exact tag matches take priority over partial name matches so that e.g.
@@ -303,6 +310,9 @@ class DigestScheduler:
         Args:
             progress: Optional async callable(str) forwarded to _run_topic for
                       stage status updates.
+            override_channel: Fallback channel passed from on-demand commands so
+                              the digest appears in the channel where it was typed
+                              when no digest_channel is configured.
 
         Returns True if a matching topic was found and triggered, False otherwise.
         """
@@ -315,7 +325,7 @@ class DigestScheduler:
             tags = [t.lower() for t in topic.get("tags", [])]
             if query in tags:
                 logger.info("Triggering on-demand digest for topic '%s'", topic["name"])
-                await self._run_topic(topic, progress=progress)
+                await self._run_topic(topic, progress=progress, override_channel=override_channel)
                 return True
 
         # Pass 2: partial name match
@@ -324,18 +334,20 @@ class DigestScheduler:
             name = topic["name"].lower()
             if query in name or name in query:
                 logger.info("Triggering on-demand digest for topic '%s'", topic["name"])
-                await self._run_topic(topic, progress=progress)
+                await self._run_topic(topic, progress=progress, override_channel=override_channel)
                 return True
 
         logger.warning("No topic matching query '%s'", topic_query)
         return False
 
-    async def run_all_now(self) -> None:
+    async def run_all_now(self, override_channel=None) -> None:
         """Trigger all digest topics immediately."""
         for job in self._scheduler.get_jobs():
             if job.id.startswith("digest_"):
                 logger.info("Triggering on-demand digest for topic '%s'", job.args[0]["name"])
-                await job.func(*job.args)
+                await self._run_topic(
+                    job.args[0], override_channel=override_channel
+                )
 
     def start(self) -> None:
         # Explicitly bind to the running event loop so APScheduler 3.x doesn't

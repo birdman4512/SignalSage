@@ -6,7 +6,7 @@ import discord
 
 from signalsage.ioc.processor import IOCProcessor
 
-from .commands import HELP_TEXT, handle_digest_command, handle_osint_command, parse_command
+from .commands import HELP_TEXT, Platform, handle_digest_command, handle_osint_command, parse_command
 from .formatter import Platform, format_digest_plain, format_results, split_message
 
 logger = logging.getLogger(__name__)
@@ -50,12 +50,14 @@ class DiscordBot(discord.Client):
                     cmd_args,
                     self.scheduler,
                     reply=message.channel.send,
+                    reply_channel=message.channel.id,
                 )
             elif cmd_name == "osint":
                 await handle_osint_command(
                     cmd_args,
                     self.ioc_processor,
                     reply=message.channel.send,
+                    platform=Platform.DISCORD,
                 )
             elif cmd_name in ("help", "?"):
                 await message.channel.send(HELP_TEXT)
@@ -102,7 +104,17 @@ class DiscordBot(discord.Client):
         if not ch_id:
             logger.warning("No digest_channel configured for Discord")
             return
-        ch = self.get_channel(int(ch_id))
+        try:
+            ch_id_int = int(ch_id)
+        except (ValueError, TypeError):
+            logger.warning(
+                "Discord digest_channel '%s' is not a valid channel ID — "
+                "Discord requires an integer channel ID, not a channel name. "
+                "Right-click the channel and choose 'Copy Channel ID'.",
+                ch_id,
+            )
+            return
+        ch = self.get_channel(ch_id_int)
         if not ch:
             logger.warning("Discord channel %s not found or not accessible", ch_id)
             return

@@ -127,12 +127,50 @@ platforms:
     enabled: true
     monitor_channels:
       - 1234567890123456789   # paste channel IDs as integers
-    digest_channel: "1234567890123456789"
+    digest_channel: 1234567890123456789
 ```
 
 ---
 
-## 4. LLM Setup (daily digest summarisation)
+## 4. Bot Commands
+
+Both Slack and Discord use the `!` prefix. On Slack you can also mention the bot (`@SignalSage <command>`).
+
+### Digest commands
+
+| Command | Description |
+|---|---|
+| `!digest` | Run all digest topics immediately |
+| `!digest list` | Show all scheduled topics and their tags |
+| `!digest <tag>` | Run topics matching a tag (e.g. `!digest cyber`) |
+| `!digest <name>` | Run a topic by partial name match (case-insensitive) |
+
+### OSINT commands
+
+| Command | Description |
+|---|---|
+| `!osint email <address>` | Have I Been Pwned breach check for an email |
+| `!osint domain <domain>` | crt.sh cert transparency + WHOIS age + passive DNS |
+| `!osint ip <address>` | CIRCL passive DNS lookup for an IP |
+| `!osint asn <AS1234>` | BGPView ASN lookup (prefixes, IP ranges, org info) |
+
+### Automatic IOC enrichment
+
+No command needed — just post any indicator in a monitored channel and SignalSage will reply automatically:
+
+```
+Checking this IP: 185.220.101.45
+Hash to look up: 44d88612fea8a8f36de82e1278abb02f
+CVE to research: CVE-2024-12345
+```
+
+Supported indicator types: IPv4, IPv6, domains, URLs, MD5/SHA1/SHA256/SHA512 hashes, CVEs, ASNs, and email addresses.
+
+> **Tip:** Defanged indicators work too — `185[.]220[.]101[.]45`, `hxxps://example[.]com`, etc.
+
+---
+
+## 6. LLM Setup (daily digest summarisation)
 
 The digest uses a local LLM by default — **no API cost, runs on your own hardware**.
 
@@ -147,12 +185,12 @@ The digest uses a local LLM by default — **no API cost, runs on your own hardw
 
 **Recommendation: start with `gemma2:2b`.**
 
-### 4.1 Install Ollama
+### 6.1 Install Ollama
 
 Download from **[ollama.com/download](https://ollama.com/download)** and install.
 Ollama runs as a background service automatically after installation.
 
-### 4.2 Pull your chosen model
+### 6.2 Pull your chosen model
 
 ```bash
 ollama pull gemma2:2b
@@ -163,7 +201,7 @@ Verify it works:
 ollama run gemma2:2b "Summarise this in one sentence: Researchers discovered a new ransomware strain targeting healthcare."
 ```
 
-### 4.3 Configure SignalSage to use it
+### 6.3 Configure SignalSage to use it
 
 In `.env`:
 ```
@@ -172,7 +210,7 @@ OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_MODEL=gemma2:2b
 ```
 
-### 4.4 Alternative: paid Claude API
+### 6.4 Alternative: paid Claude API
 
 If you prefer Anthropic Claude instead:
 ```
@@ -182,7 +220,7 @@ ANTHROPIC_API_KEY=sk-ant-...
 
 The default model is `claude-haiku-4-5-20251001` (cheapest Claude model, ~$0.01/day for typical digest use).
 
-### 4.5 Docker Compose with bundled Ollama
+### 6.5 Docker Compose with bundled Ollama
 
 To run Ollama inside Docker alongside SignalSage:
 
@@ -200,7 +238,7 @@ docker-compose --profile ollama up -d
 
 ---
 
-## 5. Threat Intel API Keys
+## 7. Threat Intel API Keys
 
 All providers are optional. The bot runs with whichever keys you provide; providers without keys are automatically disabled.
 
@@ -225,7 +263,7 @@ ABUSEIPDB_API_KEY=...
 
 ---
 
-## 6. Daily Digest Configuration
+## 8. Daily Digest Configuration
 
 Edit `config/watchlist.yaml` to configure your topics. Each topic:
 - has its own cron **`schedule`**
@@ -253,7 +291,7 @@ Examples:
 
 ---
 
-## 7. Run
+## 9. Run
 
 ### Option A — Docker (recommended for production)
 
@@ -275,7 +313,7 @@ python -m signalsage.main
 
 ---
 
-## 8. Verify it's working
+## 10. Verify it's working
 
 **IOC enrichment:** Post an IP address in one of your monitored channels:
 ```
@@ -287,12 +325,18 @@ SignalSage should reply within a few seconds with threat intel results.
 
 ---
 
-## 9. Troubleshooting
+## 11. Troubleshooting
 
-**Bot doesn't respond to messages**
+**Slack bot doesn't respond to messages**
 - Check that you invited the bot to the channel: `/invite @SignalSage`
 - Verify `SLACK_APP_TOKEN` starts with `xapp-` and `SLACK_BOT_TOKEN` starts with `xoxb-`
 - Check Event Subscriptions are saved in the Slack app settings
+
+**Discord bot doesn't respond to messages**
+- Verify **Message Content Intent** is enabled in the bot settings at discord.com/developers/applications → your app → Bot → Privileged Gateway Intents
+- Confirm `DISCORD_BOT_TOKEN` in `.env` is correct and `platforms.discord.enabled: true` in `config/config.yaml`
+- Check the bot has been invited to the server and has permission to read and send messages in the channel
+- Channel IDs in `monitor_channels` must be integers (not strings): `- 1234567890123456789` not `- "1234567890123456789"`
 
 **"Cannot connect to Ollama"**
 - Verify Ollama is running: `curl http://localhost:11434/api/tags`

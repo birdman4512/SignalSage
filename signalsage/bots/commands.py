@@ -1,9 +1,16 @@
 """Command parsing and dispatch shared by Slack and Discord bots."""
 
 import logging
+import re
 from collections.abc import Awaitable, Callable
+from enum import Enum
 
 from signalsage.ioc.models import IOC, IOCType
+
+
+class Platform(Enum):
+    SLACK = "slack"
+    DISCORD = "discord"
 
 logger = logging.getLogger(__name__)
 
@@ -64,8 +71,16 @@ async def handle_digest_command(
     args: list[str],
     scheduler,
     reply: Callable[[str], Awaitable[None]],
+    reply_channel=None,
 ) -> None:
-    """Execute a parsed digest command and send feedback via *reply*."""
+    """Execute a parsed digest command and send feedback via *reply*.
+
+    Args:
+        reply_channel: The channel ID/name where the command was typed.  Passed
+                       as ``override_channel`` to the scheduler so on-demand
+                       digests are delivered there when no digest_channel is
+                       configured for the topic or the bot.
+    """
     if scheduler is None:
         await reply("⚠️ Digest scheduler is not running (LLM not configured).")
         return
@@ -73,7 +88,7 @@ async def handle_digest_command(
     if not args or args[0] == "all":
         names = scheduler.get_topic_names()
         await reply(f"⏳ Running digest for all {len(names)} topic(s)…")
-        await scheduler.run_all_now()
+        await scheduler.run_all_now(override_channel=reply_channel)
 
     elif args[0] == "list":
         topics = scheduler.get_topics()
@@ -96,7 +111,9 @@ async def handle_digest_command(
     else:
         topic_query = " ".join(args)
         await reply(f"⏳ Running digest for *{topic_query}*…")
-        found = await scheduler.run_topic_now(topic_query, progress=reply)
+        found = await scheduler.run_topic_now(
+            topic_query, progress=reply, override_channel=reply_channel
+        )
         if not found:
             names = scheduler.get_topic_names()
             listing = "\n".join(f"• {n}" for n in names) if names else "  (none)"
@@ -119,10 +136,27 @@ _OSINT_TYPE_MAP = {
 }
 
 
+_SCHEME_RE = re.compile(r"^https?://", re.IGNORECASE)
+
+
+def _normalize_value(subcommand: str, value: str) -> str:
+    """Strip URL scheme and path from domain/IP arguments.
+
+    Handles cases where a user passes a full URL to ``!osint domain`` or
+    ``!osint ip``, e.g. ``!osint domain https://evil.com/path`` → ``evil.com``.
+    """
+    if subcommand in ("domain", "ip") and _SCHEME_RE.match(value):
+        # Strip scheme, then take only the host portion (drop path/query)
+        host = _SCHEME_RE.sub("", value).split("/")[0].split("?")[0].split("#")[0]
+        return host.lower()
+    return value
+
+
 async def handle_osint_command(
     args: list[str],
     processor,
     reply: Callable[[str], Awaitable[None]],
+    platform: Platform = Platform.SLACK,
 ) -> None:
     """Run an on-demand OSINT lookup and post results via *reply*."""
     if len(args) < 2:
@@ -130,7 +164,8 @@ async def handle_osint_command(
         return
 
     subcommand = args[0].lower()
-    value = args[1].strip()
+    raw_value = args[1].strip()
+    value = _normalize_value(subcommand, raw_value)
 
     ioc_type = _OSINT_TYPE_MAP.get(subcommand)
     if ioc_type is None:
@@ -146,13 +181,23 @@ async def handle_osint_command(
         await reply(f"No OSINT results found for `{value}`.")
         return
 
+    def _bold(text: str) -> str:
+        return f"*{text}*" if platform == Platform.SLACK else f"**{text}**"
+
+    def _link(url: str, label: str) -> str:
+        if platform == Platform.SLACK:
+            return f"<{url}|{label}>"
+        return f"[{label}]({url})"
+
     sep = "─" * 36
-    lines = [f"🔍 *OSINT: `{value}`*", sep]
+    lines = [f"🔍 {_bold(f'OSINT: `{value}`')}", sep]
     for result in results:
+        name = _bold(result.provider)
         if result.error:
-            lines.append(f"⚠️ *{result.provider}*: {result.error}")
+            lines.append(f"⚠️ {name}: {result.error}")
         else:
-            lines.append(f"*{result.provider}*: {result.summary}")
+            line = f"{name}: {result.summary}"
             if result.report_url:
-                lines.append(f"  <{result.report_url}|View report>")
+                line += f"  ·  {_link(result.report_url, 'View report')}"
+            lines.append(line)
     await reply("\n".join(lines))
