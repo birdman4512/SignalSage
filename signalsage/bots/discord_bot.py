@@ -155,23 +155,34 @@ class DiscordBot(discord.Client):
         meta: dict | None = None,
     ) -> None:
         """Send a digest message to a channel."""
-        ch_id = channel or self.cfg.get("digest_channel")
-        if not ch_id:
-            logger.warning("No digest_channel configured for Discord")
-            return
-        try:
-            ch_id_int = int(ch_id)
-        except (ValueError, TypeError):
-            logger.warning(
-                "Discord digest_channel '%s' is not a valid channel ID — "
-                "Discord requires an integer channel ID, not a channel name. "
-                "Right-click the channel and choose 'Copy Channel ID'.",
-                ch_id,
-            )
-            return
+        # `channel` may be a Slack channel name when called from a cross-platform
+        # on-demand digest — try to parse it as a Discord integer ID first, then
+        # fall back to the configured digest_channel.
+        ch_id_int: int | None = None
+        if channel is not None:
+            try:
+                ch_id_int = int(channel)
+            except (ValueError, TypeError):
+                pass  # Not a Discord channel ID (e.g. Slack "#general") — ignore
+
+        if ch_id_int is None:
+            cfg_ch = self.cfg.get("digest_channel")
+            if not cfg_ch:
+                logger.warning("No digest_channel configured for Discord")
+                return
+            try:
+                ch_id_int = int(cfg_ch)
+            except (ValueError, TypeError):
+                logger.warning(
+                    "Discord digest_channel '%s' is not a valid channel ID — "
+                    "Discord requires an integer channel ID, not a channel name. "
+                    "Right-click the channel and choose 'Copy Channel ID'.",
+                    cfg_ch,
+                )
+                return
         ch = self.get_channel(ch_id_int)
         if not ch:
-            logger.warning("Discord channel %s not found or not accessible", ch_id)
+            logger.warning("Discord channel %s not found or not accessible", ch_id_int)
             return
         text = format_digest_plain(topic_name, summary, lookback, meta=meta)
         for chunk in split_message(text, 2000):
