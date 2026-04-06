@@ -4,12 +4,67 @@ import logging
 
 import discord
 
+from signalsage.intel.base import IntelResult
+from signalsage.ioc.models import IOC
 from signalsage.ioc.processor import IOCProcessor
 
 from .commands import HELP_TEXT, Platform, handle_digest_command, handle_osint_command, parse_command
-from .formatter import Platform, format_digest_plain, format_results, split_message
+from .formatter import (
+    IOC_TYPE_LABEL,
+    Platform,
+    _overall_verdict,
+    _provider_icon,
+    _risk_emoji,
+    _verdict_colour,
+    format_digest_plain,
+    split_message,
+)
 
 logger = logging.getLogger(__name__)
+
+# Verdict colours as Discord-compatible integers
+_EMBED_COLOUR = {
+    "malicious": 0xE01E5A,  # red
+    "clean": 0x2EB67D,      # green
+    "unknown": 0x4A4A4A,    # dark grey
+}
+
+
+def _ioc_embed(ioc: IOC, results: list[IntelResult]) -> discord.Embed:
+    """Build a rich Discord Embed for a single IOC intelligence result."""
+    label = IOC_TYPE_LABEL.get(ioc.type, ioc.type.value)
+    verdict_emoji, verdict_text = _overall_verdict(results)
+
+    malicious = any(r.malicious is True and not r.error for r in results)
+    clean = any(r.malicious is False and not r.error for r in results)
+    colour = _EMBED_COLOUR["malicious"] if malicious else (_EMBED_COLOUR["clean"] if clean else _EMBED_COLOUR["unknown"])
+
+    embed = discord.Embed(
+        title=f"🔍  {ioc.value}",
+        description=f"-# {label}\n{verdict_emoji}  **{verdict_text}**",
+        colour=colour,
+    )
+
+    for result in results[:25]:  # Discord embed field limit
+        icon = _provider_icon(result.provider)
+        risk = _risk_emoji(result)
+
+        if result.error:
+            value = f"{risk}  {result.error}"
+        else:
+            value = f"{risk}  {result.summary or 'No details'}"
+            if result.report_url:
+                value += f"\n-# [View report]({result.report_url})"
+
+        embed.add_field(
+            name=f"{icon}  {result.provider}",
+            value=value[:1024],
+            inline=True,
+        )
+
+    total = len([r for r in results if not r.error])
+    embed.set_footer(text=f"SignalSage  ·  {total} provider{'s' if total != 1 else ''} checked")
+    return embed
 
 
 class DiscordBot(discord.Client):
@@ -71,20 +126,20 @@ class DiscordBot(discord.Client):
         )
         results = await self.ioc_processor.process(content)
         for ioc, intel in results:
-            msg = format_results(ioc, intel, Platform.DISCORD)
+            embed = _ioc_embed(ioc, intel)
             sent: discord.Message | None = None
-            for chunk in split_message(msg, 2000):
-                try:
-                    sent = await message.channel.send(chunk)
-                except discord.HTTPException as exc:
-                    logger.error("Failed to send Discord message: %s", exc)
+            try:
+                sent = await message.channel.send(embed=embed)
+            except discord.HTTPException as exc:
+                logger.error("Failed to send Discord message: %s", exc)
 
             if not (self.summarizer and intel and sent):
                 continue
 
             try:
                 assessment = await self.summarizer.summarize_ioc(ioc, intel)
-                await sent.edit(content=f"{msg}\n\n**💡 Assessment:**\n{assessment}"[:2000])
+                embed.add_field(name="💡 Assessment", value=assessment[:1024], inline=False)
+                await sent.edit(embed=embed)
             except Exception as exc:
                 logger.warning("Discord IOC assessment failed for %s: %s", ioc.value, exc)
 
