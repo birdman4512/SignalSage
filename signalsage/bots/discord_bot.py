@@ -29,8 +29,8 @@ logger = logging.getLogger(__name__)
 # Verdict colours as Discord-compatible integers
 _EMBED_COLOUR = {
     "malicious": 0xE01E5A,  # red
-    "clean": 0x2EB67D,      # green
-    "unknown": 0x4A4A4A,    # dark grey
+    "clean": 0x2EB67D,  # green
+    "unknown": 0x4A4A4A,  # dark grey
 }
 
 
@@ -41,37 +41,33 @@ def _ioc_embed(ioc: IOC, results: list[IntelResult]) -> discord.Embed:
 
     malicious = any(r.malicious is True and not r.error for r in results)
     clean = any(r.malicious is False and not r.error for r in results)
-    colour = _EMBED_COLOUR["malicious"] if malicious else (_EMBED_COLOUR["clean"] if clean else _EMBED_COLOUR["unknown"])
+    colour = (
+        _EMBED_COLOUR["malicious"]
+        if malicious
+        else (_EMBED_COLOUR["clean"] if clean else _EMBED_COLOUR["unknown"])
+    )
+
+    lines = []
+    for result in results[:25]:
+        icon = _provider_icon(result.provider)
+        risk = _risk_emoji(result)
+        if result.error:
+            lines.append(f"{icon} **{result.provider}**  {risk}  {result.error}")
+        else:
+            line = f"{icon} **{result.provider}**  {risk}  {result.summary or 'No details'}"
+            if result.report_url:
+                line += f"  ·  [report]({result.report_url})"
+            lines.append(line)
+
+    provider_block = "\n".join(lines)
+    total = len([r for r in results if not r.error])
+    description = f"-# {label}\n{verdict_emoji}  **{verdict_text}**\n\n{provider_block}"
 
     embed = discord.Embed(
         title=f"🔍  {ioc.value}",
-        description=f"-# {label}\n{verdict_emoji}  **{verdict_text}**",
+        description=description[:4096],
         colour=colour,
     )
-
-    _SEP = "\u200b"       # zero-width space for field name
-    _LINE = "─" * 38      # thin rule rendered in Discord's muted text colour
-    for i, result in enumerate(results[:12]):  # keep under 25-field limit with separators
-        icon = _provider_icon(result.provider)
-        risk = _risk_emoji(result)
-
-        if result.error:
-            value = f"{risk}  {result.error}"
-        else:
-            value = f"{risk}  {result.summary or 'No details'}"
-            if result.report_url:
-                value += f"\n[View report]({result.report_url})"
-
-        embed.add_field(
-            name=f"{icon}  {result.provider}",
-            value=value[:1024],
-            inline=False,
-        )
-        # Thin rule between providers (not after the last one)
-        if i < len(results) - 1:
-            embed.add_field(name=_SEP, value=_LINE, inline=False)
-
-    total = len([r for r in results if not r.error])
     embed.set_footer(text=f"SignalSage  ·  {total} provider{'s' if total != 1 else ''} checked")
     return embed
 

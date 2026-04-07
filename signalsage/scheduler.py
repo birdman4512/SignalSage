@@ -298,9 +298,7 @@ class DigestScheduler:
             if job.id.startswith("digest_")
         ]
 
-    async def run_topic_now(
-        self, topic_query: str, progress=None, override_channel=None
-    ) -> bool:
+    async def run_topic_now(self, topic_query: str, progress=None, override_channel=None) -> bool:
         """Run a topic whose name or tags contain *topic_query* (case-insensitive).
 
         Exact tag matches take priority over partial name matches so that e.g.
@@ -345,9 +343,7 @@ class DigestScheduler:
         for job in self._scheduler.get_jobs():
             if job.id.startswith("digest_"):
                 logger.info("Triggering on-demand digest for topic '%s'", job.args[0]["name"])
-                await self._run_topic(
-                    job.args[0], override_channel=override_channel
-                )
+                await self._run_topic(job.args[0], override_channel=override_channel)
 
     def start(self) -> None:
         # Explicitly bind to the running event loop so APScheduler 3.x doesn't

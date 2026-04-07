@@ -205,7 +205,10 @@ def test_normalize_ip_bare_unchanged():
 
 def test_normalize_email_unchanged():
     # email subcommand should not strip anything
-    assert _normalize_value("email", "https://notanemail@example.com") == "https://notanemail@example.com"
+    assert (
+        _normalize_value("email", "https://notanemail@example.com")
+        == "https://notanemail@example.com"
+    )
 
 
 # ---------------------------------------------------------------------------

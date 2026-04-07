@@ -12,6 +12,7 @@ class Platform(Enum):
     SLACK = "slack"
     DISCORD = "discord"
 
+
 logger = logging.getLogger(__name__)
 
 COMMAND_PREFIX = "!"
