@@ -59,7 +59,7 @@ def _ioc_embed(ioc: IOC, results: list[IntelResult]) -> discord.Embed:
                 line += f"  ·  [report]({result.report_url})"
             lines.append(line)
 
-    provider_block = "\n".join(lines)
+    provider_block = "\n\n".join(lines)
     total = len([r for r in results if not r.error])
     description = f"-# {label}\n{verdict_emoji}  **{verdict_text}**\n\n{provider_block}"
 
