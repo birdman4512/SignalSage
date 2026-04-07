@@ -8,14 +8,18 @@ from signalsage.intel.base import IntelResult
 from signalsage.ioc.models import IOC
 from signalsage.ioc.processor import IOCProcessor
 
-from .commands import HELP_TEXT, Platform, handle_digest_command, handle_osint_command, parse_command
+from .commands import (
+    HELP_TEXT,
+    Platform,
+    handle_digest_command,
+    handle_osint_command,
+    parse_command,
+)
 from .formatter import (
     IOC_TYPE_LABEL,
-    Platform,
     _overall_verdict,
     _provider_icon,
     _risk_emoji,
-    _verdict_colour,
     format_digest_plain,
     split_message,
 )
@@ -119,12 +123,20 @@ class DiscordBot(discord.Client):
             return  # don't also process commands as IOCs
 
         # --- IOC enrichment ---
-        logger.debug(
-            "Processing Discord message in channel %s from %s",
+        logger.info(
+            "Discord message in channel %s from %s: %r",
             message.channel.id,
             message.author,
+            content[:120],
         )
         results = await self.ioc_processor.process(content)
+        if not results:
+            logger.info("No IOCs extracted from message")
+        else:
+            logger.info(
+                "Extracted IOCs: %s",
+                ", ".join(f"{ioc.type.value}:{ioc.value}" for ioc, _ in results),
+            )
         for ioc, intel in results:
             embed = _ioc_embed(ioc, intel)
             sent: discord.Message | None = None

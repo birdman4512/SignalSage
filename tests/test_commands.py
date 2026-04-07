@@ -268,7 +268,6 @@ async def test_osint_domain_normalises_https_input():
     reply = AsyncMock()
     processor = MagicMock()
     from signalsage.intel.base import IntelResult
-    from signalsage.ioc.models import IOCType
 
     captured = []
 

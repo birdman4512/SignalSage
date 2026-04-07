@@ -8,7 +8,13 @@ from slack_bolt.async_app import AsyncApp
 
 from signalsage.ioc.processor import IOCProcessor
 
-from .commands import HELP_TEXT, Platform, handle_digest_command, handle_osint_command, parse_command
+from .commands import (
+    HELP_TEXT,
+    Platform,
+    handle_digest_command,
+    handle_osint_command,
+    parse_command,
+)
 from .formatter import format_digest_slack_message, format_slack_message
 
 logger = logging.getLogger(__name__)
