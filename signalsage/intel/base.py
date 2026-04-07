@@ -65,4 +65,8 @@ class BaseProvider(ABC):
             return self._error(ioc, "Unauthorized — check API key")
         if resp.status_code == 404:
             return None  # callers handle 404 themselves
-        return None  # let raise_for_status() handle other codes
+        if resp.status_code >= 500:
+            return self._error(ioc, f"Service unavailable ({resp.status_code})")
+        if resp.status_code >= 400:
+            return self._error(ioc, f"Request failed ({resp.status_code})")
+        return None
