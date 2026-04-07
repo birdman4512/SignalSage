@@ -432,7 +432,7 @@ def format_digest_slack_message(
             headline = str(item.get("headline", "")).strip()
             blurb = str(item.get("blurb", "")).strip()
             url = str(item.get("url") or "").strip()
-            item_icon = str(item.get("icon") or "📰").strip()
+            item_icon = str(item.get("icon") or "📰").strip().split()[0]
             severity = str(item.get("severity") or "").lower()
             sev_emoji = _SEVERITY_EMOJI.get(severity, "")
 
@@ -581,7 +581,7 @@ def format_digest_plain(
         headline = str(item.get("headline", "")).strip()
         blurb = str(item.get("blurb", "")).strip()
         url = str(item.get("url") or "").strip()
-        item_icon = str(item.get("icon") or "📰").strip()
+        item_icon = str(item.get("icon") or "📰").strip().split()[0]
         severity = str(item.get("severity") or "").lower()
         sev_emoji = _SEVERITY_EMOJI.get(severity, "")
         if not headline:

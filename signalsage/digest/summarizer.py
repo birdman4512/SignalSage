@@ -24,20 +24,21 @@ Return a single JSON object with these keys:
 "coverage_confidence": "high" (many sources, rich overlapping content), "medium" (some sources, patchy), or "low" (few sources, sparse/off-topic).
 
 "items": array of 5-10 individual story objects, one per notable article. Each object has:
-  "icon": ONE emoji chosen from this list — pick the closest match, NEVER leave empty:
-    🔴 critical incident  🛡️ patch/fix  🦠 malware  🔗 phishing  📢 announcement
-    🔍 research  ⚠️ advisory  📡 threat-intel  🏛️ policy/legal  📻 radio
-    ☀️ space-weather  🤖 AI/ML/LLM  📰 general (use this if nothing else fits)
+  "icon": ONE emoji character — output the emoji only, no words. Choose the closest match:
+    🔴=critical-incident  🛡️=patch-or-fix  🦠=malware  🔗=phishing  📢=announcement
+    🔍=research  ⚠️=advisory  📡=threat-intel  🏛️=policy-or-legal  📻=radio
+    ☀️=space-weather  🤖=AI-or-ML  📰=general
   "severity": "critical", "high", "medium", or "low"
   "headline": title from or based on the article, max 80 characters
   "blurb": 1-2 sentences — what happened and why it matters
-  "url": copy the URL exactly from the "URL:" line in that article's source block. \
-If that article has no "URL:" line, use null. Never fabricate a URL.
+  "url": each source block starts with "Title:" then "URL:" — copy the URL from the "URL:" \
+line that appears directly after the matching article's "Title:" line. \
+If no "URL:" line exists for this article, use null. Never fabricate a URL.
 
 Rules:
 - Output ONLY the JSON object. No markdown fences, no explanation, no extra text.
 - Use ONLY content from the sources provided. Do not invent facts.
-- Every "icon" field must contain one of the emoji above — empty string is not allowed.
+- "icon" must be a single emoji character — never include any words after it.
 - Every "url" must be copied verbatim from the source content or be null.
 """
 
