@@ -187,9 +187,11 @@ async def _extract_feed_content(
         else:
             logger.debug("No audio enclosure in entry: %r", title)
 
-        text = f"Title: {title}\n{summary}"
+        text = f"Title: {title}"
         if link:
             text += f"\nURL: {link}"
+        if summary:
+            text += f"\n{summary}"
         parts.append(text)
 
         if len(parts) >= 10:
