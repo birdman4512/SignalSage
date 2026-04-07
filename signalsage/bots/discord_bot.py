@@ -49,7 +49,8 @@ def _ioc_embed(ioc: IOC, results: list[IntelResult]) -> discord.Embed:
         colour=colour,
     )
 
-    for result in results[:25]:  # Discord embed field limit
+    _BLANK = "\u200b"  # zero-width space — Discord requires non-empty field values
+    for i, result in enumerate(results[:12]):  # keep under 25-field limit with separators
         icon = _provider_icon(result.provider)
         risk = _risk_emoji(result)
 
@@ -58,13 +59,16 @@ def _ioc_embed(ioc: IOC, results: list[IntelResult]) -> discord.Embed:
         else:
             value = f"{risk}  {result.summary or 'No details'}"
             if result.report_url:
-                value += f"\n-# [View report]({result.report_url})"
+                value += f"\n[View report]({result.report_url})"
 
         embed.add_field(
             name=f"{icon}  {result.provider}",
             value=value[:1024],
-            inline=True,
+            inline=False,
         )
+        # Thin visual gap between providers (except after the last one)
+        if i < len(results) - 1:
+            embed.add_field(name=_BLANK, value=_BLANK, inline=False)
 
     total = len([r for r in results if not r.error])
     embed.set_footer(text=f"SignalSage  ·  {total} provider{'s' if total != 1 else ''} checked")
