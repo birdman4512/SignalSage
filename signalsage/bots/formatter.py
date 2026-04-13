@@ -1,12 +1,15 @@
 """Message formatting for Slack and Discord platforms."""
 
 import json
+import logging
 import re
 from datetime import date
 from enum import Enum
 
 from signalsage.intel.base import IntelResult
 from signalsage.ioc.models import IOC, IOCType
+
+logger = logging.getLogger(__name__)
 
 
 class Platform(Enum):
@@ -564,6 +567,14 @@ def format_digest_plain(
 
     sep = "─" * 36
     lines: list[str] = []
+
+    items_with_url = [i for i in parsed["items"] if str(i.get("url") or "").startswith("http")]
+    logger.info(
+        "Digest '%s': %d items, %d have URLs",
+        topic_name,
+        len(parsed["items"]),
+        len(items_with_url),
+    )
 
     # TLDR
     if parsed["tldr"]:

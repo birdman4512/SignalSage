@@ -187,6 +187,8 @@ async def _extract_feed_content(
         else:
             logger.debug("No audio enclosure in entry: %r", title)
 
+        if not link:
+            logger.warning("Feed entry has no link: %r", title)
         text = f"Title: {title}"
         if link:
             text += f"\nURL: {link}"
@@ -200,6 +202,8 @@ async def _extract_feed_content(
     if not parts:
         return ""
 
+    linked = sum(1 for p in parts if "\nURL: " in p)
+    logger.info("Feed: %d entries included, %d have URLs", len(parts), linked)
     combined = "\n\n---\n\n".join(parts)
     return combined[:max_chars]
 

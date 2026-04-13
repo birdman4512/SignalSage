@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 _SYSTEM_PROMPT = """\
 You are an analyst producing a structured news digest from pre-fetched source content.
-The source content is provided below — you do not need to access the internet.
+The source content is provided below - you do not need to access the internet.
 
 Return a single JSON object with these keys:
 
@@ -24,21 +24,19 @@ Return a single JSON object with these keys:
 "coverage_confidence": "high" (many sources, rich overlapping content), "medium" (some sources, patchy), or "low" (few sources, sparse/off-topic).
 
 "items": array of 5-10 individual story objects, one per notable article. Each object has:
-  "icon": ONE emoji character — output the emoji only, no words. Choose the closest match:
+  "icon": ONE emoji character - output the emoji only, no words. Choose the closest match:
     🔴=critical-incident  🛡️=patch-or-fix  🦠=malware  🔗=phishing  📢=announcement
     🔍=research  ⚠️=advisory  📡=threat-intel  🏛️=policy-or-legal  📻=radio
     ☀️=space-weather  🤖=AI-or-ML  📰=general
   "severity": "critical", "high", "medium", or "low"
   "headline": title from or based on the article, max 80 characters
-  "blurb": 1-2 sentences — what happened and why it matters
-  "url": each source block starts with "Title:" then "URL:" — copy the URL from the "URL:" \
-line that appears directly after the matching article's "Title:" line. \
-If no "URL:" line exists for this article, use null. Never fabricate a URL.
+  "blurb": 1-2 sentences - what happened and why it matters
+  "url": prefer the article URL copied from the "URL:" line that appears directly after the matching article's "Title:" line. If that article has no "URL:" line, fall back to the "Source URL:" line for that source block. If neither exists, use null. Never fabricate a URL.
 
 Rules:
 - Output ONLY the JSON object. No markdown fences, no explanation, no extra text.
 - Use ONLY content from the sources provided. Do not invent facts.
-- "icon" must be a single emoji character — never include any words after it.
+- "icon" must be a single emoji character - never include any words after it.
 - Every "url" must be copied verbatim from the source content or be null.
 """
 
@@ -46,7 +44,7 @@ _IOC_SYSTEM_PROMPT = (
     "You are a senior threat intelligence analyst. "
     "Given threat intelligence results for an indicator, write a concise 2-3 sentence assessment. "
     "State the overall verdict, what the indicator is associated with, and any recommended action. "
-    "Be direct and factual. Do not repeat the raw numbers — interpret them."
+    "Be direct and factual. Do not repeat the raw numbers - interpret them."
 )
 
 
@@ -70,7 +68,7 @@ class DigestSummarizer:
             content = src.get("content", "").strip()
             if not content:
                 continue
-            block = f"### {src['name']}\n{content}\nSource: {src['url']}\n"
+            block = f"### {src['name']}\nSource URL: {src['url']}\n{content}\n"
             if total_chars + len(block) > self.max_total_chars:
                 skipped += 1
                 continue
@@ -78,7 +76,7 @@ class DigestSummarizer:
             total_chars += len(block)
         if skipped:
             logger.info(
-                "Topic '%s': skipped %d source(s) — total content would exceed %d chars",
+                "Topic '%s': skipped %d source(s) - total content would exceed %d chars",
                 topic_name,
                 skipped,
                 self.max_total_chars,
@@ -104,13 +102,15 @@ class DigestSummarizer:
 
         for attempt in range(1 + _LLM_RETRIES):
             try:
-                return await self.llm.complete(
+                raw = await self.llm.complete(
                     system=_SYSTEM_PROMPT, user=user_prompt, max_tokens=2048
                 )
+                logger.debug("LLM raw output for topic %r: %s", topic_name, raw[:500])
+                return raw
             except Exception as exc:
                 if attempt < _LLM_RETRIES:
                     logger.warning(
-                        "LLM error for topic %s (attempt %d/%d): %s — retrying in %ds",
+                        "LLM error for topic %s (attempt %d/%d): %s - retrying in %ds",
                         topic_name,
                         attempt + 1,
                         1 + _LLM_RETRIES,
@@ -126,16 +126,16 @@ class DigestSummarizer:
                         exc,
                     )
 
-        # All retries exhausted — produce a minimal fallback from raw headlines
+        # All retries exhausted - produce a minimal fallback from raw headlines
         return self._fallback_summary(source_blocks)
 
     def _fallback_summary(self, source_blocks: list[str]) -> str:
         """
         Return a minimal plain-text summary built from raw source headlines
-        when the LLM is unavailable.  Extracts the first line of each source
+        when the LLM is unavailable. Extracts the first line of each source
         block (the ### Source Name heading) so users still see what was fetched.
         """
-        lines = ["⚠️ LLM summary unavailable — showing raw source headlines:\n"]
+        lines = ["⚠️ LLM summary unavailable - showing raw source headlines:\n"]
         for block in source_blocks:
             for line in block.splitlines():
                 line = line.strip()
@@ -149,7 +149,7 @@ class DigestSummarizer:
         lines: list[str] = []
         for r in results:
             if r.error:
-                lines.append(f"- {r.provider}: error — {r.error}")
+                lines.append(f"- {r.provider}: error - {r.error}")
             else:
                 verdict = (
                     "MALICIOUS"
@@ -158,7 +158,7 @@ class DigestSummarizer:
                     if r.malicious is False
                     else "UNKNOWN"
                 )
-                lines.append(f"- {r.provider}: {verdict} — {r.summary or 'no details'}")
+                lines.append(f"- {r.provider}: {verdict} - {r.summary or 'no details'}")
 
         label = ioc.type.value.upper()
         user_prompt = (
@@ -168,4 +168,4 @@ class DigestSummarizer:
             return await self.llm.complete(system=_IOC_SYSTEM_PROMPT, user=user_prompt)
         except Exception as exc:
             logger.error("LLM error summarizing IOC %s: %s", ioc.value, exc)
-            return f"⚠️ Assessment unavailable — {exc}"
+            return f"⚠️ Assessment unavailable - {exc}"
