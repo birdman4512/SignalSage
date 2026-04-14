@@ -20,5 +20,5 @@ async def test_summarize_topic_includes_source_url_and_fallback_guidance():
 
     llm.complete.assert_awaited_once()
     kwargs = llm.complete.await_args.kwargs
-    assert "fall back to the \"Source URL:\" line" in kwargs["system"]
+    assert 'fall back to the "Source URL:" line' in kwargs["system"]
     assert "Source URL: https://example.com/source" in kwargs["user"]
