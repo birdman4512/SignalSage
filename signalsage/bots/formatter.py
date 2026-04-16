@@ -350,11 +350,8 @@ def _parse_digest_json(summary: str) -> dict | None:
     format for backward compatibility. Returns None if parsing fails entirely
     (caller falls back to plain-text rendering).
     """
-    try:
-        text = summary.strip()
-        # Strip markdown code fences if the model adds them
-        text = re.sub(r"^```[a-z]*\n?", "", text)
-        text = re.sub(r"\n?```$", "", text).strip()
+
+    def _try_parse(text: str) -> dict | None:
         # Quote bare shortcodes used as JSON values (e.g. "icon": :shield: → "icon": ":shield:")
         text = re.sub(r'(?<!["\w]):([\w]+):(?!["\w])', r'":\1:"', text)
         # Fix emoji shortcodes that some models emit (e.g. :shield: → 🛡️)
@@ -372,10 +369,32 @@ def _parse_digest_json(summary: str) -> dict | None:
                 "coverage_confidence": parsed.get("coverage_confidence") or None,
             }
         if isinstance(parsed, list) and parsed and isinstance(parsed[0], dict):
-            # Legacy flat-array format
             return {"tldr": [], "items": parsed, "coverage_confidence": None}
+        return None
+
+    text = summary.strip()
+
+    # 1. Strip leading/trailing markdown code fences (handles ```json, ```JSON, ``` etc.)
+    text = re.sub(r"^```[a-zA-Z]*\s*", "", text)
+    text = re.sub(r"\s*```$", "", text).strip()
+
+    # 2. If there's still an embedded code fence (LLM added preamble text), extract it
+    fence_match = re.search(r"```[a-zA-Z]*\s*(.*?)```", text, re.DOTALL)
+    if fence_match:
+        text = fence_match.group(1).strip()
+
+    # 3. If text still doesn't start with { or [, find the first JSON object/array
+    if text and text[0] not in ("{", "["):
+        obj_match = re.search(r"[{\[].*", text, re.DOTALL)
+        if obj_match:
+            text = obj_match.group(0).strip()
+
+    try:
+        return _try_parse(text)
     except (json.JSONDecodeError, ValueError, IndexError):
         pass
+
+    logger.warning("Failed to parse digest JSON (length=%d): %r…", len(summary), summary[:120])
     return None
 
 
@@ -435,7 +454,7 @@ def format_digest_slack_message(
             headline = str(item.get("headline", "")).strip()
             blurb = str(item.get("blurb", "")).strip()
             url = str(item.get("url") or "").strip()
-            item_icon = str(item.get("icon") or "📰").strip().split()[0]
+            item_icon = (str(item.get("icon") or "").strip().split() or ["📰"])[0]
             severity = str(item.get("severity") or "").lower()
             sev_emoji = _SEVERITY_EMOJI.get(severity, "")
 
@@ -592,7 +611,7 @@ def format_digest_plain(
         headline = str(item.get("headline", "")).strip()
         blurb = str(item.get("blurb", "")).strip()
         url = str(item.get("url") or "").strip()
-        item_icon = str(item.get("icon") or "📰").strip().split()[0]
+        item_icon = (str(item.get("icon") or "").strip().split() or ["📰"])[0]
         severity = str(item.get("severity") or "").lower()
         sev_emoji = _SEVERITY_EMOJI.get(severity, "")
         if not headline:
