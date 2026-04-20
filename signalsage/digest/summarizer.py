@@ -1,7 +1,9 @@
 """LLM-powered digest summarizer."""
 
 import asyncio
+import json
 import logging
+import re
 from datetime import date
 
 from signalsage.intel.base import IntelResult
@@ -10,8 +12,60 @@ from signalsage.llm.base import BaseLLM
 
 _LLM_RETRIES = 2
 _LLM_RETRY_DELAY = 5  # seconds between retries
+_URL_MATCH_THRESHOLD = 0.35  # minimum Jaccard similarity to inject a URL
 
 logger = logging.getLogger(__name__)
+
+_PUNCT_RE = re.compile(r"[^\w\s]")
+
+
+def _jaccard(a: str, b: str) -> float:
+    wa = set(_PUNCT_RE.sub("", a.lower()).split())
+    wb = set(_PUNCT_RE.sub("", b.lower()).split())
+    if not wa or not wb:
+        return 0.0
+    return len(wa & wb) / len(wa | wb)
+
+
+def _inject_urls(raw_json: str, title_url_pairs: list[tuple[str, str]]) -> str:
+    """
+    Post-process LLM JSON: for any item with a null/missing URL, find the best
+    matching source article by Jaccard title similarity and inject its URL.
+    """
+    if not title_url_pairs:
+        return raw_json
+    try:
+        data = json.loads(raw_json)
+    except (json.JSONDecodeError, ValueError):
+        return raw_json
+
+    items = data.get("items") if isinstance(data, dict) else None
+    if not isinstance(items, list):
+        return raw_json
+
+    injected = 0
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        existing = str(item.get("url") or "").strip()
+        if existing.startswith("http"):
+            continue  # already has a URL
+        headline = str(item.get("headline") or "")
+        best_url, best_score = "", 0.0
+        for title, url in title_url_pairs:
+            if not url:
+                continue
+            score = _jaccard(headline, title)
+            if score > best_score:
+                best_score, best_url = score, url
+        if best_score >= _URL_MATCH_THRESHOLD and best_url:
+            item["url"] = best_url
+            injected += 1
+
+    if injected:
+        logger.info("URL injection: filled %d missing URL(s) by title match", injected)
+    return json.dumps(data)
+
 
 _SYSTEM_PROMPT = """\
 You are an analyst producing a structured news digest from pre-fetched source content.
@@ -62,6 +116,7 @@ class DigestSummarizer:
         today = date.today().strftime("%B %d, %Y")
 
         source_blocks: list[str] = []
+        title_url_pairs: list[tuple[str, str]] = []  # (title, url) for URL injection fallback
         total_chars = 0
         skipped = 0
         for src in sources:
@@ -74,6 +129,9 @@ class DigestSummarizer:
                 continue
             source_blocks.append(block)
             total_chars += len(block)
+            # Extract (title, url) pairs from feed content for fallback URL matching
+            for m in re.finditer(r"^Title:\s*(.+)\nURL:\s*(https?://\S+)", content, re.MULTILINE):
+                title_url_pairs.append((m.group(1).strip(), m.group(2).strip()))
         if skipped:
             logger.info(
                 "Topic '%s': skipped %d source(s) - total content would exceed %d chars",
@@ -106,7 +164,7 @@ class DigestSummarizer:
                     system=_SYSTEM_PROMPT, user=user_prompt, max_tokens=2048
                 )
                 logger.debug("LLM raw output for topic %r: %s", topic_name, raw[:500])
-                return raw
+                return _inject_urls(raw, title_url_pairs)
             except Exception as exc:
                 if attempt < _LLM_RETRIES:
                     logger.warning(

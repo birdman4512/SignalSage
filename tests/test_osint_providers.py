@@ -114,19 +114,14 @@ _RDAP_RESPONSE = {
 
 
 async def test_whois_age_new_domain_flagged(whois):
+    from datetime import UTC, datetime, timedelta
+
     ioc = IOC(value="brandnew.com", type=IOCType.DOMAIN)
+    new_date = datetime.now(UTC) - timedelta(days=10)
     with patch.object(
         whois,
         "_lookup_rdap",
-        new=AsyncMock(
-            return_value=(
-                __import__("datetime").datetime(
-                    2026, 3, 20, tzinfo=__import__("datetime").timezone.utc
-                ),
-                "GoDaddy",
-                "2027-03-20",
-            )
-        ),
+        new=AsyncMock(return_value=(new_date, "GoDaddy", "2027-03-20")),
     ):
         result = await whois.lookup(ioc)
     assert result is not None
