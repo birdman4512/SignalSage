@@ -59,6 +59,7 @@ def _inject_urls(
         return raw_json
 
     injected = 0
+    no_url = 0
     for item in items:
         if not isinstance(item, dict):
             continue
@@ -85,15 +86,26 @@ def _inject_urls(
         if best_score >= _URL_MATCH_THRESHOLD and best_url:
             item["url"] = best_url
             injected += 1
+        else:
+            no_url += 1
+            logger.debug(
+                "No URL resolved for item art_id=%r headline=%r (best_jaccard=%.2f, url_map_keys=%s)",
+                art_id,
+                headline[:60],
+                best_score,
+                list(url_map.keys()),
+            )
 
     if injected:
         logger.info("URL injection: filled %d missing URL(s)", injected)
+    if no_url:
+        logger.warning("URL injection: %d item(s) have no URL after all fallbacks", no_url)
     return json.dumps(data)
 
 
 _SYSTEM_PROMPT = """\
 You are an analyst producing a structured news digest from pre-fetched source content.
-Each article in the content is labelled with an ID like [A1], [A2], etc.
+Each article in the content is labelled with an ID like [A1], [A2], etc., and may have a URL line.
 The source content is provided below - you do not need to access the internet.
 
 Return a single JSON object with these keys:
@@ -111,13 +123,14 @@ Return a single JSON object with these keys:
   "severity": "critical", "high", "medium", or "low"
   "headline": title from or based on the article, max 80 characters
   "blurb": 1-2 sentences - what happened and why it matters
-  "url": null (URLs are resolved automatically from the art_id — leave this null)
+  "url": copy the URL exactly from the article's "URL:" line in the source content. If no URL line exists for that article, use null.
 
 Rules:
 - Output ONLY the JSON object. No markdown fences, no explanation, no extra text.
 - Use ONLY content from the sources provided. Do not invent facts.
 - "icon" must be a single emoji character - never include any words after it.
 - "art_id" must match one of the [A<N>] labels in the source content.
+- "url" must be copied verbatim from the source — do not paraphrase or invent URLs.
 """
 
 _IOC_SYSTEM_PROMPT = (
@@ -185,6 +198,13 @@ class DigestSummarizer:
                 skipped,
                 self.max_total_chars,
             )
+
+        logger.info(
+            "Topic '%s': %d articles labelled, %d have URLs (url_map)",
+            topic_name,
+            art_counter,
+            len(url_map),
+        )
 
         if not source_blocks:
             window = f"the last {lookback}" if lookback else today
