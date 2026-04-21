@@ -27,10 +27,7 @@ class ThreatFoxProvider(BaseProvider):
     requires_key = False
 
     async def lookup(self, ioc: IOC) -> IntelResult | None:
-        # Format value for ThreatFox search
-        search_term = self._format_value(ioc)
-
-        payload = {"query": "search_ioc", "search_term": search_term}
+        payload = {"query": "search_ioc", "search_term": ioc.value}
 
         headers = {"Auth-Key": self.api_key} if self.api_key else {}
         try:
@@ -87,10 +84,3 @@ class ThreatFoxProvider(BaseProvider):
             },
             report_url=f"https://threatfox.abuse.ch/ioc/{first.get('id', '')}",
         )
-
-    def _format_value(self, ioc: IOC) -> str:
-        """Format IOC value for ThreatFox API search."""
-        if ioc.type == IOCType.IPV4:
-            # ThreatFox stores IPs as ip:port, search by IP prefix
-            return ioc.value
-        return ioc.value

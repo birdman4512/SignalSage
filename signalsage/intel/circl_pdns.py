@@ -1,5 +1,6 @@
 """CIRCL Passive DNS provider — free, no key required."""
 
+import json
 import logging
 
 import httpx
@@ -26,7 +27,7 @@ class CIRCLPDNSProvider(BaseProvider):
                 timeout=self.timeout,
                 # CIRCL PDNS returns newline-delimited JSON, not a JSON array
                 headers={"Accept": "application/json"},
-                auth=(self.api_key.split(":", 1)[0], self.api_key.split(":", 1)[1])
+                auth=tuple(self.api_key.split(":", 1))  # type: ignore[arg-type]
                 if ":" in (self.api_key or "")
                 else None,
             ) as client:
@@ -57,9 +58,6 @@ class CIRCLPDNSProvider(BaseProvider):
                 malicious=None,
                 summary="No passive DNS records found",
             )
-
-        # Parse newline-delimited JSON records
-        import json
 
         records: list[dict] = []
         for line in raw.splitlines():

@@ -349,11 +349,11 @@ class DigestScheduler:
         # Explicitly bind to the running event loop so APScheduler 3.x doesn't
         # create a new loop and silently fail to fire jobs in an async context.
         try:
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
         except RuntimeError:
             loop = None
         self._scheduler.start(paused=False)
-        if loop and loop.is_running():
+        if loop is not None:
             self._scheduler._eventloop = loop  # type: ignore[attr-defined]
         logger.info("Digest scheduler started (%d topic(s))", len(self._scheduler.get_jobs()))
 

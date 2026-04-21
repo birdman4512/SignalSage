@@ -33,11 +33,12 @@ class IOCProcessor:
         if not iocs:
             return []
 
-        # Deduplicate by value, preserving first occurrence
+        # Deduplicate by (value, type), preserving first occurrence
         seen: dict = {}
         for ioc in iocs:
-            if ioc.value not in seen:
-                seen[ioc.value] = ioc
+            key = (ioc.value, ioc.type)
+            if key not in seen:
+                seen[key] = ioc
         unique = list(seen.values())[: self.max_per_msg]
 
         results: list[tuple[IOC, list[IntelResult]]] = []

@@ -132,7 +132,7 @@ class DiscordBot(discord.Client):
         )
         results = await self.ioc_processor.process(content)
         if not results:
-            logger.info("No IOCs extracted from message")
+            logger.debug("No IOCs extracted from message")
         else:
             logger.info(
                 "Extracted IOCs: %s",

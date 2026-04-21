@@ -42,11 +42,16 @@ def parse_lookback(lookback: str | None) -> int | None:
     """Convert a lookback string like '24h' or '7d' to seconds, or None for no limit."""
     if not lookback:
         return None
-    lookback = lookback.strip().lower()
-    if lookback.endswith("h"):
-        return int(lookback[:-1]) * 3600
-    if lookback.endswith("d"):
-        return int(lookback[:-1]) * 86400
+    s = lookback.strip().lower()
+    try:
+        if s.endswith("h"):
+            return int(s[:-1]) * 3600
+        if s.endswith("d"):
+            return int(s[:-1]) * 86400
+    except ValueError:
+        logger.warning("Unrecognised lookback format %r — no time filter applied", lookback)
+        return None
+    logger.warning("Unrecognised lookback format %r — no time filter applied", lookback)
     return None
 
 
@@ -156,7 +161,7 @@ async def _extract_feed_content(
     cutoff = time.time() - lookback_seconds if lookback_seconds else None
     parts: list[str] = []
 
-    entries = feed_data.get("entries", [])[:20]
+    entries = feed_data.get("entries", [])[:10]
     logger.info("Feed has %d entries (cutoff=%s)", len(entries), "set" if cutoff else "none")
     for entry in entries:
         # Filter by publish date when lookback is set
@@ -367,7 +372,12 @@ async def fetch_topic(
         if isinstance(result, Exception):
             logger.warning("Failed to fetch %s: %s", source.get("url", ""), result)
             output.append(
-                {"name": source.get("name", ""), "url": source.get("url", ""), "content": ""}
+                {
+                    "name": source.get("name", ""),
+                    "url": source.get("url", ""),
+                    "content": "",
+                    "image_url": None,
+                }
             )
         else:
             output.append(result)  # type: ignore[arg-type]

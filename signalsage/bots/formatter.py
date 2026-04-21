@@ -28,6 +28,7 @@ IOC_TYPE_LABEL = {
     IOCType.SHA512: "SHA-512 Hash",
     IOCType.EMAIL: "Email Address",
     IOCType.CVE: "CVE",
+    IOCType.ASN: "ASN",
 }
 
 

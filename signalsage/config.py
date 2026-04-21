@@ -26,11 +26,12 @@ def _expand_env(value: Any) -> Any:
 
         def replacer(match: re.Match) -> str:
             var_name = match.group(1)
-            default = match.group(2) if match.group(2) is not None else ""
-            env_value = os.environ.get(var_name, "")
-            if env_value:
+            has_default = match.group(2) is not None
+            default = match.group(2) if has_default else ""
+            env_value = os.environ.get(var_name)
+            if env_value is not None:
                 return env_value
-            if default:
+            if has_default:
                 return default
             logger.debug("Environment variable %s not set (no default)", var_name)
             return ""

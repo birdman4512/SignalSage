@@ -3,15 +3,10 @@
 import logging
 import re
 from collections.abc import Awaitable, Callable
-from enum import Enum
 
 from signalsage.ioc.models import IOC, IOCType
 
-
-class Platform(Enum):
-    SLACK = "slack"
-    DISCORD = "discord"
-
+from .formatter import Platform
 
 logger = logging.getLogger(__name__)
 

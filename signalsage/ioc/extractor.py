@@ -207,7 +207,7 @@ def extract(text: str) -> list[IOC]:
                 if not _is_benign_domain(full):
                     _add(full, IOCType.DOMAIN, raw)
         except Exception:
-            pass
+            logger.debug("Failed to extract domain from URL %r", url, exc_info=True)
 
     # --- Emails ---
     for m in _EMAIL_RE.finditer(clean):

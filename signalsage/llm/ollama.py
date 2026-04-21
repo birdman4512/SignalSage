@@ -47,7 +47,11 @@ class OllamaLLM(BaseLLM):
             try:
                 resp = await client.post(f"{self.base_url}/api/chat", json=payload)
                 resp.raise_for_status()
-                return resp.json()["message"]["content"]
+                data = resp.json()
+                try:
+                    return data["message"]["content"]
+                except (KeyError, TypeError):
+                    raise RuntimeError(f"Unexpected Ollama response format: {data}")
             except httpx.ConnectError:
                 raise RuntimeError(
                     f"Cannot connect to Ollama at {self.base_url}. "
@@ -57,5 +61,3 @@ class OllamaLLM(BaseLLM):
                 raise RuntimeError(
                     f"Ollama API error {exc.response.status_code}: {exc.response.text}"
                 )
-            except KeyError:
-                raise RuntimeError("Unexpected Ollama response format")

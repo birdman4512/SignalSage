@@ -27,7 +27,7 @@ def _make_scheduler(watchlist, notifiers=None, summarizer=None, tmp_path=None) -
         summarizer=summarizer or _make_summarizer(),
         watchlist=watchlist,
         notifiers=notifiers or [],
-        data_dir=str(tmp_path) if tmp_path else str(tmp_path or "data"),
+        data_dir=str(tmp_path) if tmp_path else "data",
     )
 
 
