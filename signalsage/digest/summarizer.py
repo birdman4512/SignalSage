@@ -34,8 +34,14 @@ def _inject_urls(raw_json: str, title_url_pairs: list[tuple[str, str]]) -> str:
     """
     if not title_url_pairs:
         return raw_json
+
+    # Decode URL-encoded structural characters some LLMs emit after URL values
+    text = raw_json
+    for enc, char in [("%7B", "{"), ("%7D", "}"), ("%5B", "["), ("%5D", "]")]:
+        text = re.sub(enc, char, text, flags=re.IGNORECASE)
+
     try:
-        data = json.loads(raw_json)
+        data = json.loads(text)
     except (json.JSONDecodeError, ValueError):
         return raw_json
 

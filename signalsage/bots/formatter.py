@@ -394,6 +394,18 @@ def _parse_digest_json(summary: str) -> dict | None:
     except (json.JSONDecodeError, ValueError, IndexError):
         pass
 
+    # 4. Some models URL-encode JSON structural characters after URL values
+    #    e.g. "url": "https://..."  %7D,  instead of  "url": "https://..."},
+    #    Decode only the structural chars that appear outside quoted strings.
+    decoded = re.sub(
+        r"%7[Dd]", "}", re.sub(r"%7[Bb]", "{", re.sub(r"%5[Bb]", "[", re.sub(r"%5[Dd]", "]", text)))
+    )
+    if decoded != text:
+        try:
+            return _try_parse(decoded)
+        except (json.JSONDecodeError, ValueError, IndexError):
+            pass
+
     logger.warning("Failed to parse digest JSON (length=%d): %r…", len(summary), summary[:120])
     return None
 
