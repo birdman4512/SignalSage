@@ -114,7 +114,7 @@ Return a single JSON object with these keys:
 
 "coverage_confidence": "high" (many sources, rich overlapping content), "medium" (some sources, patchy), or "low" (few sources, sparse/off-topic).
 
-"items": array of 5-10 individual story objects, one per notable article. Each object has:
+"items": array of 5-20 individual story objects (MAXIMUM 20 — stop at 20 even if more articles exist), one per notable article. Each object has:
   "art_id": the [A<N>] label of the article this item is based on (e.g. "A3"). Required.
   "icon": ONE emoji character - output the emoji only, no words. Choose the closest match:
     🔴=critical-incident  🛡️=patch-or-fix  🦠=malware  🔗=phishing  📢=announcement
@@ -227,7 +227,7 @@ class DigestSummarizer:
         for attempt in range(1 + _LLM_RETRIES):
             try:
                 raw = await self.llm.complete(
-                    system=_SYSTEM_PROMPT, user=user_prompt, max_tokens=2048
+                    system=_SYSTEM_PROMPT, user=user_prompt, max_tokens=8192
                 )
                 logger.debug("LLM raw output for topic %r: %s", topic_name, raw[:500])
                 return _inject_urls(raw, url_map, title_url_pairs)

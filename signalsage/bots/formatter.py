@@ -407,6 +407,32 @@ def _parse_digest_json(summary: str) -> dict | None:
         except (json.JSONDecodeError, ValueError, IndexError):
             pass
 
+    # 5. Truncation recovery — LLM hit token limit mid-JSON.
+    #    Find all complete item objects and reconstruct a minimal valid response.
+    item_texts = re.findall(r"\{[^{}]*\"art_id\"[^{}]*\}", text, re.DOTALL)
+    if item_texts:
+        recovered_items = []
+        for raw_item in item_texts:
+            try:
+                obj = json.loads(raw_item)
+                if isinstance(obj, dict) and "art_id" in obj:
+                    recovered_items.append(obj)
+            except (json.JSONDecodeError, ValueError):
+                continue
+        if recovered_items:
+            tldr_match = re.search(r'"tldr"\s*:\s*\[([^\]]*)\]', text, re.DOTALL)
+            tldr: list[str] = []
+            if tldr_match:
+                try:
+                    tldr = [s for s in json.loads(f"[{tldr_match.group(1)}]") if isinstance(s, str)]
+                except (json.JSONDecodeError, ValueError):
+                    pass
+            logger.warning(
+                "Truncation recovery: salvaged %d item(s) from incomplete JSON",
+                len(recovered_items),
+            )
+            return {"tldr": tldr, "items": recovered_items, "coverage_confidence": None}
+
     logger.warning("Failed to parse digest JSON (length=%d): %r…", len(summary), summary[:120])
     return None
 

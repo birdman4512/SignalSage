@@ -44,9 +44,7 @@ class BGPViewProvider(BaseProvider):
                 info = info_resp.json().get("data", {})
 
                 prefix_resp = await client.get(f"{_BASE}/asn/{asn_num}/prefixes")
-                prefix_data = (
-                    prefix_resp.json().get("data", {}) if prefix_resp.is_success else {}
-                )
+                prefix_data = prefix_resp.json().get("data", {}) if prefix_resp.is_success else {}
         except httpx.TimeoutException:
             return self._error(ioc, "Request timed out")
         except Exception as exc:
