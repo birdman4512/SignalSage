@@ -27,18 +27,27 @@ def _jaccard(a: str, b: str) -> float:
     return len(wa & wb) / len(wa | wb)
 
 
-def _inject_urls(raw_json: str, title_url_pairs: list[tuple[str, str]]) -> str:
-    """
-    Post-process LLM JSON: for any item with a null/missing URL, find the best
-    matching source article by Jaccard title similarity and inject its URL.
-    """
-    if not title_url_pairs:
-        return raw_json
-
-    # Decode URL-encoded structural characters some LLMs emit after URL values
-    text = raw_json
+def _decode_url_encoded_json(text: str) -> str:
+    """Decode structural characters that some LLMs URL-encode after URL values."""
     for enc, char in [("%7B", "{"), ("%7D", "}"), ("%5B", "["), ("%5D", "]")]:
         text = re.sub(enc, char, text, flags=re.IGNORECASE)
+    return text
+
+
+def _inject_urls(
+    raw_json: str,
+    url_map: dict[str, str],
+    title_url_pairs: list[tuple[str, str]],
+) -> str:
+    """
+    Post-process LLM JSON: resolve URLs from article IDs and/or title matching.
+
+    Priority:
+    1. LLM already returned a valid http URL — keep it.
+    2. LLM returned an art_id (e.g. "A3") — look up in url_map.
+    3. Fallback: Jaccard title match against title_url_pairs.
+    """
+    text = _decode_url_encoded_json(raw_json)
 
     try:
         data = json.loads(text)
@@ -55,7 +64,16 @@ def _inject_urls(raw_json: str, title_url_pairs: list[tuple[str, str]]) -> str:
             continue
         existing = str(item.get("url") or "").strip()
         if existing.startswith("http"):
-            continue  # already has a URL
+            continue  # already have a good URL
+
+        # Try art_id lookup first
+        art_id = str(item.get("art_id") or "").strip()
+        if art_id and art_id in url_map:
+            item["url"] = url_map[art_id]
+            injected += 1
+            continue
+
+        # Jaccard title fallback
         headline = str(item.get("headline") or "")
         best_url, best_score = "", 0.0
         for title, url in title_url_pairs:
@@ -69,12 +87,13 @@ def _inject_urls(raw_json: str, title_url_pairs: list[tuple[str, str]]) -> str:
             injected += 1
 
     if injected:
-        logger.info("URL injection: filled %d missing URL(s) by title match", injected)
+        logger.info("URL injection: filled %d missing URL(s)", injected)
     return json.dumps(data)
 
 
 _SYSTEM_PROMPT = """\
 You are an analyst producing a structured news digest from pre-fetched source content.
+Each article in the content is labelled with an ID like [A1], [A2], etc.
 The source content is provided below - you do not need to access the internet.
 
 Return a single JSON object with these keys:
@@ -84,6 +103,7 @@ Return a single JSON object with these keys:
 "coverage_confidence": "high" (many sources, rich overlapping content), "medium" (some sources, patchy), or "low" (few sources, sparse/off-topic).
 
 "items": array of 5-10 individual story objects, one per notable article. Each object has:
+  "art_id": the [A<N>] label of the article this item is based on (e.g. "A3"). Required.
   "icon": ONE emoji character - output the emoji only, no words. Choose the closest match:
     🔴=critical-incident  🛡️=patch-or-fix  🦠=malware  🔗=phishing  📢=announcement
     🔍=research  ⚠️=advisory  📡=threat-intel  🏛️=policy-or-legal  📻=radio
@@ -91,13 +111,13 @@ Return a single JSON object with these keys:
   "severity": "critical", "high", "medium", or "low"
   "headline": title from or based on the article, max 80 characters
   "blurb": 1-2 sentences - what happened and why it matters
-  "url": prefer the article URL copied from the "URL:" line that appears directly after the matching article's "Title:" line. If that article has no "URL:" line, fall back to the "Source URL:" line for that source block. If neither exists, use null. Never fabricate a URL.
+  "url": null (URLs are resolved automatically from the art_id — leave this null)
 
 Rules:
 - Output ONLY the JSON object. No markdown fences, no explanation, no extra text.
 - Use ONLY content from the sources provided. Do not invent facts.
 - "icon" must be a single emoji character - never include any words after it.
-- Every "url" must be copied verbatim from the source content or be null.
+- "art_id" must match one of the [A<N>] labels in the source content.
 """
 
 _IOC_SYSTEM_PROMPT = (
@@ -122,22 +142,42 @@ class DigestSummarizer:
         today = date.today().strftime("%B %d, %Y")
 
         source_blocks: list[str] = []
-        title_url_pairs: list[tuple[str, str]] = []  # (title, url) for URL injection fallback
+        url_map: dict[str, str] = {}  # art_id → url  (e.g. "A3" → "https://...")
+        title_url_pairs: list[tuple[str, str]] = []  # Jaccard fallback
+        art_counter = 0
         total_chars = 0
         skipped = 0
         for src in sources:
             content = src.get("content", "").strip()
             if not content:
                 continue
-            block = f"### {src['name']}\nSource URL: {src['url']}\n{content}\n"
+
+            # Stamp each "Title: ..." line with a unique article ID and record its URL
+            def _stamp_article(m: re.Match) -> str:
+                nonlocal art_counter
+                art_counter += 1
+                art_id = f"A{art_counter}"
+                title = m.group(1).strip()
+                url_line = m.group(2) or ""
+                url = re.search(r"URL:\s*(https?://\S+)", url_line)
+                if url:
+                    url_map[art_id] = url.group(1)
+                    title_url_pairs.append((title, url.group(1)))
+                return f"[{art_id}] Title: {title}\n{url_line}"
+
+            labelled = re.sub(
+                r"^(Title:\s*.+)\n(URL:\s*https?://\S+)?",
+                _stamp_article,
+                content,
+                flags=re.MULTILINE,
+            )
+
+            block = f"### {src['name']}\nSource URL: {src['url']}\n{labelled}\n"
             if total_chars + len(block) > self.max_total_chars:
                 skipped += 1
                 continue
             source_blocks.append(block)
             total_chars += len(block)
-            # Extract (title, url) pairs from feed content for fallback URL matching
-            for m in re.finditer(r"^Title:\s*(.+)\nURL:\s*(https?://\S+)", content, re.MULTILINE):
-                title_url_pairs.append((m.group(1).strip(), m.group(2).strip()))
         if skipped:
             logger.info(
                 "Topic '%s': skipped %d source(s) - total content would exceed %d chars",
@@ -170,7 +210,7 @@ class DigestSummarizer:
                     system=_SYSTEM_PROMPT, user=user_prompt, max_tokens=2048
                 )
                 logger.debug("LLM raw output for topic %r: %s", topic_name, raw[:500])
-                return _inject_urls(raw, title_url_pairs)
+                return _inject_urls(raw, url_map, title_url_pairs)
             except Exception as exc:
                 if attempt < _LLM_RETRIES:
                     logger.warning(
