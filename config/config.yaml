@@ -78,6 +78,7 @@ digest:
   # Use http://localhost:11434 when running Ollama separately
   ollama_base_url: "${OLLAMA_BASE_URL:-http://localhost:11434}"
   ollama_model: "${OLLAMA_MODEL:-gemma2:2b}"
+  ollama_num_ctx: 16384   # total context window (input + output); must exceed prompt size + max_tokens
 
   # Anthropic Claude — paid API. Only used when llm_provider = "anthropic"
   anthropic_model: "claude-haiku-4-5-20251001"

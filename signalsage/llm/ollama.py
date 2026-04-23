@@ -24,7 +24,7 @@ class OllamaLLM(BaseLLM):
         base_url: str = "http://localhost:11434",
         model: str = "llama3.2",
         timeout: int = 600,
-        num_ctx: int = 8192,
+        num_ctx: int = 16384,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.model = model

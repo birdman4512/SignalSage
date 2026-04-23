@@ -227,7 +227,7 @@ class DigestSummarizer:
         for attempt in range(1 + _LLM_RETRIES):
             try:
                 raw = await self.llm.complete(
-                    system=_SYSTEM_PROMPT, user=user_prompt, max_tokens=8192
+                    system=_SYSTEM_PROMPT, user=user_prompt, max_tokens=4096
                 )
                 logger.debug("LLM raw output for topic %r: %s", topic_name, raw[:500])
                 return _inject_urls(raw, url_map, title_url_pairs)

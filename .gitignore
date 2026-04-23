@@ -23,6 +23,10 @@ venv/
 env/
 ENV/
 
+# Package manager lock files (Docker uses requirements.txt)
+uv.lock
+poetry.lock
+
 # Pytest / coverage
 .pytest_cache/
 .coverage
@@ -45,6 +49,9 @@ htmlcov/
 # OS
 .DS_Store
 Thumbs.db
+
+# Claude Code local settings (machine-specific permissions)
+.claude/
 
 # Runtime data (digest history, source health)
 data/
