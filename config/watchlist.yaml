@@ -2,18 +2,21 @@
 # Each topic is summarized independently on its own schedule and posted to its own channel.
 #
 # Fields per topic:
-#   name           — display name used in the digest header
-#   schedule       — 5-part cron expression (optional, falls back to digest.default_schedule)
-#   lookback       — how far back to include content: "24h", "48h", "7d", etc.
-#                    RSS entries older than this are filtered out before summarisation.
-#                    The LLM is also instructed to focus only on this window.
-#                    Omit (or leave blank) to include all available content.
-#   digest_channel — Slack: "#channel-name" or channel ID
-#                    Discord: channel ID (integer as string)
-#                    Omit to use the global platforms.slack/discord.digest_channel default
-#   sources        — list of {name, url} to fetch and summarize
-#                    RSS/Atom feeds (.xml, .rss, .atom) are auto-detected
-#                    HTML pages are scraped with BeautifulSoup
+#   name              — display name used in the digest header
+#   schedule          — 5-part cron expression (optional, falls back to digest.default_schedule)
+#   lookback          — how far back to include content: "24h", "48h", "7d", etc.
+#                       RSS entries older than this are filtered out before summarisation.
+#                       The LLM is also instructed to focus only on this window.
+#                       Omit (or leave blank) to include all available content.
+#   digest_channel    — Slack: "#channel-name" or channel ID
+#                       Discord: channel ID (integer as string)
+#                       Omit to use the global platforms.slack/discord.digest_channel default
+#   top_stories_count — how many top stories get a full summary card; the rest appear as
+#                       headline+link only. Overrides digest.top_stories_count for this topic.
+#                       Omit to use the global digest.top_stories_count (default 10).
+#   sources           — list of {name, url} to fetch and summarize
+#                       RSS/Atom feeds (.xml, .rss, .atom) are auto-detected
+#                       HTML pages are scraped with BeautifulSoup
 #
 # Tag naming rules — tags must be unique across all topics because !digest <tag>
 # returns on the first match. Use the topic's primary tag for !digest commands.
@@ -26,6 +29,7 @@ topics:
     tags: [news, aus, australia]    # !digest news
     schedule: "0 5 * * *"          # 5:00am daily
     lookback: "24h"
+    top_stories_count: 10
     digest_channel: "#general"
     sources:
       - name: "ABC News Feed"
@@ -41,6 +45,7 @@ topics:
     tags: [cybernews, secnews]      # !digest cybernews
     schedule: "0 6 * * *"          # 6:00am daily
     lookback: "24h"
+    top_stories_count: 5
     digest_channel: "#general"
     sources:
       - name: "The Hacker News"

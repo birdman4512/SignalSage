@@ -263,6 +263,7 @@ class DigestScheduler:
         # Collect image URLs configured on individual sources
         images = [s["image_url"] for s in fetched if s.get("image_url")]
 
+        topic_top_n = topic.get("top_stories_count")
         meta = {
             "sources_total": len(fetched),
             "sources_ok": len(fetched) - len(empty_sources),
@@ -271,7 +272,7 @@ class DigestScheduler:
             "deduped_count": extra_meta["deduped_count"],
             "coverage_confidence": extra_meta["coverage_confidence"],
             "images": images,
-            "top_stories_count": self.top_stories_count,
+            "top_stories_count": int(topic_top_n) if topic_top_n is not None else self.top_stories_count,
         }
 
         # Per-topic channel override; fall back to the on-demand caller's channel

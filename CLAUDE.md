@@ -94,14 +94,14 @@ Main configuration file. Uses `${ENV_VAR}` syntax for environment variable subst
 - `digest.max_chars_per_source` — max characters fetched per source before summarization (default: 3000)
 - `digest.default_schedule` — fallback cron schedule for topics that don't define their own (default: `"0 6 * * *"` = 6 AM UTC)
 - `digest.timezone` — timezone for the scheduler (default: `"UTC"`)
-- `digest.top_stories_count` — how many top stories are shown with a full summary; the rest appear as headline+link only (default: 10, adjustable at runtime with `!digest top <N>`)
+- `digest.top_stories_count` — how many top stories are shown with a full summary; the rest appear as headline+link only (default: 10, adjustable at runtime with `!digest top <N>`). Individual topics can override this with `top_stories_count` in `watchlist.yaml`.
 - `digest.interest_topics` — optional list of keywords (e.g. `["ransomware", "zero-day", "CISA"]`) passed to the LLM to help rank the most relevant stories higher
 - `whisper.enabled` — enable Whisper audio transcription service
 - `whisper.base_url` — Whisper service endpoint (default: `"http://whisper:8000"`)
 
 ### `config/watchlist.yaml`
 
-Defines topics and sources for the daily digest. Each topic can have its own `schedule` (5-part cron expression) and `tags` list for bot command targeting. If `schedule` is omitted, falls back to `digest.default_schedule`. Supports RSS feeds (`.xml`, `.rss`, `.atom`) and regular HTML pages.
+Defines topics and sources for the daily digest. Each topic can have its own `schedule` (5-part cron expression), `tags` list for bot command targeting, and `top_stories_count` to override the global story card limit for that topic. If `schedule` is omitted, falls back to `digest.default_schedule`. Supports RSS feeds (`.xml`, `.rss`, `.atom`) and regular HTML pages.
 
 ```yaml
 topics:
@@ -224,7 +224,7 @@ APScheduler registers one cron job per topic (using each topic's own schedule)
         → Message N+2: remaining stories as a compact headline+link list
 ```
 
-The number of top stories `N` is set by `digest.top_stories_count` in `config.yaml` (default 10) and can be changed at runtime with `!digest top <N>`. Interest keywords in `digest.interest_topics` are injected into the LLM prompt to influence ranking.
+The number of top stories `N` is set by `digest.top_stories_count` in `config.yaml` (default 10) and can be changed at runtime with `!digest top <N>`. Individual topics can override this with `top_stories_count` in `watchlist.yaml` (e.g. `top_stories_count: 5` on a Cybersecurity topic). Interest keywords in `digest.interest_topics` are injected into the LLM prompt to influence ranking.
 
 ### LLM Abstraction
 

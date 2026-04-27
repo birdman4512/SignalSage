@@ -476,6 +476,17 @@ def _digest_footer_parts(parsed: dict | None, meta: dict | None) -> list[str]:
     return parts
 
 
+def _overview_text(parsed: dict, valid_items: list[dict]) -> str:
+    """Return the best available overview text, falling back to item headlines."""
+    text = str(parsed.get("overview") or "").strip()
+    if not text and parsed.get("tldr"):
+        text = "\n".join(f"• {b}" for b in parsed["tldr"])
+    if not text and valid_items:
+        headlines = [str(i.get("headline", "")).strip() for i in valid_items[:6] if str(i.get("headline", "")).strip()]
+        text = "\n".join(f"• {h}" for h in headlines)
+    return text
+
+
 def format_digest_slack_message(
     topic_name: str,
     summary: str,
@@ -552,9 +563,7 @@ def format_digest_slack_message(
         {"type": "divider"},
     ]
 
-    overview_text = parsed.get("overview") or ""
-    if not overview_text and parsed.get("tldr"):
-        overview_text = "\n".join(f"• {b}" for b in parsed["tldr"])
+    overview_text = _overview_text(parsed, valid_items)
 
     if overview_text:
         header_blocks.append(
@@ -716,9 +725,7 @@ def format_digest_plain(
         "━" * 40,
     ]
 
-    overview_text = parsed.get("overview") or ""
-    if not overview_text and parsed.get("tldr"):
-        overview_text = "\n".join(f"• {b}" for b in parsed["tldr"])
+    overview_text = _overview_text(parsed, valid_items)
 
     if overview_text:
         header_lines.append("")

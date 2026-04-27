@@ -67,8 +67,8 @@ def _inject_urls(
         if existing.startswith("http"):
             continue  # already have a good URL
 
-        # Try art_id lookup first
-        art_id = str(item.get("art_id") or "").strip()
+        # Try art_id lookup first — normalise brackets/case (LLMs sometimes emit "[A3]" or "a3")
+        art_id = re.sub(r"[\[\]]", "", str(item.get("art_id") or "")).strip().upper()
         if art_id and art_id in url_map:
             item["url"] = url_map[art_id]
             injected += 1
