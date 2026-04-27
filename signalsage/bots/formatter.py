@@ -482,7 +482,11 @@ def _overview_text(parsed: dict, valid_items: list[dict]) -> str:
     if not text and parsed.get("tldr"):
         text = "\n".join(f"• {b}" for b in parsed["tldr"])
     if not text and valid_items:
-        headlines = [str(i.get("headline", "")).strip() for i in valid_items[:6] if str(i.get("headline", "")).strip()]
+        headlines = [
+            str(i.get("headline", "")).strip()
+            for i in valid_items[:6]
+            if str(i.get("headline", "")).strip()
+        ]
         text = "\n".join(f"• {h}" for h in headlines)
     return text
 

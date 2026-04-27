@@ -272,7 +272,9 @@ class DigestScheduler:
             "deduped_count": extra_meta["deduped_count"],
             "coverage_confidence": extra_meta["coverage_confidence"],
             "images": images,
-            "top_stories_count": int(topic_top_n) if topic_top_n is not None else self.top_stories_count,
+            "top_stories_count": int(topic_top_n)
+            if topic_top_n is not None
+            else self.top_stories_count,
         }
 
         # Per-topic channel override; fall back to the on-demand caller's channel
