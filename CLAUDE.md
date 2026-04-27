@@ -90,10 +90,12 @@ Main configuration file. Uses `${ENV_VAR}` syntax for environment variable subst
 - `digest.anthropic_api_key` — Anthropic API key (or use `${ANTHROPIC_API_KEY}`)
 - `digest.ollama_base_url` — Ollama endpoint (default: `"http://localhost:11434"`)
 - `digest.ollama_model` — Ollama model to use (default: `"llama3.2"`)
-- `digest.ollama_num_ctx` — Ollama context window tokens (default: 8192)
+- `digest.ollama_num_ctx` — Ollama context window tokens (default: 16384)
 - `digest.max_chars_per_source` — max characters fetched per source before summarization (default: 3000)
 - `digest.default_schedule` — fallback cron schedule for topics that don't define their own (default: `"0 6 * * *"` = 6 AM UTC)
 - `digest.timezone` — timezone for the scheduler (default: `"UTC"`)
+- `digest.top_stories_count` — how many top stories are shown with a full summary; the rest appear as headline+link only (default: 10, adjustable at runtime with `!digest top <N>`)
+- `digest.interest_topics` — optional list of keywords (e.g. `["ransomware", "zero-day", "CISA"]`) passed to the LLM to help rank the most relevant stories higher
 - `whisper.enabled` — enable Whisper audio transcription service
 - `whisper.base_url` — Whisper service endpoint (default: `"http://whisper:8000"`)
 
@@ -157,12 +159,16 @@ Both Slack and Discord support the `!` command prefix (or `@SignalSage` mention 
 | Command | Description |
 |---|---|
 | `!digest` | Run all digest topics immediately |
-| `!digest list` | Show all scheduled topics and their tags |
-| `!digest <tag>` | Run topics matching a tag (e.g. `!digest cyber`) |
+| `!digest list` | Show all scheduled topics, tags, and next run time |
+| `!digest <tag>` | Run topics matching a tag (e.g. `!digest cyber`, `!digest vuln`) |
 | `!digest <name>` | Run a topic by partial name match (case-insensitive) |
+| `!digest top <N>` | Set how many top stories get full summaries this session (1–20, default 10) |
+| `!digest help` | Show the command reference |
+| `!help` | Show the command reference (shortcut) |
 | `!osint email <address>` | Have I Been Pwned breach check for an email address |
 | `!osint domain <domain>` | crt.sh cert transparency + WHOIS age + passive DNS |
 | `!osint ip <address>` | CIRCL passive DNS for an IP address |
+| `!osint asn <AS1234>` | BGPView ASN lookup (prefixes, IP ranges, org info) |
 
 IOC enrichment is automatic — no command needed. Command parsing lives in `bots/commands.py` and is shared by both bot implementations.
 
@@ -207,8 +213,18 @@ APScheduler registers one cron job per topic (using each topic's own schedule)
                 → feedparser for RSS/Atom feeds
                 → BeautifulSoup for HTML pages
         → BaseLLM.complete() — via OllamaLLM or AnthropicLLM
+            LLM returns JSON with:
+              "overview"  — 3-5 sentence narrative paragraph across all sources
+              "items"     — up to 20 stories sorted by importance, each with
+                            headline, 3-5 sentence summary, severity, icon, url
+        → _postprocess_summary(): cross-topic dedup + trend classification
     → post to notifiers (slack_bot.send_digest, discord_bot.send_digest)
+        → Message 1: topic header + overview + source coverage footer
+        → Messages 2..N+1: one card per top story (full summary + Read More link)
+        → Message N+2: remaining stories as a compact headline+link list
 ```
+
+The number of top stories `N` is set by `digest.top_stories_count` in `config.yaml` (default 10) and can be changed at runtime with `!digest top <N>`. Interest keywords in `digest.interest_topics` are injected into the LLM prompt to influence ranking.
 
 ### LLM Abstraction
 

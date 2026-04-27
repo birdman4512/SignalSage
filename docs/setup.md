@@ -141,9 +141,11 @@ Both Slack and Discord use the `!` prefix. On Slack you can also mention the bot
 | Command | Description |
 |---|---|
 | `!digest` | Run all digest topics immediately |
-| `!digest list` | Show all scheduled topics and their tags |
-| `!digest <tag>` | Run topics matching a tag (e.g. `!digest cyber`) |
+| `!digest list` | Show all scheduled topics, tags, and next run time |
+| `!digest <tag>` | Run topics matching a tag (e.g. `!digest cyber`, `!digest vuln`) |
 | `!digest <name>` | Run a topic by partial name match (case-insensitive) |
+| `!digest top <N>` | Set how many top stories get full summaries this session (1–20, default 10) |
+| `!digest help` | Show the command reference |
 
 ### OSINT commands
 
@@ -289,6 +291,38 @@ Examples:
 - `0 8 * * 1` — 8am every Monday
 - `0 */6 * * *` — every 6 hours
 
+### Digest output format
+
+Each digest posts as a sequence of messages:
+
+1. **Overview** — a 3–5 sentence narrative paragraph covering the major themes across all sources
+2. **Top story cards** — one message per top story, each showing the headline, a full 3–5 sentence summary, severity badge, and a *Read More* link
+3. **Remaining stories** — a single compact message listing every other story as headline + link
+
+The number of top stories defaults to **10** and can be changed in `config/config.yaml`:
+
+```yaml
+digest:
+  top_stories_count: 10
+```
+
+Or changed at runtime (session only) with `!digest top <N>`.
+
+### Ranking stories with interest topics
+
+Add keywords to `digest.interest_topics` in `config/config.yaml` to nudge the LLM to rank matching stories higher:
+
+```yaml
+digest:
+  interest_topics:
+    - "ransomware"
+    - "zero-day vulnerabilities"
+    - "CISA advisories"
+    - "critical infrastructure"
+```
+
+These are injected into the LLM prompt — stories most relevant to your interests appear first and are more likely to land in the full-summary top-N cards.
+
 ---
 
 ## 9. Run
@@ -321,7 +355,7 @@ Checking this: 185.220.101.45
 ```
 SignalSage should reply within a few seconds with threat intel results.
 
-**Digest (trigger immediately without waiting for the cron):** You can test the digest by temporarily changing a topic's schedule to run in 1–2 minutes, or by adding a debug trigger. Check `docker-compose logs -f` to see the output.
+**Digest (trigger immediately without waiting for the cron):** Run `!digest` in any monitored channel to trigger all topics on-demand, or `!digest <tag>` for a specific topic (e.g. `!digest cyber`). Check `docker-compose logs -f` to see summarisation progress.
 
 ---
 

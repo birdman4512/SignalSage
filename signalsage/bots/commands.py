@@ -14,18 +14,22 @@ COMMAND_PREFIX = "!"
 
 HELP_TEXT = """\
 📋 *SignalSage commands*
+
+*Digest*
 • `!digest` — run all digest topics right now
-• `!digest list` — show scheduled topics and their tags
+• `!digest list` — show scheduled topics, tags, and next run time
 • `!digest <tag>` — run a topic by tag (e.g. `!digest cyber`, `!digest vuln`, `!digest ti`)
 • `!digest <name>` — run a topic by partial name match (case-insensitive)
-• `!digest top <N>` — set how many top stories get full summaries (1–20, default 10)
+• `!digest top <N>` — set how many top stories get full summaries this session (1–20, default 10)
+• `!digest help` — show this reference
 
+*OSINT*
 • `!osint email <address>` — breach check via Have I Been Pwned
-• `!osint domain <domain>` — crt.sh, WHOIS age & passive DNS lookup
-• `!osint ip <address>` — passive DNS lookup for an IP
+• `!osint domain <domain>` — crt.sh cert transparency + WHOIS age + passive DNS
+• `!osint ip <address>` — passive DNS lookup for an IP address
 • `!osint asn <AS1234>` — BGPView ASN lookup (prefixes, IP ranges, org info)
 
-*IOC enrichment* happens automatically — just post any IP, hash, domain, URL, CVE or ASN.\
+*IOC enrichment* is automatic — just post any IP, domain, URL, hash, CVE or ASN in a monitored channel.\
 """
 
 
