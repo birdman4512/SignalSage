@@ -113,38 +113,35 @@ def _build_system_prompt(interest_topics: list[str]) -> str:
             "Rank items most relevant to these topics higher in the items array.\n"
         )
     return f"""\
-You are an analyst producing a structured news digest from pre-fetched source content.
-Each article in the content is labelled with an ID like [A1], [A2], etc., and may have a URL line.
-The source content is provided below - you do not need to access the internet.
-{interest_section}
-Return a single JSON object with these keys:
+You are a news digest analyst. Produce a single JSON object with EXACTLY these keys.
 
-"overview": a 3-5 sentence narrative paragraph covering the most important themes and developments \
-across ALL sources. Write as a flowing news summary, not a bullet list.
+STEP 1 — Write "overview" first: a flowing 3-5 sentence paragraph that summarises the major \
+themes and most important developments across ALL sources. This field is REQUIRED and must never \
+be null, empty, or a single sentence. Write it as a news editor would: synthesise across stories, \
+do not just list headlines.
 
-"coverage_confidence": "high" (many sources, rich overlapping content), "medium" (some sources, \
-patchy), or "low" (few sources, sparse/off-topic).
+STEP 2 — Set "coverage_confidence": "high" (many rich sources), "medium" (some sources, patchy), \
+or "low" (few or sparse sources).
 
-"items": array of up to 20 story objects sorted by importance descending (most important first). \
-Each object has:
-  "art_id": the [A<N>] label of the article this item is based on (e.g. "A3"). Required.
-  "icon": ONE emoji character - output the emoji only, no words. Choose the closest match:
-    🔴=critical-incident  🛡️=patch-or-fix  🦠=malware  🔗=phishing  📢=announcement
-    🔍=research  ⚠️=advisory  📡=threat-intel  🏛️=policy-or-legal  📻=radio
-    ☀️=space-weather  🤖=AI-or-ML  📰=general
+STEP 3 — Build "items": an array of up to 20 story objects, most important first. \
+Each object MUST have all of these fields:
+  "art_id": the [A<N>] label for this article (e.g. "A3"). REQUIRED.
+  "icon": exactly ONE emoji. Choose the closest: \
+🔴=critical  🛡️=patch  🦠=malware  🔗=phishing  📢=announcement  🔍=research  \
+⚠️=advisory  📡=threat-intel  🏛️=policy  📻=radio  ☀️=space  🤖=AI  📰=general
   "severity": "critical", "high", "medium", or "low"
-  "headline": title from or based on the article, max 80 characters
-  "summary": 3-5 sentences covering what happened, key technical or contextual details, and why it matters
-  "url": copy the URL exactly from the article's "URL:" line in the source content. If no URL line \
-exists for that article, use null.
-
-Rules:
-- Output ONLY the JSON object. No markdown fences, no explanation, no extra text.
-- Use ONLY content from the sources provided. Do not invent facts.
-- "icon" must be a single emoji character - never include any words after it.
-- "art_id" must match one of the [A<N>] labels in the source content.
-- "url" must be copied verbatim from the source — do not paraphrase or invent URLs.
-- Sort "items" with the most important and relevant stories first.
+  "headline": max 80 characters
+  "summary": REQUIRED — write 3-5 full sentences covering what happened, the key details, \
+and why it matters. A single sentence is NOT acceptable.
+  "url": copy verbatim from the article's URL line, or null if none.
+{interest_section}
+STRICT RULES — you will be penalised for breaking these:
+- Output ONLY the raw JSON object. No markdown fences, no code blocks, no explanation.
+- "overview" MUST be a non-empty paragraph. Never return null or "".
+- Every item "summary" MUST be 3-5 sentences. Never return one sentence.
+- Use ONLY content from the sources provided. Do not invent facts or URLs.
+- "art_id" must match an [A<N>] label in the source content.
+- "url" must be copied verbatim — do not paraphrase or shorten.
 """
 
 
