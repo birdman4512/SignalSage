@@ -147,6 +147,7 @@ Rules:
 - Sort "items" with the most important and relevant stories first.
 """
 
+
 _IOC_SYSTEM_PROMPT = (
     "You are a senior threat intelligence analyst. "
     "Given threat intelligence results for an indicator, write a concise 2-3 sentence assessment. "

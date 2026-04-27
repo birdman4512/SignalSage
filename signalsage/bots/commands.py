@@ -100,7 +100,9 @@ async def handle_digest_command(
                 await reply(f"⚠️ Invalid number: `{args[1]}`. Usage: `!digest top <N>`")
         else:
             current = scheduler.top_stories_count
-            await reply(f"Current top stories count: *{current}*. Use `!digest top <N>` to change (1–20).")
+            await reply(
+                f"Current top stories count: *{current}*. Use `!digest top <N>` to change (1–20)."
+            )
 
     elif args[0] == "list":
         topics = scheduler.get_topics()

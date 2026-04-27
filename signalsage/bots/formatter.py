@@ -433,7 +433,12 @@ def _parse_digest_json(summary: str) -> dict | None:
                 "Truncation recovery: salvaged %d item(s) from incomplete JSON",
                 len(recovered_items),
             )
-            return {"overview": None, "tldr": tldr, "items": recovered_items, "coverage_confidence": None}
+            return {
+                "overview": None,
+                "tldr": tldr,
+                "items": recovered_items,
+                "coverage_confidence": None,
+            }
 
     logger.warning("Failed to parse digest JSON (length=%d): %r…", len(summary), summary[:120])
     return None
@@ -508,14 +513,26 @@ def format_digest_slack_message(
             if not para:
                 continue
             if current_len + len(para) + 2 > 2900 and current_chunk:
-                blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "\n\n".join(current_chunk)}})
+                blocks.append(
+                    {
+                        "type": "section",
+                        "text": {"type": "mrkdwn", "text": "\n\n".join(current_chunk)},
+                    }
+                )
                 current_chunk = []
                 current_len = 0
             current_chunk.append(para)
             current_len += len(para) + 2
         if current_chunk:
-            blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "\n\n".join(current_chunk)}})
-        return [{"text": f"{icon} {topic_name} digest — {window}", "attachments": [{"color": _DIGEST_COLOUR, "blocks": blocks}]}]
+            blocks.append(
+                {"type": "section", "text": {"type": "mrkdwn", "text": "\n\n".join(current_chunk)}}
+            )
+        return [
+            {
+                "text": f"{icon} {topic_name} digest — {window}",
+                "attachments": [{"color": _DIGEST_COLOUR, "blocks": blocks}],
+            }
+        ]
 
     # Sort items by severity, then take top_n / tail
     sorted_items = sorted(
@@ -540,28 +557,36 @@ def format_digest_slack_message(
         overview_text = "\n".join(f"• {b}" for b in parsed["tldr"])
 
     if overview_text:
-        header_blocks.append({
-            "type": "section",
-            "text": {"type": "mrkdwn", "text": f"*📰 Overview*\n{overview_text}"},
-        })
+        header_blocks.append(
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": f"*📰 Overview*\n{overview_text}"},
+            }
+        )
         header_blocks.append({"type": "divider"})
 
     footer_parts = _digest_footer_parts(parsed, meta)
     if footer_parts:
-        header_blocks.append({
-            "type": "context",
-            "elements": [{"type": "mrkdwn", "text": "  ·  ".join(footer_parts)}],
-        })
+        header_blocks.append(
+            {
+                "type": "context",
+                "elements": [{"type": "mrkdwn", "text": "  ·  ".join(footer_parts)}],
+            }
+        )
 
     for img_url in (meta or {}).get("images", []):
         if img_url and str(img_url).startswith("http"):
             header_blocks.append({"type": "divider"})
-            header_blocks.append({"type": "image", "image_url": img_url, "alt_text": f"{topic_name} chart"})
+            header_blocks.append(
+                {"type": "image", "image_url": img_url, "alt_text": f"{topic_name} chart"}
+            )
 
-    messages.append({
-        "text": f"{icon} {topic_name} digest — {window}",
-        "attachments": [{"color": _DIGEST_COLOUR, "blocks": header_blocks}],
-    })
+    messages.append(
+        {
+            "text": f"{icon} {topic_name} digest — {window}",
+            "attachments": [{"color": _DIGEST_COLOUR, "blocks": header_blocks}],
+        }
+    )
 
     # ── Messages 1..top_n: individual story cards ────────────────────────────
     for idx, item in enumerate(top_items):
@@ -587,15 +612,20 @@ def format_digest_slack_message(
                 "url": url,
                 "action_id": f"digest_story_{idx}",
             }
-        messages.append({
-            "text": headline,
-            "attachments": [{"color": _DIGEST_COLOUR, "blocks": [block]}],
-        })
+        messages.append(
+            {
+                "text": headline,
+                "attachments": [{"color": _DIGEST_COLOUR, "blocks": [block]}],
+            }
+        )
 
     # ── Message top_n+1: remaining stories (headline + link only) ────────────
     if tail_items:
         tail_blocks: list[dict] = [
-            {"type": "section", "text": {"type": "mrkdwn", "text": f"*📋 More Stories ({len(tail_items)})*"}},
+            {
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": f"*📋 More Stories ({len(tail_items)})*"},
+            },
         ]
         current_lines: list[str] = []
         current_len = 0
@@ -605,19 +635,32 @@ def format_digest_slack_message(
             item_icon = (str(item.get("icon") or "").strip().split() or ["📰"])[0]
             if not headline:
                 continue
-            line = f"• {item_icon} <{url}|{headline}>" if url.startswith("http") else f"• {item_icon} {headline}"
+            line = (
+                f"• {item_icon} <{url}|{headline}>"
+                if url.startswith("http")
+                else f"• {item_icon} {headline}"
+            )
             if current_len + len(line) + 1 > 2900 and current_lines:
-                tail_blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(current_lines)}})
+                tail_blocks.append(
+                    {
+                        "type": "section",
+                        "text": {"type": "mrkdwn", "text": "\n".join(current_lines)},
+                    }
+                )
                 current_lines = []
                 current_len = 0
             current_lines.append(line)
             current_len += len(line) + 1
         if current_lines:
-            tail_blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(current_lines)}})
-        messages.append({
-            "text": f"📋 {len(tail_items)} more stories",
-            "attachments": [{"color": _DIGEST_COLOUR, "blocks": tail_blocks}],
-        })
+            tail_blocks.append(
+                {"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(current_lines)}}
+            )
+        messages.append(
+            {
+                "text": f"📋 {len(tail_items)} more stories",
+                "attachments": [{"color": _DIGEST_COLOUR, "blocks": tail_blocks}],
+            }
+        )
 
     return messages
 

@@ -217,7 +217,9 @@ def _joined_plain(messages: list[str]) -> str:
 
 
 def test_parse_digest_json_structured_object_with_overview():
-    summary = json.dumps({"overview": "News today.", "coverage_confidence": "high", "items": [_ITEM]})
+    summary = json.dumps(
+        {"overview": "News today.", "coverage_confidence": "high", "items": [_ITEM]}
+    )
     result = _parse_digest_json(summary)
     assert result is not None
     assert result["overview"] == "News today."
@@ -283,7 +285,11 @@ def test_parse_digest_json_invalid_returns_none():
 
 
 def _structured_summary(**kwargs) -> str:
-    data = {"overview": "Top signal across all sources today.", "coverage_confidence": "high", "items": [_ITEM]}
+    data = {
+        "overview": "Top signal across all sources today.",
+        "coverage_confidence": "high",
+        "items": [_ITEM],
+    }
     data.update(kwargs)
     return json.dumps(data)
 
@@ -359,7 +365,14 @@ def test_format_digest_slack_fallback_plain_text():
 def test_format_digest_slack_top_n_split():
     """Top-N stories become individual messages; extras go into the tail message."""
     items = [
-        {"icon": "📰", "severity": "high", "headline": f"Story {i}", "summary": "Detail.", "url": f"https://example.com/{i}", "art_id": f"A{i}"}
+        {
+            "icon": "📰",
+            "severity": "high",
+            "headline": f"Story {i}",
+            "summary": "Detail.",
+            "url": f"https://example.com/{i}",
+            "art_id": f"A{i}",
+        }
         for i in range(1, 6)
     ]
     summary = json.dumps({"overview": "Overview.", "items": items})
@@ -393,7 +406,9 @@ def test_format_digest_plain_has_url():
 
 def test_format_digest_plain_trend_badge():
     item_with_trend = {**_ITEM, "trend": "trending"}
-    messages = format_digest_plain("Test Topic", json.dumps({"overview": "", "items": [item_with_trend]}))
+    messages = format_digest_plain(
+        "Test Topic", json.dumps({"overview": "", "items": [item_with_trend]})
+    )
     assert "🔥" in _joined_plain(messages)
 
 
@@ -422,7 +437,14 @@ def test_format_digest_plain_fallback():
 def test_format_digest_plain_top_n_split():
     """Returns separate messages for each top story and one tail message."""
     items = [
-        {"icon": "📰", "severity": "high", "headline": f"Story {i}", "summary": "Detail.", "url": f"https://example.com/{i}", "art_id": f"A{i}"}
+        {
+            "icon": "📰",
+            "severity": "high",
+            "headline": f"Story {i}",
+            "summary": "Detail.",
+            "url": f"https://example.com/{i}",
+            "art_id": f"A{i}",
+        }
         for i in range(1, 6)
     ]
     summary = json.dumps({"overview": "Overview.", "items": items})
