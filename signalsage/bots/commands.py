@@ -18,6 +18,7 @@ HELP_TEXT = """\
 • `!digest list` — show scheduled topics and their tags
 • `!digest <tag>` — run a topic by tag (e.g. `!digest cyber`, `!digest vuln`, `!digest ti`)
 • `!digest <name>` — run a topic by partial name match (case-insensitive)
+• `!digest top <N>` — set how many top stories get full summaries (1–20, default 10)
 
 • `!osint email <address>` — breach check via Have I Been Pwned
 • `!osint domain <domain>` — crt.sh, WHOIS age & passive DNS lookup
@@ -85,6 +86,21 @@ async def handle_digest_command(
         names = scheduler.get_topic_names()
         await reply(f"⏳ Running digest for all {len(names)} topic(s)…")
         await scheduler.run_all_now(override_channel=reply_channel)
+
+    elif args[0] == "top":
+        if len(args) >= 2:
+            try:
+                n = int(args[1])
+                if n < 1 or n > 20:
+                    await reply("⚠️ Top stories count must be between 1 and 20.")
+                    return
+                scheduler.set_top_stories_count(n)
+                await reply(f"✅ Top stories count set to *{n}* for this session.")
+            except ValueError:
+                await reply(f"⚠️ Invalid number: `{args[1]}`. Usage: `!digest top <N>`")
+        else:
+            current = scheduler.top_stories_count
+            await reply(f"Current top stories count: *{current}*. Use `!digest top <N>` to change (1–20).")
 
     elif args[0] == "list":
         topics = scheduler.get_topics()

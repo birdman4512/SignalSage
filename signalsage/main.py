@@ -130,6 +130,7 @@ async def main() -> None:
             llm=llm,
             max_chars=digest_cfg.get("max_chars_per_source", 3000),
             max_total_chars=digest_cfg.get("max_total_chars_per_topic", 20000),
+            interest_topics=digest_cfg.get("interest_topics") or [],
         )
         logger.info("Digest summarizer ready (provider: %s)", llm_provider)
     else:
@@ -197,6 +198,7 @@ async def main() -> None:
                 timezone=digest_cfg.get("timezone", "UTC"),
                 whisper_base_url=whisper_base_url,
                 data_dir=digest_cfg.get("data_dir", "data"),
+                top_stories_count=int(digest_cfg.get("top_stories_count", 10)),
             )
             scheduler.start()
             # Give bots a scheduler reference so !digest commands work

@@ -69,6 +69,9 @@ digest:
   max_total_chars_per_topic: 20000   # cap total content sent to LLM per topic (~5k tokens)
   data_dir: "data"                   # persistent storage for history, trend detection, source health
 
+  top_stories_count: 10             # top N stories shown with full summary; rest shown as headline+link only
+  interest_topics: []               # keywords to help rank top stories, e.g. ["ransomware", "zero-day", "CISA advisories"]
+
   # LLM backend: "ollama" (local, free) or "anthropic" (paid)
   llm_provider: "${LLM_PROVIDER:-ollama}"
 

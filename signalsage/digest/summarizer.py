@@ -103,18 +103,30 @@ def _inject_urls(
     return json.dumps(data)
 
 
-_SYSTEM_PROMPT = """\
+def _build_system_prompt(interest_topics: list[str]) -> str:
+    """Build the LLM system prompt, optionally injecting interest topic hints."""
+    interest_section = ""
+    if interest_topics:
+        topics_str = ", ".join(f'"{t}"' for t in interest_topics)
+        interest_section = (
+            f"\nTopics of high interest to prioritise: {topics_str}. "
+            "Rank items most relevant to these topics higher in the items array.\n"
+        )
+    return f"""\
 You are an analyst producing a structured news digest from pre-fetched source content.
 Each article in the content is labelled with an ID like [A1], [A2], etc., and may have a URL line.
 The source content is provided below - you do not need to access the internet.
-
+{interest_section}
 Return a single JSON object with these keys:
 
-"tldr": array of 3-5 one-sentence strings summarising the most important signals across ALL sources. Highlight cross-cutting themes. Do not repeat individual story headlines verbatim.
+"overview": a 3-5 sentence narrative paragraph covering the most important themes and developments \
+across ALL sources. Write as a flowing news summary, not a bullet list.
 
-"coverage_confidence": "high" (many sources, rich overlapping content), "medium" (some sources, patchy), or "low" (few sources, sparse/off-topic).
+"coverage_confidence": "high" (many sources, rich overlapping content), "medium" (some sources, \
+patchy), or "low" (few sources, sparse/off-topic).
 
-"items": array of 5-20 individual story objects (MAXIMUM 20 — stop at 20 even if more articles exist), one per notable article. Each object has:
+"items": array of up to 20 story objects sorted by importance descending (most important first). \
+Each object has:
   "art_id": the [A<N>] label of the article this item is based on (e.g. "A3"). Required.
   "icon": ONE emoji character - output the emoji only, no words. Choose the closest match:
     🔴=critical-incident  🛡️=patch-or-fix  🦠=malware  🔗=phishing  📢=announcement
@@ -122,8 +134,9 @@ Return a single JSON object with these keys:
     ☀️=space-weather  🤖=AI-or-ML  📰=general
   "severity": "critical", "high", "medium", or "low"
   "headline": title from or based on the article, max 80 characters
-  "blurb": 1-2 sentences - what happened and why it matters
-  "url": copy the URL exactly from the article's "URL:" line in the source content. If no URL line exists for that article, use null.
+  "summary": 3-5 sentences covering what happened, key technical or contextual details, and why it matters
+  "url": copy the URL exactly from the article's "URL:" line in the source content. If no URL line \
+exists for that article, use null.
 
 Rules:
 - Output ONLY the JSON object. No markdown fences, no explanation, no extra text.
@@ -131,6 +144,7 @@ Rules:
 - "icon" must be a single emoji character - never include any words after it.
 - "art_id" must match one of the [A<N>] labels in the source content.
 - "url" must be copied verbatim from the source — do not paraphrase or invent URLs.
+- Sort "items" with the most important and relevant stories first.
 """
 
 _IOC_SYSTEM_PROMPT = (
@@ -144,10 +158,17 @@ _IOC_SYSTEM_PROMPT = (
 class DigestSummarizer:
     """Fetches topic sources and summarizes them using a configured LLM."""
 
-    def __init__(self, llm: BaseLLM, max_chars: int = 3000, max_total_chars: int = 20000) -> None:
+    def __init__(
+        self,
+        llm: BaseLLM,
+        max_chars: int = 3000,
+        max_total_chars: int = 20000,
+        interest_topics: list[str] | None = None,
+    ) -> None:
         self.llm = llm
         self.max_chars = max_chars
         self.max_total_chars = max_total_chars
+        self.interest_topics: list[str] = interest_topics or []
 
     async def summarize_topic(
         self, topic_name: str, sources: list[dict], lookback: str | None = None
@@ -227,7 +248,9 @@ class DigestSummarizer:
         for attempt in range(1 + _LLM_RETRIES):
             try:
                 raw = await self.llm.complete(
-                    system=_SYSTEM_PROMPT, user=user_prompt, max_tokens=4096
+                    system=_build_system_prompt(self.interest_topics),
+                    user=user_prompt,
+                    max_tokens=4096,
                 )
                 logger.debug("LLM raw output for topic %r: %s", topic_name, raw[:500])
                 return _inject_urls(raw, url_map, title_url_pairs)

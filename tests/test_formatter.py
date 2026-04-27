@@ -187,16 +187,50 @@ _ITEM = {
     "icon": "🔴",
     "severity": "critical",
     "headline": "Test Headline",
-    "blurb": "Something bad.",
+    "summary": "Something bad happened and it matters because of reasons.",
     "url": "https://example.com",
 }
 
+# ---------------------------------------------------------------------------
+# Helpers for multi-message assertions
+# ---------------------------------------------------------------------------
 
-def test_parse_digest_json_structured_object():
+
+def _all_slack_blocks(payloads: list[dict]) -> list[dict]:
+    blocks = []
+    for p in payloads:
+        for att in p.get("attachments", []):
+            blocks.extend(att.get("blocks", []))
+    return blocks
+
+
+def _all_section_texts(payloads: list[dict]) -> list[str]:
+    return [
+        b.get("text", {}).get("text", "")
+        for b in _all_slack_blocks(payloads)
+        if b.get("type") == "section"
+    ]
+
+
+def _joined_plain(messages: list[str]) -> str:
+    return "\n".join(messages)
+
+
+def test_parse_digest_json_structured_object_with_overview():
+    summary = json.dumps({"overview": "News today.", "coverage_confidence": "high", "items": [_ITEM]})
+    result = _parse_digest_json(summary)
+    assert result is not None
+    assert result["overview"] == "News today."
+    assert result["coverage_confidence"] == "high"
+    assert len(result["items"]) == 1
+
+
+def test_parse_digest_json_structured_object_legacy_tldr():
     summary = json.dumps({"tldr": ["Key point"], "coverage_confidence": "high", "items": [_ITEM]})
     result = _parse_digest_json(summary)
     assert result is not None
     assert result["tldr"] == ["Key point"]
+    assert result["overview"] is None
     assert result["coverage_confidence"] == "high"
     assert len(result["items"]) == 1
 
@@ -208,8 +242,8 @@ def test_parse_digest_json_strips_code_fence():
 
 def test_parse_digest_json_bare_shortcode():
     summary = (
-        '{"tldr": [], "items": [{"icon": :shield:, "severity": "low", '
-        '"headline": "X", "blurb": "Y", "url": null}]}'
+        '{"overview": "", "items": [{"icon": :shield:, "severity": "low", '
+        '"headline": "X", "summary": "Y", "url": null}]}'
     )
     result = _parse_digest_json(summary)
     assert result is not None
@@ -219,8 +253,8 @@ def test_parse_digest_json_bare_shortcode():
 def test_parse_digest_json_unquoted_emoji_icon():
     """LLMs sometimes emit unquoted emoji: "icon": 🔴, — must still parse."""
     summary = (
-        '{"tldr": [], "items": [{"icon": 🔴, "severity": "critical", '
-        '"headline": "X", "blurb": "Y", "url": null}]}'
+        '{"overview": "", "items": [{"icon": 🔴, "severity": "critical", '
+        '"headline": "X", "summary": "Y", "url": null}]}'
     )
     result = _parse_digest_json(summary)
     assert result is not None
@@ -231,6 +265,7 @@ def test_parse_digest_json_legacy_flat_array():
     summary = json.dumps([_ITEM])
     result = _parse_digest_json(summary)
     assert result is not None
+    assert result["overview"] is None
     assert result["tldr"] == []
     assert result["coverage_confidence"] is None
     assert len(result["items"]) == 1
@@ -248,48 +283,45 @@ def test_parse_digest_json_invalid_returns_none():
 
 
 def _structured_summary(**kwargs) -> str:
-    data = {"tldr": ["Top signal"], "coverage_confidence": "high", "items": [_ITEM]}
+    data = {"overview": "Top signal across all sources today.", "coverage_confidence": "high", "items": [_ITEM]}
     data.update(kwargs)
     return json.dumps(data)
 
 
-def test_format_digest_slack_has_tldr_block():
-    payload = format_digest_slack_message("Test Topic", _structured_summary())
-    blocks = payload["attachments"][0]["blocks"]
-    texts = [b.get("text", {}).get("text", "") for b in blocks if b.get("type") == "section"]
+def test_format_digest_slack_has_overview_block():
+    payloads = format_digest_slack_message("Test Topic", _structured_summary())
+    texts = _all_section_texts(payloads)
     assert any("Top signal" in t for t in texts)
 
 
 def test_format_digest_slack_has_item_headline():
-    payload = format_digest_slack_message("Test Topic", _structured_summary())
-    blocks = payload["attachments"][0]["blocks"]
-    texts = [b.get("text", {}).get("text", "") for b in blocks if b.get("type") == "section"]
+    payloads = format_digest_slack_message("Test Topic", _structured_summary())
+    texts = _all_section_texts(payloads)
     assert any("Test Headline" in t for t in texts)
 
 
 def test_format_digest_slack_read_more_button():
-    payload = format_digest_slack_message("Test Topic", _structured_summary())
-    blocks = payload["attachments"][0]["blocks"]
+    payloads = format_digest_slack_message("Test Topic", _structured_summary())
     buttons = [
-        b.get("accessory", {}) for b in blocks if b.get("type") == "section" and b.get("accessory")
+        b.get("accessory", {})
+        for b in _all_slack_blocks(payloads)
+        if b.get("type") == "section" and b.get("accessory")
     ]
     assert any(b.get("url") == "https://example.com" for b in buttons)
 
 
 def test_format_digest_slack_severity_shown():
-    payload = format_digest_slack_message("Test Topic", _structured_summary())
-    blocks = payload["attachments"][0]["blocks"]
-    texts = [b.get("text", {}).get("text", "") for b in blocks if b.get("type") == "section"]
+    payloads = format_digest_slack_message("Test Topic", _structured_summary())
+    texts = _all_section_texts(payloads)
     assert any("Critical" in t for t in texts)
 
 
 def test_format_digest_slack_trend_badge():
     item_with_trend = {**_ITEM, "trend": "trending"}
-    payload = format_digest_slack_message(
-        "Test Topic", json.dumps({"tldr": [], "items": [item_with_trend]})
+    payloads = format_digest_slack_message(
+        "Test Topic", json.dumps({"overview": "", "items": [item_with_trend]})
     )
-    blocks = payload["attachments"][0]["blocks"]
-    texts = [b.get("text", {}).get("text", "") for b in blocks if b.get("type") == "section"]
+    texts = _all_section_texts(payloads)
     assert any("🔥" in t for t in texts)
 
 
@@ -302,12 +334,13 @@ def test_format_digest_slack_meta_footer():
         "deduped_count": 2,
         "coverage_confidence": "low",
     }
-    # Summary without coverage_confidence so meta value is used for the footer
-    summary_no_conf = json.dumps({"tldr": ["Top signal"], "items": [_ITEM]})
-    payload = format_digest_slack_message("Test Topic", summary_no_conf, meta=meta)
-    blocks = payload["attachments"][0]["blocks"]
+    summary_no_conf = json.dumps({"overview": "Summary.", "items": [_ITEM]})
+    payloads = format_digest_slack_message("Test Topic", summary_no_conf, meta=meta)
     context_texts = [
-        e["text"] for b in blocks if b.get("type") == "context" for e in b.get("elements", [])
+        e["text"]
+        for b in _all_slack_blocks(payloads)
+        if b.get("type") == "context"
+        for e in b.get("elements", [])
     ]
     footer = " ".join(context_texts)
     assert "3/5" in footer
@@ -318,10 +351,24 @@ def test_format_digest_slack_meta_footer():
 
 
 def test_format_digest_slack_fallback_plain_text():
-    payload = format_digest_slack_message("Test Topic", "This is plain text, not JSON.")
-    blocks = payload["attachments"][0]["blocks"]
-    texts = [b.get("text", {}).get("text", "") for b in blocks if b.get("type") == "section"]
+    payloads = format_digest_slack_message("Test Topic", "This is plain text, not JSON.")
+    texts = _all_section_texts(payloads)
     assert any("plain text" in t for t in texts)
+
+
+def test_format_digest_slack_top_n_split():
+    """Top-N stories become individual messages; extras go into the tail message."""
+    items = [
+        {"icon": "📰", "severity": "high", "headline": f"Story {i}", "summary": "Detail.", "url": f"https://example.com/{i}", "art_id": f"A{i}"}
+        for i in range(1, 6)
+    ]
+    summary = json.dumps({"overview": "Overview.", "items": items})
+    payloads = format_digest_slack_message("Test Topic", summary, meta={"top_stories_count": 3})
+    # message 0 = header, messages 1-3 = top stories, message 4 = tail
+    assert len(payloads) == 5
+    tail_texts = _all_section_texts([payloads[-1]])
+    assert "Story 4" in " ".join(tail_texts)
+    assert "Story 5" in " ".join(tail_texts)
 
 
 # ---------------------------------------------------------------------------
@@ -329,25 +376,25 @@ def test_format_digest_slack_fallback_plain_text():
 # ---------------------------------------------------------------------------
 
 
-def test_format_digest_plain_has_tldr():
-    result = format_digest_plain("Test Topic", _structured_summary())
-    assert "Top signal" in result
+def test_format_digest_plain_has_overview():
+    messages = format_digest_plain("Test Topic", _structured_summary())
+    assert "Top signal" in _joined_plain(messages)
 
 
 def test_format_digest_plain_has_headline():
-    result = format_digest_plain("Test Topic", _structured_summary())
-    assert "Test Headline" in result
+    messages = format_digest_plain("Test Topic", _structured_summary())
+    assert "Test Headline" in _joined_plain(messages)
 
 
 def test_format_digest_plain_has_url():
-    result = format_digest_plain("Test Topic", _structured_summary())
-    assert "https://example.com" in result
+    messages = format_digest_plain("Test Topic", _structured_summary())
+    assert "https://example.com" in _joined_plain(messages)
 
 
 def test_format_digest_plain_trend_badge():
     item_with_trend = {**_ITEM, "trend": "trending"}
-    result = format_digest_plain("Test Topic", json.dumps({"tldr": [], "items": [item_with_trend]}))
-    assert "🔥" in result
+    messages = format_digest_plain("Test Topic", json.dumps({"overview": "", "items": [item_with_trend]}))
+    assert "🔥" in _joined_plain(messages)
 
 
 def test_format_digest_plain_meta_footer():
@@ -359,36 +406,48 @@ def test_format_digest_plain_meta_footer():
         "deduped_count": 0,
         "coverage_confidence": "medium",
     }
-    # Summary without coverage_confidence so meta value is used for the footer
-    summary_no_conf = json.dumps({"tldr": ["Top signal"], "items": [_ITEM]})
-    result = format_digest_plain("Test Topic", summary_no_conf, meta=meta)
-    assert "2/4" in result
-    assert "Medium" in result
-    assert "Bad Feed" in result
+    summary_no_conf = json.dumps({"overview": "Overview.", "items": [_ITEM]})
+    messages = format_digest_plain("Test Topic", summary_no_conf, meta=meta)
+    combined = _joined_plain(messages)
+    assert "2/4" in combined
+    assert "Medium" in combined
+    assert "Bad Feed" in combined
 
 
 def test_format_digest_plain_fallback():
-    result = format_digest_plain("Test Topic", "Plain text summary here.")
-    assert "Plain text summary here." in result
+    messages = format_digest_plain("Test Topic", "Plain text summary here.")
+    assert "Plain text summary here." in _joined_plain(messages)
+
+
+def test_format_digest_plain_top_n_split():
+    """Returns separate messages for each top story and one tail message."""
+    items = [
+        {"icon": "📰", "severity": "high", "headline": f"Story {i}", "summary": "Detail.", "url": f"https://example.com/{i}", "art_id": f"A{i}"}
+        for i in range(1, 6)
+    ]
+    summary = json.dumps({"overview": "Overview.", "items": items})
+    messages = format_digest_plain("Test Topic", summary, meta={"top_stories_count": 3})
+    # message 0 = header, messages 1-3 = top stories, message 4 = tail
+    assert len(messages) == 5
+    assert "Story 4" in messages[-1]
+    assert "Story 5" in messages[-1]
 
 
 def test_format_digest_slack_images():
     meta = {"sources_ok": 1, "sources_total": 1, "images": ["https://example.com/chart.png"]}
-    payload = format_digest_slack_message("Solar", _structured_summary(), meta=meta)
-    blocks = payload["attachments"][0]["blocks"]
-    image_blocks = [b for b in blocks if b.get("type") == "image"]
+    payloads = format_digest_slack_message("Solar", _structured_summary(), meta=meta)
+    image_blocks = [b for b in _all_slack_blocks(payloads) if b.get("type") == "image"]
     assert len(image_blocks) == 1
     assert image_blocks[0]["image_url"] == "https://example.com/chart.png"
 
 
 def test_format_digest_slack_images_skips_non_http():
     meta = {"sources_ok": 1, "sources_total": 1, "images": ["not-a-url"]}
-    payload = format_digest_slack_message("Solar", _structured_summary(), meta=meta)
-    blocks = payload["attachments"][0]["blocks"]
-    assert not any(b.get("type") == "image" for b in blocks)
+    payloads = format_digest_slack_message("Solar", _structured_summary(), meta=meta)
+    assert not any(b.get("type") == "image" for b in _all_slack_blocks(payloads))
 
 
 def test_format_digest_plain_images():
     meta = {"sources_ok": 1, "sources_total": 1, "images": ["https://example.com/chart.png"]}
-    result = format_digest_plain("Solar", _structured_summary(), meta=meta)
-    assert "https://example.com/chart.png" in result
+    messages = format_digest_plain("Solar", _structured_summary(), meta=meta)
+    assert "https://example.com/chart.png" in _joined_plain(messages)

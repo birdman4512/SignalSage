@@ -197,12 +197,14 @@ class DiscordBot(discord.Client):
         if not ch:
             logger.warning("Discord channel %s not found or not accessible", ch_id_int)
             return
-        text = format_digest_plain(topic_name, summary, lookback, meta=meta)
-        for chunk in split_message(text, 2000):
-            try:
-                await ch.send(chunk)  # type: ignore[attr-defined]
-            except discord.HTTPException as exc:
-                logger.error("Failed to send Discord digest chunk: %s", exc)
+        messages = format_digest_plain(topic_name, summary, lookback, meta=meta)
+        for msg in messages:
+            for chunk in split_message(msg, 2000):
+                try:
+                    await ch.send(chunk)  # type: ignore[attr-defined]
+                except discord.HTTPException as exc:
+                    logger.error("Failed to send Discord digest message: %s", exc)
+                    break
 
     async def start_bot(self) -> None:
         """Start the Discord bot (blocks until stopped)."""

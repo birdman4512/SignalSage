@@ -114,11 +114,13 @@ class DigestScheduler:
         timezone: str = "UTC",
         whisper_base_url: str | None = None,
         data_dir: str = "data",
+        top_stories_count: int = 10,
     ) -> None:
         self.summarizer = summarizer
         self.notifiers = notifiers
         self.timezone = timezone
         self.whisper_base_url = whisper_base_url
+        self.top_stories_count = top_stories_count
         self._scheduler = AsyncIOScheduler(
             timezone=timezone,
             executors={"default": AsyncIOExecutor()},
@@ -269,6 +271,7 @@ class DigestScheduler:
             "deduped_count": extra_meta["deduped_count"],
             "coverage_confidence": extra_meta["coverage_confidence"],
             "images": images,
+            "top_stories_count": self.top_stories_count,
         }
 
         # Per-topic channel override; fall back to the on-demand caller's channel
@@ -285,6 +288,11 @@ class DigestScheduler:
                     name,
                     exc,
                 )
+
+    def set_top_stories_count(self, n: int) -> None:
+        """Update the number of top stories shown with full summaries (session only)."""
+        self.top_stories_count = max(1, min(n, 20))
+        logger.info("Top stories count set to %d", self.top_stories_count)
 
     def get_topic_names(self) -> list[str]:
         """Return names of all scheduled digest topics."""
