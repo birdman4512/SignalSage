@@ -280,16 +280,22 @@ class DigestSummarizer:
     def _fallback_summary(self, source_blocks: list[str]) -> str:
         """
         Return a minimal plain-text summary built from raw source headlines
-        when the LLM is unavailable. Extracts the first line of each source
-        block (the ### Source Name heading) so users still see what was fetched.
+        when the LLM is unavailable.
         """
-        lines = ["⚠️ LLM summary unavailable - showing raw source headlines:\n"]
+        lines = ["⚠️ Error communicating with the LLM — falling back to headlines only:\n"]
         for block in source_blocks:
+            source_name = None
+            headlines: list[str] = []
             for line in block.splitlines():
                 line = line.strip()
                 if line.startswith("### "):
-                    lines.append(f"• {line[4:]}")
-                    break
+                    source_name = line[4:]
+                elif re.match(r"^\[A\d+\] Title:", line):
+                    headlines.append(re.sub(r"^\[A\d+\] Title:\s*", "", line))
+            if source_name:
+                lines.append(f"\n*{source_name}*")
+            for h in headlines:
+                lines.append(f"  • {h}")
         return "\n".join(lines)
 
     async def summarize_ioc(self, ioc: IOC, results: list[IntelResult]) -> str:
