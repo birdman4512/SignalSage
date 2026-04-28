@@ -12,7 +12,7 @@ from signalsage.llm.base import BaseLLM
 
 _LLM_RETRIES = 2
 _LLM_RETRY_DELAY = 5  # seconds between retries
-_URL_MATCH_THRESHOLD = 0.35  # minimum Jaccard similarity to inject a URL
+_URL_MATCH_THRESHOLD = 0.20  # minimum Jaccard similarity to inject a URL
 
 logger = logging.getLogger(__name__)
 
@@ -67,8 +67,9 @@ def _inject_urls(
         if existing.startswith("http"):
             continue  # already have a good URL
 
-        # Try art_id lookup first — normalise brackets/case (LLMs sometimes emit "[A3]" or "a3")
-        art_id = re.sub(r"[\[\]]", "", str(item.get("art_id") or "")).strip().upper()
+        # Try art_id lookup — normalise brackets/case and take first id if LLM emits "A1, A3"
+        art_id_raw = re.sub(r"[\[\]]", "", str(item.get("art_id") or "")).strip().upper()
+        art_id = re.split(r"[,\s]+", art_id_raw)[0].strip() if art_id_raw else ""
         if art_id and art_id in url_map:
             item["url"] = url_map[art_id]
             injected += 1
@@ -88,12 +89,12 @@ def _inject_urls(
             injected += 1
         else:
             no_url += 1
-            logger.debug(
-                "No URL resolved for item art_id=%r headline=%r (best_jaccard=%.2f, url_map_keys=%s)",
+            logger.info(
+                "No URL resolved for item art_id=%r headline=%r (best_jaccard=%.2f, url_map=%d keys)",
                 art_id,
                 headline[:60],
                 best_score,
-                list(url_map.keys()),
+                len(url_map),
             )
 
     if injected:
@@ -184,21 +185,23 @@ class DigestSummarizer:
             if not content:
                 continue
 
-            # Stamp each "Title: ..." line with a unique article ID and record its URL
+            # Stamp each "Title: ..." line with a unique article ID and record its URL.
+            # Regex captures just the headline text (group 1) without the "Title: " prefix
+            # so that title_url_pairs stores clean titles for Jaccard matching.
             def _stamp_article(m: re.Match) -> str:
                 nonlocal art_counter
                 art_counter += 1
                 art_id = f"A{art_counter}"
-                title = m.group(1).strip()
+                headline = m.group(1).strip()
                 url_line = m.group(2) or ""
                 url = re.search(r"URL:\s*(https?://\S+)", url_line)
                 if url:
                     url_map[art_id] = url.group(1)
-                    title_url_pairs.append((title, url.group(1)))
-                return f"[{art_id}] Title: {title}\n{url_line}"
+                    title_url_pairs.append((headline, url.group(1)))
+                return f"[{art_id}] Title: {headline}\n{url_line}"
 
             labelled = re.sub(
-                r"^(Title:\s*.+)\n(URL:\s*https?://\S+)?",
+                r"^Title:\s*(.+)\n(URL:\s*https?://\S+)?",
                 _stamp_article,
                 content,
                 flags=re.MULTILINE,
