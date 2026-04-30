@@ -63,7 +63,9 @@ def _inject_urls(
                 return m.group(0)
             if str(obj.get("url") or "").startswith("http"):
                 return m.group(0)
-            art_id = re.split(r"[,\s]+", re.sub(r"[\[\]]", "", str(obj.get("art_id") or "")).strip().upper())[0]
+            art_id = re.split(
+                r"[,\s]+", re.sub(r"[\[\]]", "", str(obj.get("art_id") or "")).strip().upper()
+            )[0]
             if art_id and art_id in url_map:
                 obj["url"] = url_map[art_id]
                 return json.dumps(obj)
