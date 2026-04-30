@@ -52,7 +52,32 @@ def _inject_urls(
     try:
         data = json.loads(text)
     except (json.JSONDecodeError, ValueError):
-        return raw_json
+        # Full parse failed (truncated JSON) — inject URLs into individual item objects in-place.
+        if not url_map and not title_url_pairs:
+            return raw_json
+
+        def _fix_item(m: re.Match) -> str:
+            try:
+                obj = json.loads(m.group(0))
+            except (json.JSONDecodeError, ValueError):
+                return m.group(0)
+            if str(obj.get("url") or "").startswith("http"):
+                return m.group(0)
+            art_id = re.split(r"[,\s]+", re.sub(r"[\[\]]", "", str(obj.get("art_id") or "")).strip().upper())[0]
+            if art_id and art_id in url_map:
+                obj["url"] = url_map[art_id]
+                return json.dumps(obj)
+            headline = str(obj.get("headline") or "")
+            best_url, best_score = "", 0.0
+            for title, url in title_url_pairs:
+                score = _jaccard(headline, title)
+                if score > best_score:
+                    best_score, best_url = score, url
+            if best_score >= _URL_MATCH_THRESHOLD and best_url:
+                obj["url"] = best_url
+            return json.dumps(obj)
+
+        return re.sub(r'\{[^{}]*"art_id"[^{}]*\}', _fix_item, text, flags=re.DOTALL)
 
     items = data.get("items") if isinstance(data, dict) else None
     if not isinstance(items, list):
