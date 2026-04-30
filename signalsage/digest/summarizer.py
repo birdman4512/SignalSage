@@ -246,6 +246,7 @@ class DigestSummarizer:
             + "\n--- END CONTENT ---"
         )
 
+        last_exc: Exception | None = None
         for attempt in range(1 + _LLM_RETRIES):
             try:
                 raw = await self.llm.complete(
@@ -256,6 +257,7 @@ class DigestSummarizer:
                 logger.debug("LLM raw output for topic %r: %s", topic_name, raw[:500])
                 return _inject_urls(raw, url_map, title_url_pairs)
             except Exception as exc:
+                last_exc = exc
                 if attempt < _LLM_RETRIES:
                     logger.warning(
                         "LLM error for topic %s (attempt %d/%d): %s - retrying in %ds",
@@ -272,17 +274,25 @@ class DigestSummarizer:
                         topic_name,
                         1 + _LLM_RETRIES,
                         exc,
+                        exc_info=True,
                     )
 
         # All retries exhausted - produce a minimal fallback from raw headlines
-        return self._fallback_summary(source_blocks)
+        return self._fallback_summary(source_blocks, last_exc, 1 + _LLM_RETRIES)
 
-    def _fallback_summary(self, source_blocks: list[str]) -> str:
+    def _fallback_summary(
+        self,
+        source_blocks: list[str],
+        error: Exception | None = None,
+        attempts: int = 1,
+    ) -> str:
         """
         Return a minimal plain-text summary built from raw source headlines
         when the LLM is unavailable.
         """
-        lines = ["⚠️ Error communicating with the LLM — falling back to headlines only:\n"]
+        attempt_str = f" after {attempts} attempt{'s' if attempts != 1 else ''}"
+        error_detail = f": {error}" if error else ""
+        lines = [f"⚠️ LLM unavailable{attempt_str}{error_detail} — headlines only:\n"]
         for block in source_blocks:
             source_name = None
             headlines: list[str] = []

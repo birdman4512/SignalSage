@@ -52,6 +52,11 @@ class OllamaLLM(BaseLLM):
                     return data["message"]["content"]
                 except (KeyError, TypeError):
                     raise RuntimeError(f"Unexpected Ollama response format: {data}")
+            except httpx.TimeoutException:
+                raise RuntimeError(
+                    f"Ollama request timed out after {self.timeout}s — "
+                    "prompt may be too large for this model/hardware"
+                )
             except httpx.ConnectError:
                 raise RuntimeError(
                     f"Cannot connect to Ollama at {self.base_url}. "

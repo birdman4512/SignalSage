@@ -82,6 +82,7 @@ digest:
   ollama_base_url: "${OLLAMA_BASE_URL:-http://localhost:11434}"
   ollama_model: "${OLLAMA_MODEL:-gemma2:2b}"
   ollama_num_ctx: 16384   # total context window (input + output); must exceed prompt size + max_tokens
+  ollama_timeout: 1800    # seconds to wait for Ollama response; increase for slow/CPU-only hardware
 
   # Anthropic Claude — paid API. Only used when llm_provider = "anthropic"
   anthropic_model: "claude-haiku-4-5-20251001"
