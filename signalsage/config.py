@@ -36,7 +36,12 @@ def _expand_env(value: Any) -> Any:
             logger.debug("Environment variable %s not set (no default)", var_name)
             return ""
 
-        return _ENV_VAR_RE.sub(replacer, value)
+        result = _ENV_VAR_RE.sub(replacer, value)
+        if result.lower() == "true":
+            return True
+        if result.lower() == "false":
+            return False
+        return result
     return value
 
 

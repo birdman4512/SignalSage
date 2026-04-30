@@ -1,15 +1,15 @@
 platforms:
   slack:
-    enabled: true
+    enabled: ${SLACK_ENABLED:-true}
     bot_token: ${SLACK_BOT_TOKEN}
     app_token: ${SLACK_APP_TOKEN}
     monitor_channels: []   # empty = all channels bot is in
-    digest_channel: "ioc-check"
+    digest_channel: "${SLACK_DIGEST_CHANNEL:-ioc-check}"
   discord:
-    enabled: false
+    enabled: ${DISCORD_ENABLED:-false}
     bot_token: ${DISCORD_BOT_TOKEN}
     monitor_channels: []   # empty = all channels bot can read
-    digest_channel: null   # channel ID (integer)
+    digest_channel: "${DISCORD_DIGEST_CHANNEL:-}"   # channel ID (integer)
 
 intel:
   max_iocs_per_message: 5
