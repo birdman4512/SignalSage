@@ -242,12 +242,19 @@ def _is_soft_404(soup: BeautifulSoup) -> bool:
     return False
 
 
-def _extract_web_content(html: str, max_chars: int) -> str:
-    """Extract readable text from an HTML page."""
+def _extract_web_content(html: str, max_chars: int) -> tuple[str, str]:
+    """Extract readable text from an HTML page. Returns (content, page_title)."""
     soup = BeautifulSoup(html, "lxml")
 
     if _is_soft_404(soup):
-        return ""
+        return "", ""
+
+    # Extract page title (strip site-name suffix after " | ")
+    title_tag = soup.find("title")
+    page_title = ""
+    if title_tag:
+        raw = _WHITESPACE_RE.sub(" ", title_tag.get_text()).strip()
+        page_title = re.split(r"\s*\|\s*", raw)[0].strip()
 
     # Remove script/style elements
     for tag in soup(["script", "style", "nav", "footer", "header", "aside"]):
@@ -273,7 +280,7 @@ def _extract_web_content(html: str, max_chars: int) -> str:
         text = soup.get_text(separator=" ")
 
     text = _WHITESPACE_RE.sub(" ", text).strip()
-    return text[:max_chars]
+    return text[:max_chars], page_title
 
 
 def _extract_json_feed(raw: str, max_chars: int, lookback_seconds: int | None = None) -> str:
@@ -418,10 +425,14 @@ async def fetch_source(
         if content:
             return content, final_url
 
-    # Fall back to HTML extraction — append the page URL so the LLM can reference it
-    content = _extract_web_content(raw_content, max_chars)
+    # Fall back to HTML extraction — prefix with Title:/URL: so the summarizer
+    # can stamp an [A<N>] label and inject URLs for items from this page.
+    content, page_title = _extract_web_content(raw_content, max_chars)
     if content:
-        content = f"{content}\nURL: {final_url}"
+        if page_title:
+            content = f"Title: {page_title}\nURL: {final_url}\n{content}"
+        else:
+            content = f"{content}\nURL: {final_url}"
     return content, final_url
 
 
