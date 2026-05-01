@@ -188,7 +188,7 @@ topics:
 
   - name: "Solar & Propagation"
     tags: [solar, propagation, spaceweather]  # !digest solar
-    schedule: "0 18 * * 4"         # 6:00pm Thursdays
+    schedule: "0 18 * * 3"         # 6:00pm Thursdays (APScheduler: Mon=0, Thu=3)
     lookback: "7d"
     digest_channel: "#general"
     sources:
@@ -207,7 +207,7 @@ topics:
 
   - name: "Ham Radio News"
     tags: [ham, dx, hamradio]       # !digest ham
-    schedule: "15 18 * * 4"        # 6:15pm Thursdays
+    schedule: "15 18 * * 3"        # 6:15pm Thursdays (APScheduler: Mon=0, Thu=3)
     lookback: "7d"
     digest_channel: "#general"
     sources:
