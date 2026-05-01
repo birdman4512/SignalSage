@@ -4,10 +4,16 @@ networks:
   internal:
     driver: bridge
     internal: true   # blocks outbound internet from this network
+    ipam:
+      config:
+        - subnet: 10.10.50.0/24
 
   # External network — used only by signalsage and ollama to reach the internet.
   external:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 10.10.51.0/24
 
 services:
   signalsage:
