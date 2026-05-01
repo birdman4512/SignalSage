@@ -195,8 +195,6 @@ topics:
       - name: "Space Weather Australia — HF Conditions"
         url: "https://www.sws.bom.gov.au/HF_Systems/6/5"
         image_url: "https://www.sws.bom.gov.au/Images/HF%20Systems/Australasia/T%20Index/ANZTIndexMap.gif"
-      - name: "Space Weather Australia — T-Index Map"
-        url: "https://www.sws.bom.gov.au/HF_Systems/1/6/1"
       - name: "Solar Terrestrial Activity Report"
         url: "https://solen.info/solar/index.html"
       - name: "HamQSL Solar Data"
