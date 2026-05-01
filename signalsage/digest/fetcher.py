@@ -473,7 +473,7 @@ async def fetch_topic(
                     "name": source.get("name", ""),
                     "url": source.get("url", ""),
                     "content": "",
-                    "image_url": None,
+                    "image_url": source.get("image_url") or None,
                 }
             )
         else:

@@ -161,7 +161,7 @@ Each object MUST have all of these fields:
   "headline": max 80 characters
   "summary": REQUIRED — write 3-5 full sentences covering what happened, the key details, \
 and why it matters. A single sentence is NOT acceptable.
-  "url": copy verbatim from the article's URL line, or null if none.
+  "url": copy verbatim from the article's URL line; if no per-article URL exists, use the "Source URL:" from the same source block header.
 {interest_section}
 STRICT RULES — you will be penalised for breaking these:
 - Output ONLY the raw JSON object. No markdown fences, no code blocks, no explanation.
