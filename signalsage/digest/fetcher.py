@@ -2,6 +2,8 @@
 
 import asyncio
 import calendar
+import datetime
+import json
 import logging
 import re
 import tempfile
@@ -274,6 +276,95 @@ def _extract_web_content(html: str, max_chars: int) -> str:
     return text[:max_chars]
 
 
+def _extract_json_feed(raw: str, max_chars: int, lookback_seconds: int | None = None) -> str:
+    """
+    Extract digest content from JSON feeds.
+
+    Handles the CISA KEV format ({"vulnerabilities": [...]}) and generic
+    arrays-of-objects that have title/name + description/summary fields.
+    """
+    try:
+        data = json.loads(raw)
+    except (ValueError, json.JSONDecodeError):
+        return ""
+
+    cutoff = time.time() - lookback_seconds if lookback_seconds else None
+
+    # Normalise to a list of objects
+    if isinstance(data, dict):
+        # CISA KEV: {"vulnerabilities": [...]}
+        items = data.get("vulnerabilities") or data.get("items") or data.get("entries") or []
+    elif isinstance(data, list):
+        items = data
+    else:
+        return ""
+
+    if not isinstance(items, list):
+        return ""
+
+    parts: list[str] = []
+    for item in items[:20]:
+        if not isinstance(item, dict):
+            continue
+
+        # Date filter
+        if cutoff:
+            for date_field in ("dateAdded", "datePublished", "published", "date"):
+                raw_date = item.get(date_field, "")
+                if raw_date:
+                    try:
+                        parsed = datetime.date.fromisoformat(str(raw_date)[:10])
+                        item_ts = datetime.datetime(
+                            parsed.year, parsed.month, parsed.day
+                        ).timestamp()
+                        if item_ts < cutoff:
+                            continue
+                    except (ValueError, TypeError):
+                        pass
+                    break
+
+        # Extract fields — prefer CISA KEV names, fall back to generic names
+        title = (
+            item.get("vulnerabilityName")
+            or item.get("cveID")
+            or item.get("title")
+            or item.get("name")
+            or ""
+        )
+        description = (
+            item.get("shortDescription") or item.get("description") or item.get("summary") or ""
+        )
+        cve_id = item.get("cveID") or item.get("id") or ""
+        url = (
+            item.get("url")
+            or item.get("link")
+            or (f"https://nvd.nist.gov/vuln/detail/{cve_id}" if cve_id.startswith("CVE-") else "")
+        )
+        action = item.get("requiredAction") or ""
+
+        if not title:
+            continue
+
+        text = f"Title: {title}"
+        if url:
+            text += f"\nURL: {url}"
+        if description:
+            text += f"\n{description}"
+        if action:
+            text += f"\nRequired action: {action}"
+        parts.append(text)
+
+        if len("".join(parts)) >= max_chars:
+            break
+
+    if not parts:
+        return ""
+
+    combined = "\n\n---\n\n".join(parts)
+    logger.info("JSON feed: extracted %d item(s)", len(parts))
+    return combined[:max_chars]
+
+
 async def fetch_source(
     url: str,
     max_chars: int = 3000,
@@ -320,6 +411,12 @@ async def fetch_source(
                 return content, final_url
         except Exception as exc:
             logger.warning("Feedparser failed for %s: %s", url, exc)
+
+    # JSON feed — try CISA KEV format and generic array-of-objects
+    if "json" in content_type.lower() or url.lower().split("?")[0].endswith(".json"):
+        content = _extract_json_feed(raw_content, max_chars, lookback_seconds)
+        if content:
+            return content, final_url
 
     # Fall back to HTML extraction — append the page URL so the LLM can reference it
     content = _extract_web_content(raw_content, max_chars)

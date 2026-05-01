@@ -32,10 +32,14 @@ topics:
     top_stories_count: 10
     digest_channel: "#general"
     sources:
-      - name: "ABC News Feed"
-        url: "https://www.abc.net.au/news/feed/51120/rss.xml"
       - name: "ABC News"
-        url: "https://www.abc.net.au/"
+        url: "https://www.abc.net.au/news/feed/51120/rss.xml"
+      - name: "Guardian Australia"
+        url: "https://www.theguardian.com/australia-news/rss"
+      - name: "SBS News"
+        url: "https://www.sbs.com.au/news/feed"
+      - name: "9News Australia"
+        url: "https://www.9news.com.au/rss"
       - name: "Reddit News"
         url: "https://www.reddit.com/r/news/.rss"
 
@@ -54,8 +58,12 @@ topics:
         url: "https://www.bleepingcomputer.com/feed/"
       - name: "Dark Reading"
         url: "https://www.darkreading.com/rss.xml"
-      - name: "SecurityWeek"
-        url: "https://www.securityweek.com/feed/"
+      - name: "The Record"
+        url: "https://therecord.media/feed"
+      - name: "Infosecurity Magazine"
+        url: "https://www.infosecurity-magazine.com/rss/news/"
+      - name: "CyberScoop"
+        url: "https://www.cyberscoop.com/feed/"
 
   - name: "Threat Research"
     tags: [research, vendors]       # !digest research
@@ -75,6 +83,16 @@ topics:
         url: "https://blog.talosintelligence.com/rss/"
       - name: "Kaspersky Securelist"
         url: "https://securelist.com/feed/"
+      - name: "Check Point Research"
+        url: "https://research.checkpoint.com/feed/"
+      - name: "Palo Alto Unit 42"
+        url: "https://unit42.paloaltonetworks.com/feed/"
+      - name: "Microsoft Security Blog"
+        url: "https://www.microsoft.com/en-us/security/blog/feed/"
+      - name: "ESET WeLiveSecurity"
+        url: "https://www.welivesecurity.com/en/feed/"
+      - name: "Google Project Zero"
+        url: "https://googleprojectzero.blogspot.com/feeds/posts/default"
 
   - name: "Government Advisories"
     tags: [advisories, gov, cisa]   # !digest advisories
@@ -85,13 +103,12 @@ topics:
       - name: "CISA Advisories"
         url: "https://www.cisa.gov/cybersecurity-advisories/all.xml"
       - name: "NCSC (UK)"
-        url: "https://www.ncsc.gov.uk/api/1/services/news/rss-feed.xml"
-      - name: "ACSC (Australia)"
-        url: "https://www.cyber.gov.au/feeds/all-content.xml"
+        url: "https://www.ncsc.gov.uk/api/1/services/v1/news-rss-feed.xml"
+      - name: "NCSC (UK) Blog"
+        url: "https://www.ncsc.gov.uk/api/1/services/v1/blog-post-rss-feed.xml"
       - name: "SANS Internet Storm Center"
         url: "https://isc.sans.edu/rssfeed_full.xml"
-      - name: "SANS ISC Stormcast (podcast)"
-        url: "https://isc.sans.edu/dailypodcast.xml"
+      # ACSC (Australia) — no working RSS feed available as of 2026-05
 
   - name: "Security Community"
     tags: [community, seccomm]      # !digest community
@@ -122,10 +139,12 @@ topics:
     sources:
       - name: "CISA Known Exploited Vulnerabilities"
         url: "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
+      - name: "CVEFeed.io High Severity"
+        url: "https://cvefeed.io/rssfeed/severity/high.xml"
+      - name: "Exploit-DB"
+        url: "https://www.exploit-db.com/rss.xml"
       - name: "CISA Advisories"
         url: "https://www.cisa.gov/cybersecurity-advisories/all.xml"
-      - name: "NVD Recent CVEs"
-        url: "https://nvd.nist.gov/feeds/xml/cve/misc/nvd-rss-analyzed.xml"
 
   - name: "Threat Intelligence"
     tags: [ti, intel, threatintel]  # !digest ti
@@ -133,12 +152,14 @@ topics:
     lookback: "7d"
     digest_channel: "#general"
     sources:
-      - name: "abuse.ch Blog"
-        url: "https://abuse.ch/blog/feed/"
-      - name: "MalwareBazaar Recent"
-        url: "https://bazaar.abuse.ch/export/csv/recent/"
-      - name: "URLhaus Recent Additions"
-        url: "https://urlhaus.abuse.ch/feeds/recent/"
+      - name: "The DFIR Report"
+        url: "https://thedfirreport.com/feed/"
+      - name: "Feodo Tracker"
+        url: "https://feodotracker.abuse.ch/feed/"
+      - name: "Krebs on Security"
+        url: "https://krebsonsecurity.com/feed/"
+      - name: "Schneier on Security"
+        url: "https://www.schneier.com/feed/atom/"
 
   # ── AI & Machine Learning ─────────────────────────────────────────────────
 
@@ -171,24 +192,20 @@ topics:
     lookback: "7d"
     digest_channel: "#general"
     sources:
-      - name: "NOAA Space Weather Center"
-        url: "https://www.swpc.noaa.gov/"
       - name: "Space Weather Australia — HF Conditions"
         url: "https://www.sws.bom.gov.au/HF_Systems/6/5"
         image_url: "https://www.sws.bom.gov.au/Images/HF%20Systems/Australasia/T%20Index/ANZTIndexMap.gif"
       - name: "Space Weather Australia — T-Index Map"
         url: "https://www.sws.bom.gov.au/HF_Systems/1/6/1"
-      - name: "Space Weather Australia — Solar"
-        url: "https://www.sws.bom.gov.au/Solar/1/1"
       - name: "Solar Terrestrial Activity Report"
         url: "https://solen.info/solar/index.html"
-      - name: "SpaceWeather Live"
-        url: "https://www.spaceweatherlive.com/"
       - name: "HamQSL Solar Data"
         url: "https://www.hamqsl.com/solar.html"
         image_url: "https://www.hamqsl.com/solarn0nbh.php"
       - name: "QSL.net Propagation"
         url: "https://dx.qsl.net/propagation/propagation.html"
+      - name: "Radio Propagation Reports"
+        url: "https://radio-propagation.net/"
 
   - name: "Ham Radio News"
     tags: [ham, dx, hamradio]       # !digest ham
@@ -196,10 +213,12 @@ topics:
     lookback: "7d"
     digest_channel: "#general"
     sources:
-      - name: "WIA — Wireless Institute of Australia"
-        url: "https://www.wia.org.au/members/broadcast/wianews/"
-      - name: "DX-LOOK"
-        url: "https://dxlook.com/"
+      - name: "ARRL News"
+        url: "https://www.arrl.org/news/rss"
+      - name: "DX World"
+        url: "https://dx-world.net/feed/"
+      - name: "RSGB News"
+        url: "https://rsgb.org/main/feed/"
       - name: "Radio Propagation Reports"
         url: "https://radio-propagation.net/"
       - name: "Reddit: Amateur Radio"
