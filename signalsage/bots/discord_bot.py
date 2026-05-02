@@ -91,12 +91,21 @@ def _digest_embeds(
         text=f"Digest  ·  {window}" + (f"  ·  {'  ·  '.join(footer_parts)}" if footer_parts else "")
     )
 
+    extra_image_embeds: list[discord.Embed] = []
+    header_image_set = False
     for img_url in (meta or {}).get("images", []):
-        if img_url and str(img_url).startswith("http"):
+        if not img_url or not str(img_url).startswith("http"):
+            continue
+        if not header_image_set:
             header.set_image(url=img_url)
-            break  # Discord embeds support one image
+            header_image_set = True
+        else:
+            img_embed = discord.Embed(color=_DIGEST_COLOUR)
+            img_embed.set_image(url=img_url)
+            extra_image_embeds.append(img_embed)
 
     embeds.append(header)
+    embeds.extend(extra_image_embeds)
 
     # ── Story card embeds ─────────────────────────────────────────────────────
     for item in top_items:
