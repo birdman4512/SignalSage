@@ -146,7 +146,7 @@ def _digest_embeds(
         if lines:
             tail_embed = discord.Embed(
                 title=f"📋 More Stories ({len(tail_items)})",
-                description="\n".join(lines)[:4096],
+                description="\n\n".join(lines)[:4096],
                 color=_DIGEST_COLOUR,
             )
             embeds.append(tail_embed)

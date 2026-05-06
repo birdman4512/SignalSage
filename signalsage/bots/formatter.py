@@ -653,20 +653,20 @@ def format_digest_slack_message(
                 if url.startswith("http")
                 else f"• {item_icon} {headline}"
             )
-            if current_len + len(line) + 1 > 2900 and current_lines:
+            if current_len + len(line) + 2 > 2900 and current_lines:
                 tail_blocks.append(
                     {
                         "type": "section",
-                        "text": {"type": "mrkdwn", "text": "\n".join(current_lines)},
+                        "text": {"type": "mrkdwn", "text": "\n\n".join(current_lines)},
                     }
                 )
                 current_lines = []
                 current_len = 0
             current_lines.append(line)
-            current_len += len(line) + 1
+            current_len += len(line) + 2
         if current_lines:
             tail_blocks.append(
-                {"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(current_lines)}}
+                {"type": "section", "text": {"type": "mrkdwn", "text": "\n\n".join(current_lines)}}
             )
         messages.append(
             {
@@ -768,7 +768,8 @@ def format_digest_plain(
 
     # ── Message top_n+1: remaining stories (headline + link only) ────────────
     if tail_items:
-        tail_lines: list[str] = [f"**📋 More Stories ({len(tail_items)})**", sep]
+        tail_header = "\n".join([f"**📋 More Stories ({len(tail_items)})**", sep])
+        tail_item_lines: list[str] = []
         for item in tail_items:
             headline = str(item.get("headline", "")).strip()
             url = str(item.get("url") or "").strip()
@@ -776,9 +777,9 @@ def format_digest_plain(
             if not headline:
                 continue
             if url and url.startswith("http"):
-                tail_lines.append(f"• {item_icon} [{headline}]({url})")
+                tail_item_lines.append(f"• {item_icon} [{headline}]({url})")
             else:
-                tail_lines.append(f"• {item_icon} {headline}")
-        messages.append("\n".join(tail_lines))
+                tail_item_lines.append(f"• {item_icon} {headline}")
+        messages.append(tail_header + "\n" + "\n\n".join(tail_item_lines))
 
     return messages
