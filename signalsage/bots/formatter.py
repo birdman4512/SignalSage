@@ -5,6 +5,7 @@ import logging
 import re
 from datetime import date
 from enum import Enum
+from urllib.parse import urlparse
 
 from signalsage.intel.base import IntelResult
 from signalsage.ioc.models import IOC, IOCType
@@ -299,6 +300,19 @@ def _topic_icon(name: str) -> str:
         if k in key:
             return icon
     return "📰"
+
+
+def _source_label(url: str) -> str:
+    """Return a short host label for a URL (e.g. 'reddit.com'). Empty if unparseable."""
+    if not url:
+        return ""
+    try:
+        host = urlparse(url).netloc.lower()
+    except ValueError:
+        return ""
+    if host.startswith("www."):
+        host = host[4:]
+    return host
 
 
 def _md_to_mrkdwn(text: str) -> str:
@@ -607,13 +621,12 @@ def format_digest_slack_message(
         item_summary = str(item.get("summary", "") or item.get("blurb", "")).strip()
         url = str(item.get("url") or "").strip()
         item_icon = (str(item.get("icon") or "").strip().split() or ["📰"])[0]
-        severity = str(item.get("severity") or "").lower()
-        sev_emoji = _SEVERITY_EMOJI.get(severity, "")
         trend = str(item.get("trend") or "").lower()
 
-        sev_str = f"  ·  {sev_emoji} {severity.title()}" if sev_emoji else ""
+        source = _source_label(url)
+        source_str = f"  ·  {source}" if source else ""
         trend_str = "  🔥 Trending" if trend == "trending" else ""
-        text = f"{item_icon}  *{headline}*{sev_str}{trend_str}"
+        text = f"{item_icon}  *{headline}*{source_str}{trend_str}"
         if item_summary:
             text += f"\n{item_summary}"
 
@@ -648,10 +661,12 @@ def format_digest_slack_message(
             item_icon = (str(item.get("icon") or "").strip().split() or ["📰"])[0]
             if not headline:
                 continue
+            source = _source_label(url)
+            source_suffix = f"  ·  {source}" if source else ""
             line = (
-                f"• {item_icon} <{url}|{headline}>"
+                f"• {item_icon} <{url}|{headline}>{source_suffix}"
                 if url.startswith("http")
-                else f"• {item_icon} {headline}"
+                else f"• {item_icon} {headline}{source_suffix}"
             )
             if current_len + len(line) + 2 > 2900 and current_lines:
                 tail_blocks.append(
@@ -753,13 +768,12 @@ def format_digest_plain(
         item_summary = str(item.get("summary", "") or item.get("blurb", "")).strip()
         url = str(item.get("url") or "").strip()
         item_icon = (str(item.get("icon") or "").strip().split() or ["📰"])[0]
-        severity = str(item.get("severity") or "").lower()
-        sev_emoji = _SEVERITY_EMOJI.get(severity, "")
         trend = str(item.get("trend") or "").lower()
 
-        sev_str = f" · {sev_emoji} {severity.title()}" if sev_emoji else ""
+        source = _source_label(url)
+        source_str = f" · {source}" if source else ""
         trend_str = "  🔥 Trending" if trend == "trending" else ""
-        story_lines = [f"{item_icon}  **{headline}**{sev_str}{trend_str}"]
+        story_lines = [f"{item_icon}  **{headline}**{source_str}{trend_str}"]
         if item_summary:
             story_lines.append(item_summary)
         if url and url.startswith("http"):
@@ -776,10 +790,12 @@ def format_digest_plain(
             item_icon = (str(item.get("icon") or "").strip().split() or ["📰"])[0]
             if not headline:
                 continue
+            source = _source_label(url)
+            source_suffix = f" · {source}" if source else ""
             if url and url.startswith("http"):
-                tail_item_lines.append(f"• {item_icon} [{headline}]({url})")
+                tail_item_lines.append(f"• {item_icon} [{headline}]({url}){source_suffix}")
             else:
-                tail_item_lines.append(f"• {item_icon} {headline}")
+                tail_item_lines.append(f"• {item_icon} {headline}{source_suffix}")
         messages.append(tail_header + "\n" + "\n\n".join(tail_item_lines))
 
     return messages

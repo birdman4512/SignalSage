@@ -316,10 +316,10 @@ def test_format_digest_slack_read_more_button():
     assert any(b.get("url") == "https://example.com" for b in buttons)
 
 
-def test_format_digest_slack_severity_shown():
+def test_format_digest_slack_source_label_shown():
     payloads = format_digest_slack_message("Test Topic", _structured_summary())
     texts = _all_section_texts(payloads)
-    assert any("Critical" in t for t in texts)
+    assert any("example.com" in t for t in texts)
 
 
 def test_format_digest_slack_trend_badge():
