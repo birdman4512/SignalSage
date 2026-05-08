@@ -103,7 +103,7 @@ class WHOISAgeProvider(BaseProvider):
 
         # Discover authoritative RDAP server from IANA bootstrap
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
+            async with self._http() as client:
                 boot_resp = await client.get(_RDAP_BOOTSTRAP_URL)
                 if boot_resp.status_code == 200:
                     bootstrap = boot_resp.json()
@@ -124,8 +124,8 @@ class WHOISAgeProvider(BaseProvider):
 
         for url in urls_to_try:
             try:
-                async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=True) as client:
-                    resp = await client.get(url)
+                async with self._http() as client:
+                    resp = await client.get(url, follow_redirects=True)
                     if resp.status_code == 404:
                         continue
                     if resp.status_code != 200:
@@ -173,7 +173,7 @@ class WHOISAgeProvider(BaseProvider):
             "outputFormat": "JSON",
         }
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
+            async with self._http() as client:
                 resp = await client.get(_WHOISXML_URL, params=params)
                 resp.raise_for_status()
                 data = resp.json()

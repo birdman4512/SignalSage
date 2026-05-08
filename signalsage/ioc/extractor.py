@@ -64,7 +64,9 @@ _IPV6_RE = re.compile(
     r"|(?:[0-9a-fA-F]{1,4}:){1,4}:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)(?:\.(?:25[0-5]|2[0-4]\d|[01]?\d\d?)){3}"
 )
 
-# Hash patterns (128, 64, 40, 32 hex chars) — checked in order to avoid partial matches
+# Hash patterns (128, 64, 40, 32 hex chars). These patterns themselves don't enforce
+# the longest-first ordering — that's done by the iteration order in extract() below,
+# combined with the _span_used filter so a SHA-256 isn't re-claimed as a SHA-1 prefix.
 _SHA512_RE = re.compile(r"\b([0-9a-fA-F]{128})\b")
 _SHA256_RE = re.compile(r"\b([0-9a-fA-F]{64})\b")
 _SHA1_RE = re.compile(r"\b([0-9a-fA-F]{40})\b")
@@ -216,6 +218,17 @@ def extract(text: str) -> list[IOC]:
         _mark(m)
         _add(m.group(0).lower(), IOCType.EMAIL, m.group(0))
 
+    # --- IPv6 (before IPv4 so embedded IPv4-in-IPv6 like ::ffff:1.2.3.4 is claimed correctly) ---
+    for m in _IPV6_RE.finditer(clean):
+        if _span_used(m):
+            continue
+        raw = m.group(0)
+        ip = _refang(raw)
+        if _is_private_ip(ip):
+            continue
+        _mark(m)
+        _add(ip, IOCType.IPV6, raw)
+
     # --- IPv4 ---
     for m in _IPV4_RE.finditer(clean):
         if _span_used(m):
@@ -226,17 +239,6 @@ def extract(text: str) -> list[IOC]:
             continue
         _mark(m)
         _add(ip, IOCType.IPV4, raw)
-
-    # --- IPv6 ---
-    for m in _IPV6_RE.finditer(clean):
-        if _span_used(m):
-            continue
-        raw = m.group(0)
-        ip = _refang(raw)
-        if _is_private_ip(ip):
-            continue
-        _mark(m)
-        _add(ip, IOCType.IPV6, raw)
 
     # --- Hashes (longest first to avoid partial matches) ---
     for pattern, ioc_type in [

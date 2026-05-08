@@ -26,7 +26,7 @@ class HIBPProvider(BaseProvider):
             "user-agent": _USER_AGENT,
         }
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
+            async with self._http() as client:
                 resp = await client.get(url, params={"truncateResponse": "false"}, headers=headers)
                 if resp.status_code == 404:
                     return IntelResult(

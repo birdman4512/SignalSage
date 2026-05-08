@@ -22,16 +22,20 @@ class CIRCLPDNSProvider(BaseProvider):
 
     async def lookup(self, ioc: IOC) -> IntelResult | None:
         url = f"{_BASE}/{ioc.value}"
+        # CIRCL PDNS returns newline-delimited JSON; pass auth + accept header per-request
+        # so a shared httpx client (when set) doesn't carry our credentials elsewhere.
+        auth = (
+            tuple(self.api_key.split(":", 1))  # type: ignore[arg-type]
+            if ":" in (self.api_key or "")
+            else None
+        )
         try:
-            async with httpx.AsyncClient(
-                timeout=self.timeout,
-                # CIRCL PDNS returns newline-delimited JSON, not a JSON array
-                headers={"Accept": "application/json"},
-                auth=tuple(self.api_key.split(":", 1))  # type: ignore[arg-type]
-                if ":" in (self.api_key or "")
-                else None,
-            ) as client:
-                resp = await client.get(url)
+            async with self._http() as client:
+                resp = await client.get(
+                    url,
+                    headers={"Accept": "application/json"},
+                    auth=auth,
+                )
                 if resp.status_code == 404:
                     return IntelResult(
                         provider=self.name,

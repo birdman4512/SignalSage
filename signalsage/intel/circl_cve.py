@@ -22,7 +22,7 @@ class CIRCLCVEProvider(BaseProvider):
         url = f"{_BASE}/{ioc.value.upper()}"
 
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
+            async with self._http() as client:
                 resp = await client.get(url)
                 if resp.status_code == 404:
                     return IntelResult(

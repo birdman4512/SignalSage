@@ -46,6 +46,11 @@ class DigestHistory:
         self._history: dict = self._load(self._history_path)
         self._health: dict = self._load(self._health_path)
         self._timing: dict = self._load(self._timing_path) or {"samples": []}
+        # Prune at most once per day. Without this, every topic run re-walks every
+        # other topic's history and rewrites both JSON files, which is O(topics·days)
+        # per record_* call.
+        self._last_prune_day: str = ""
+        self._prune_if_due()
 
     # ── I/O helpers ─────────────────────────────────────────────────────────
 
@@ -63,13 +68,17 @@ class DigestHistory:
         except Exception as exc:
             logger.warning("Could not save %s: %s", path, exc)
 
-    def _prune(self) -> None:
-        """Drop entries older than _KEEP_DAYS to keep files small."""
+    def _prune_if_due(self) -> None:
+        """Drop entries older than _KEEP_DAYS, but only once per calendar day."""
+        today = date.today().isoformat()
+        if self._last_prune_day == today:
+            return
         cutoff = (date.today() - timedelta(days=_KEEP_DAYS)).isoformat()
         for topic in list(self._history):
             self._history[topic] = {d: v for d, v in self._history[topic].items() if d >= cutoff}
         for source in list(self._health):
             self._health[source] = {d: v for d, v in self._health[source].items() if d >= cutoff}
+        self._last_prune_day = today
 
     # ── Digest item history ──────────────────────────────────────────────────
 
@@ -82,7 +91,7 @@ class DigestHistory:
             if i.get("headline", "").strip()
         ]
         self._history.setdefault(topic, {})[today] = records
-        self._prune()
+        self._prune_if_due()
         self._save(self._history_path, self._history)
 
     def classify_items(self, topic: str, items: list[dict]) -> dict[str, str]:
@@ -114,7 +123,7 @@ class DigestHistory:
         today = date.today().isoformat()
         for source, ok in results.items():
             self._health.setdefault(source, {})[today] = ok
-        self._prune()
+        self._prune_if_due()
         self._save(self._health_path, self._health)
 
     def get_chronically_failing_sources(self, consecutive_days: int = 3) -> list[str]:

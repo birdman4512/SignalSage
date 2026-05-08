@@ -33,6 +33,8 @@ async def main() -> None:
     # ------------------------------------------------------------------ #
     # Intel providers                                                      #
     # ------------------------------------------------------------------ #
+    import httpx
+
     from signalsage.intel.abuseipdb import AbuseIPDBProvider
     from signalsage.intel.base import BaseProvider
     from signalsage.intel.bgpview import BGPViewProvider
@@ -53,10 +55,22 @@ async def main() -> None:
 
     providers: list[BaseProvider] = []
 
+    # One shared httpx.AsyncClient is reused by every provider so consecutive IOC
+    # lookups skip the TCP/TLS handshake. Limits chosen for the typical workload:
+    # ~16 providers × max_iocs_per_message=5 burst.
+    shared_http_client = httpx.AsyncClient(
+        timeout=timeout,
+        limits=httpx.Limits(max_keepalive_connections=20, max_connections=50),
+    )
+
     def add_provider(cls, key: str) -> None:
         pcfg = providers_cfg.get(key, {})
         if pcfg.get("enabled", True):
-            provider = cls(api_key=pcfg.get("api_key"), timeout=timeout)
+            provider = cls(
+                api_key=pcfg.get("api_key"),
+                timeout=timeout,
+                http_client=shared_http_client,
+            )
             providers.append(provider)
             status = "enabled" if provider.enabled else "disabled (missing API key)"
             logger.info("Provider %s: %s", provider.name, status)
@@ -116,8 +130,8 @@ async def main() -> None:
 
             llm = OllamaLLM(
                 base_url=digest_cfg.get("ollama_base_url") or "http://localhost:11434",
-                model=digest_cfg.get("ollama_model") or "llama3.2",
-                num_ctx=digest_cfg.get("ollama_num_ctx", 8192),
+                model=digest_cfg.get("ollama_model") or "gemma2:2b",
+                num_ctx=digest_cfg.get("ollama_num_ctx", 16384),
                 timeout=digest_cfg.get("ollama_timeout", 1800),
             )
     except Exception as exc:
@@ -148,12 +162,22 @@ async def main() -> None:
 
     platforms_cfg = cfg.get("platforms", {})
 
+    # Shared command-auth gate. Empty allowlists = open (anyone in monitored channels).
+    from signalsage.bots.auth import CommandAuth
+
+    auth_cfg = cfg.get("auth", {}) or {}
+    command_auth = CommandAuth(
+        slack_users=(platforms_cfg.get("slack", {}) or {}).get("command_allowlist") or [],
+        discord_users=(platforms_cfg.get("discord", {}) or {}).get("command_allowlist") or [],
+        cooldown_seconds=int(auth_cfg.get("command_cooldown_seconds", 30)),
+    )
+
     # Slack
     if platforms_cfg.get("slack", {}).get("enabled"):
         try:
             from signalsage.bots.slack import SlackBot
 
-            slack_bot = SlackBot(cfg, processor, summarizer=summarizer)
+            slack_bot = SlackBot(cfg, processor, summarizer=summarizer, auth=command_auth)
             notifiers.append(slack_bot.send_digest)
             tasks.append(asyncio.create_task(slack_bot.start(), name="slack"))
             logger.info("Slack bot task created")
@@ -165,7 +189,7 @@ async def main() -> None:
         try:
             from signalsage.bots.discord_bot import DiscordBot
 
-            discord_bot = DiscordBot(cfg, processor, summarizer=summarizer)
+            discord_bot = DiscordBot(cfg, processor, summarizer=summarizer, auth=command_auth)
             notifiers.append(discord_bot.send_digest)
             tasks.append(asyncio.create_task(discord_bot.start_bot(), name="discord"))
             logger.info("Discord bot task created")
@@ -227,6 +251,7 @@ async def main() -> None:
     finally:
         if scheduler:
             scheduler.shutdown()
+        await shared_http_client.aclose()
         logger.info("SignalSage shutting down")
 
 

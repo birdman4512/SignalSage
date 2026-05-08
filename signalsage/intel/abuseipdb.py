@@ -32,7 +32,7 @@ class AbuseIPDBProvider(BaseProvider):
         }
 
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
+            async with self._http() as client:
                 resp = await client.get(f"{_BASE}/check", headers=headers, params=params)
                 if resp.status_code == 422:
                     return self._error(ioc, "Invalid IP address")

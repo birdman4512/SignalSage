@@ -44,7 +44,7 @@ class URLScanProvider(BaseProvider):
         params = {"q": query, "size": "10"}
 
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
+            async with self._http() as client:
                 resp = await client.get(
                     f"{_BASE}/search/",
                     params=params,

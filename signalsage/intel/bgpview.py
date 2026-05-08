@@ -28,7 +28,7 @@ class BGPViewProvider(BaseProvider):
             return self._error(ioc, f"Invalid ASN: {ioc.value}")
 
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
+            async with self._http() as client:
                 info_resp = await client.get(f"{_BASE}/asn/{asn_num}")
                 if info_resp.status_code == 404:
                     return IntelResult(

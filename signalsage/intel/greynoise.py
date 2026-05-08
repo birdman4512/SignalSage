@@ -25,7 +25,7 @@ class GreyNoiseProvider(BaseProvider):
             headers["key"] = self.api_key
 
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
+            async with self._http() as client:
                 resp = await client.get(url, headers=headers)
 
                 if resp.status_code == 404:

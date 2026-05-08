@@ -31,7 +31,7 @@ class ThreatFoxProvider(BaseProvider):
 
         headers = {"Auth-Key": self.api_key} if self.api_key else {}
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
+            async with self._http() as client:
                 resp = await client.post(_API_URL, json=payload, headers=headers)
                 if err := self._check_status(resp, ioc):
                     return err

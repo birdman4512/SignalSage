@@ -52,6 +52,21 @@ def _provider_icon(name: str) -> str:
     return _PROVIDER_ICON.get(name, "🔎")
 
 
+def _escape_mrkdwn(text: str) -> str:
+    """Escape Slack mrkdwn metacharacters in attacker-influenced strings.
+
+    Slack's documented escape policy is: ``&`` → ``&amp;``, ``<`` → ``&lt;``,
+    ``>`` → ``&gt;``. That alone prevents `<url|label>` injection (the most
+    impactful exploit — see https://api.slack.com/reference/surfaces/formatting).
+    Use this on any string sourced from a third-party (cert transparency, RSS
+    headlines, AbuseIPDB ISP names, BGPView descriptions) before interpolating
+    it into a Slack ``mrkdwn`` text block.
+    """
+    if not text:
+        return ""
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
 def _risk_emoji(result: IntelResult) -> str:
     if result.error:
         return "⚠️"
@@ -76,14 +91,6 @@ def _overall_verdict(results: list[IntelResult]) -> tuple[str, str]:
     if clean:
         return "✅", f"CLEAN  ({len(clean)}/{total} providers)"
     return "⚪", "UNKNOWN"
-
-
-def _link(url: str, label: str, platform: Platform) -> str:
-    if not url:
-        return label
-    if platform == Platform.SLACK:
-        return f"<{url}|{label}>"
-    return f"[{label}]({url})"
 
 
 # ---------------------------------------------------------------------------
@@ -174,10 +181,13 @@ def format_slack_message(
     for result in results:
         icon = _provider_icon(result.provider)
         verdict = _risk_emoji(result)
+        # Provider summaries can contain third-party-influenced content (cert SANs,
+        # ISP names, BGP descriptions). Escape Slack mrkdwn metacharacters so a
+        # crafted value can't fake a <url|label> button or break formatting.
         if result.error:
-            body = f"{verdict}  _{result.error}_"
+            body = f"{verdict}  _{_escape_mrkdwn(result.error)}_"
         else:
-            body = f"{verdict}  {result.summary or 'No details'}"
+            body = f"{verdict}  {_escape_mrkdwn(result.summary or 'No details')}"
 
         block: dict = {
             "type": "section",
@@ -205,74 +215,6 @@ def format_slack_message(
         "text": fallback,
         "attachments": [{"color": colour, "blocks": blocks}],
     }
-
-
-# ---------------------------------------------------------------------------
-# Discord / plain-text fallback
-# ---------------------------------------------------------------------------
-
-
-def format_results(ioc: IOC, results: list[IntelResult], platform: Platform) -> str:
-    """Format IOC results as plain text (used for Discord and as Slack fallback)."""
-    label = IOC_TYPE_LABEL.get(ioc.type, ioc.type.value)
-    verdict_emoji, verdict_text = _overall_verdict(results)
-    sep = "━" * 38
-
-    lines: list[str] = [
-        sep,
-        f"🔍  **{ioc.value}**  —  {label}"
-        if platform == Platform.DISCORD
-        else f"🔍  *{ioc.value}*  —  {label}",
-        f"Verdict:  {verdict_emoji}  {verdict_text}",
-        sep,
-    ]
-
-    for result in results:
-        emoji = _risk_emoji(result)
-        name = f"**{result.provider}**" if platform == Platform.DISCORD else f"*{result.provider}*"
-
-        if result.error:
-            lines.append(f"{emoji}  {name}  —  Error: {result.error}")
-        else:
-            line = f"{emoji}  {name}  —  {result.summary or 'No details'}"
-            if result.report_url:
-                line += f"  ·  {_link(result.report_url, 'view report', platform)}"
-            lines.append(line)
-
-    return "\n".join(lines)
-
-
-def split_message(text: str, limit: int = 2000) -> list[str]:
-    """Split a long message into chunks that fit within the character limit."""
-    if len(text) <= limit:
-        return [text]
-
-    chunks: list[str] = []
-    current_lines: list[str] = []
-    current_len = 0
-
-    for line in text.split("\n"):
-        line_len = len(line) + 1
-        if current_len + line_len > limit:
-            if current_lines:
-                chunks.append("\n".join(current_lines))
-            if line_len > limit:
-                while line:
-                    chunks.append(line[:limit])
-                    line = line[limit:]
-                current_lines = []
-                current_len = 0
-            else:
-                current_lines = [line]
-                current_len = line_len
-        else:
-            current_lines.append(line)
-            current_len += line_len
-
-    if current_lines:
-        chunks.append("\n".join(current_lines))
-
-    return chunks
 
 
 # ---------------------------------------------------------------------------
@@ -617,8 +559,12 @@ def format_digest_slack_message(
 
     # ── Messages 1..top_n: individual story cards ────────────────────────────
     for idx, item in enumerate(top_items):
-        headline = str(item.get("headline", "")).strip()
-        item_summary = str(item.get("summary", "") or item.get("blurb", "")).strip()
+        # Headlines and summaries come from RSS feeds + LLM output — escape so a
+        # crafted feed entry can't inject Slack <url|label> link syntax.
+        headline = _escape_mrkdwn(str(item.get("headline", "")).strip())
+        item_summary = _escape_mrkdwn(
+            str(item.get("summary", "") or item.get("blurb", "")).strip()
+        )
         url = str(item.get("url") or "").strip()
         item_icon = (str(item.get("icon") or "").strip().split() or ["📰"])[0]
         trend = str(item.get("trend") or "").lower()
@@ -656,7 +602,7 @@ def format_digest_slack_message(
         current_lines: list[str] = []
         current_len = 0
         for item in tail_items:
-            headline = str(item.get("headline", "")).strip()
+            headline = _escape_mrkdwn(str(item.get("headline", "")).strip())
             url = str(item.get("url") or "").strip()
             item_icon = (str(item.get("icon") or "").strip().split() or ["📰"])[0]
             if not headline:
@@ -706,8 +652,8 @@ def format_digest_plain(
     Messages 1..top_n: one message per top story (headline + full summary + link).
     Message top_n+1: remaining stories as a compact headline+link list (if any).
 
-    Each message may still exceed 2000 chars for very long summaries; callers
-    should apply split_message() per item if needed.
+    Each message may exceed Discord's 2000-char limit for very long summaries;
+    Discord clients truncate gracefully but the caller may want to chunk further.
     """
     today = date.today().strftime("%B %d, %Y")
     window = f"last {lookback}" if lookback else today

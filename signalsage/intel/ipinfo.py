@@ -26,7 +26,7 @@ class IPInfoProvider(BaseProvider):
         url = f"{_BASE}/{ioc.value}/json"
 
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
+            async with self._http() as client:
                 resp = await client.get(url, params=params)
                 if resp.status_code == 404:
                     return IntelResult(

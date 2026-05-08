@@ -23,7 +23,7 @@ class CRTShProvider(BaseProvider):
         # Query for the domain and all subdomains
         params = {"q": f"%.{ioc.value}", "output": "json"}
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
+            async with self._http() as client:
                 resp = await client.get(_BASE, params=params)
                 if err := self._check_status(resp, ioc):
                     return err

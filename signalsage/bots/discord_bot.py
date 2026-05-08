@@ -8,6 +8,7 @@ from signalsage.intel.base import IntelResult
 from signalsage.ioc.models import IOC
 from signalsage.ioc.processor import IOCProcessor
 
+from .auth import CommandAuth
 from .commands import (
     HELP_TEXT,
     Platform,
@@ -199,13 +200,20 @@ def _ioc_embed(ioc: IOC, results: list[IntelResult]) -> discord.Embed:
 class DiscordBot(discord.Client):
     """Discord client that monitors messages and enriches IOCs."""
 
-    def __init__(self, config: dict, ioc_processor: IOCProcessor, summarizer=None) -> None:
+    def __init__(
+        self,
+        config: dict,
+        ioc_processor: IOCProcessor,
+        summarizer=None,
+        auth: CommandAuth | None = None,
+    ) -> None:
         intents = discord.Intents.default()
         intents.message_content = True
         super().__init__(intents=intents)
         self.cfg = config["platforms"]["discord"]
         self.ioc_processor = ioc_processor
         self.summarizer = summarizer  # optional DigestSummarizer for IOC assessment
+        self.auth = auth or CommandAuth()
         self.scheduler = None  # set by main.py after scheduler creation
 
     async def on_ready(self) -> None:
@@ -229,6 +237,20 @@ class DiscordBot(discord.Client):
         cmd = parse_command(content)
         if cmd is not None:
             cmd_name, cmd_args = cmd
+            user_id = message.author.id
+            if cmd_name in ("digest", "osint", "help", "?"):
+                if not self.auth.authorized_discord(user_id):
+                    logger.info(
+                        "Discord user %s denied command %r — not in allowlist",
+                        user_id,
+                        cmd_name,
+                    )
+                    return
+                cd = self.auth.cooldown_remaining("discord", str(user_id))
+                if cd:
+                    await message.channel.send(f"⏳ Slow down — try again in {cd}s.")
+                    return
+                self.auth.record("discord", str(user_id))
             if cmd_name == "digest":
                 await handle_digest_command(
                     cmd_args,

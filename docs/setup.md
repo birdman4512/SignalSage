@@ -14,13 +14,11 @@
 git clone https://github.com/birdman4512/SignalSage.git
 cd SignalSage
 
-# Create your local config files from the committed templates
-cp config/config.example.yaml config/config.yaml
-cp config/watchlist.example.yaml config/watchlist.yaml
+# Create your local .env from the template
 cp .env.example .env
 ```
 
-Edit `.env` with your tokens and keys (sections below explain how to get each one).
+`config/config.yaml` and `config/watchlist.yaml` are committed and ready to edit directly. Edit `.env` with your tokens and keys (sections below explain how to get each one).
 
 ---
 
@@ -172,7 +170,7 @@ Supported indicator types: IPv4, IPv6, domains, URLs, MD5/SHA1/SHA256/SHA512 has
 
 ---
 
-## 6. LLM Setup (daily digest summarisation)
+## 5. LLM Setup (daily digest summarisation)
 
 The digest uses a local LLM by default — **no API cost, runs on your own hardware**.
 
@@ -187,12 +185,12 @@ The digest uses a local LLM by default — **no API cost, runs on your own hardw
 
 **Recommendation: start with `gemma2:2b`.**
 
-### 6.1 Install Ollama
+### 5.1 Install Ollama
 
 Download from **[ollama.com/download](https://ollama.com/download)** and install.
 Ollama runs as a background service automatically after installation.
 
-### 6.2 Pull your chosen model
+### 5.2 Pull your chosen model
 
 ```bash
 ollama pull gemma2:2b
@@ -203,7 +201,7 @@ Verify it works:
 ollama run gemma2:2b "Summarise this in one sentence: Researchers discovered a new ransomware strain targeting healthcare."
 ```
 
-### 6.3 Configure SignalSage to use it
+### 5.3 Configure SignalSage to use it
 
 In `.env`:
 ```
@@ -212,7 +210,7 @@ OLLAMA_BASE_URL=http://localhost:11434
 OLLAMA_MODEL=gemma2:2b
 ```
 
-### 6.4 Alternative: paid Claude API
+### 5.4 Alternative: paid Claude API
 
 If you prefer Anthropic Claude instead:
 ```
@@ -222,7 +220,7 @@ ANTHROPIC_API_KEY=sk-ant-...
 
 The default model is `claude-haiku-4-5-20251001` (cheapest Claude model, ~$0.01/day for typical digest use).
 
-### 6.5 Docker Compose with bundled Ollama
+### 5.5 Docker Compose with bundled Ollama
 
 To run Ollama inside Docker alongside SignalSage:
 
@@ -242,7 +240,7 @@ docker-compose --profile ollama up -d
 
 ## 7. Threat Intel API Keys
 
-All providers are optional. The bot runs with whichever keys you provide; providers without keys are automatically disabled.
+All threat-intel providers are optional. The bot runs with whichever keys you provide; providers that *require* a key are skipped when the key is blank, and optional-key providers fall back to unauthenticated rate limits.
 
 | Provider | Key required? | Free tier | Sign up |
 |---|---|---|---|
@@ -251,16 +249,28 @@ All providers are optional. The bot runs with whichever keys you provide; provid
 | **GreyNoise** | Optional | 100 req/day | [viz.greynoise.io](https://viz.greynoise.io/signup) |
 | **AbuseIPDB** | Yes | 1,000 req/day | [abuseipdb.com](https://www.abuseipdb.com/register) |
 | **AlienVault OTX** | Optional | Unlimited | [otx.alienvault.com](https://otx.alienvault.com/accounts/signup) |
-| **URLhaus** | No | Free | automatic |
-| **ThreatFox** | No | Free | automatic |
+| **URLhaus** | Yes (`ABUSECH_API_KEY`) | Free | [auth.abuse.ch](https://auth.abuse.ch/) |
+| **ThreatFox** | Yes (`ABUSECH_API_KEY`) | Free (same key as URLhaus) | [auth.abuse.ch](https://auth.abuse.ch/) |
 | **MalwareBazaar** | No | Free | automatic |
 | **IPInfo** | Optional | 50k req/month | [ipinfo.io/signup](https://ipinfo.io/signup) |
 | **CIRCL CVE** | No | Free | automatic |
+| **URLScan** | Optional | Rate-limited | [urlscan.io/user/signup](https://urlscan.io/user/signup/) |
+
+The `!osint` commands use these additional providers:
+
+| Provider | Key required? | Notes | Sign up |
+|---|---|---|---|
+| **crt.sh** | No | Cert transparency for `!osint domain` | automatic |
+| **WHOIS Age** | Optional (`WHOISXML_API_KEY`) | Falls back to free RDAP | [whoisxmlapi.com](https://whoisxmlapi.com/) |
+| **CIRCL PDNS** | Yes (`CIRCL_PDNS_KEY`) | Format `user:password`. Used by `!osint domain` and `!osint ip`. | [circl.lu/services/passive-dns/](https://www.circl.lu/services/passive-dns/) |
+| **HIBP** | Yes (`HIBP_API_KEY`) | ~$3.50/month. Used by `!osint email`. | [haveibeenpwned.com/API/Key](https://haveibeenpwned.com/API/Key) |
+| **BGPView** | No | Used by `!osint asn` | automatic |
 
 Add keys to your `.env` file:
 ```
 VT_API_KEY=...
 ABUSEIPDB_API_KEY=...
+ABUSECH_API_KEY=...
 ```
 
 ---
@@ -296,8 +306,8 @@ Examples:
 Each digest posts as a sequence of messages:
 
 1. **Overview** — a 3–5 sentence narrative paragraph covering the major themes across all sources
-2. **Top story cards** — one message per top story, each showing the headline, a full 3–5 sentence summary, severity badge, and a *Read More* link
-3. **Remaining stories** — a single compact message listing every other story as headline + link
+2. **Top story cards** — one message per top story, each showing the headline, a full 3–5 sentence summary, the source host (e.g. `reddit.com`), and a *Read More* link
+3. **Remaining stories** — a single compact message listing every other story as `headline · source.com`
 
 The number of top stories defaults to **10** and can be changed in `config/config.yaml`:
 

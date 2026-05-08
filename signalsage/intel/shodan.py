@@ -96,7 +96,7 @@ class ShodanProvider(BaseProvider):
 
         url = f"{_BASE}/shodan/host/{ioc.value}"
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
+            async with self._http() as client:
                 resp = await client.get(url, params={"key": self.api_key})
                 if resp.status_code == 404:
                     return IntelResult(

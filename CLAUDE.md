@@ -59,17 +59,26 @@ Copy `.env.example` to `.env` and fill in your credentials:
 
 | Variable | Description |
 |---|---|
+| `SLACK_ENABLED` | `true`/`false` — enables the Slack integration (default `true`) |
 | `SLACK_BOT_TOKEN` | Slack bot OAuth token (`xoxb-...`) |
 | `SLACK_APP_TOKEN` | Slack app-level token for Socket Mode (`xapp-...`) |
+| `SLACK_DIGEST_CHANNEL` | Default Slack digest channel name (e.g. `daily-digest`) used when a topic doesn't specify its own |
+| `DISCORD_ENABLED` | `true`/`false` — enables the Discord integration (default `false`) |
 | `DISCORD_BOT_TOKEN` | Discord bot token |
+| `DISCORD_DIGEST_CHANNEL` | Default Discord digest channel ID (integer) |
 | `VT_API_KEY` | VirusTotal API key |
 | `SHODAN_API_KEY` | Shodan API key |
 | `GREYNOISE_API_KEY` | GreyNoise API key (optional, falls back to community API) |
 | `ABUSEIPDB_API_KEY` | AbuseIPDB API key |
 | `OTX_API_KEY` | AlienVault OTX API key (optional, works unauthenticated) |
 | `IPINFO_API_KEY` | IPInfo API key (optional, works unauthenticated) |
+| `ABUSECH_API_KEY` | abuse.ch API key — required for both URLhaus and ThreatFox (free at https://auth.abuse.ch) |
 | `HIBP_API_KEY` | Have I Been Pwned API key — https://haveibeenpwned.com/API/Key |
 | `WHOISXML_API_KEY` | WhoisXML API key (optional — falls back to free RDAP without key) |
+| `CIRCL_PDNS_KEY` | CIRCL Passive DNS credentials as `user:password` (free at https://www.circl.lu/services/passive-dns/) |
+| `LLM_PROVIDER` | `ollama` (default) or `anthropic` |
+| `OLLAMA_BASE_URL` | Ollama endpoint URL (default `http://localhost:11434`; use `http://ollama:11434` for the bundled Docker service) |
+| `OLLAMA_MODEL` | Ollama model to use (e.g. `gemma2:2b`) |
 | `ANTHROPIC_API_KEY` | Anthropic API key (only needed when `digest.llm_provider: anthropic`) |
 
 ### `config/config.yaml`
@@ -82,6 +91,9 @@ Main configuration file. Uses `${ENV_VAR}` syntax for environment variable subst
 - `platforms.discord.enabled` — enable/disable Discord integration
 - `platforms.discord.monitor_channels` — list of channel IDs (integers); empty = all channels
 - `platforms.discord.digest_channel` — channel ID (integer) for daily digest
+- `platforms.slack.command_allowlist` — list of Slack user IDs (e.g. `["U01234ABCD"]`) allowed to run `!digest` / `!osint`. Empty = anyone in a monitored channel. IOC enrichment is always automatic and is NOT gated by this allowlist.
+- `platforms.discord.command_allowlist` — list of Discord user IDs (integers) allowed to run `!digest` / `!osint`. Empty = anyone in a monitored channel.
+- `auth.command_cooldown_seconds` — per-user cooldown in seconds applied across both platforms. `0` disables (default: 30).
 - `intel.max_iocs_per_message` — max IOCs to look up per message (default: 5)
 - `intel.cache_ttl` — seconds to cache lookup results (default: 3600)
 - `intel.timeout` — HTTP timeout per provider request in seconds (default: 10)
@@ -89,11 +101,14 @@ Main configuration file. Uses `${ENV_VAR}` syntax for environment variable subst
 - `digest.anthropic_model` — Anthropic model ID (default: `"claude-haiku-4-5-20251001"`)
 - `digest.anthropic_api_key` — Anthropic API key (or use `${ANTHROPIC_API_KEY}`)
 - `digest.ollama_base_url` — Ollama endpoint (default: `"http://localhost:11434"`)
-- `digest.ollama_model` — Ollama model to use (default: `"llama3.2"`)
+- `digest.ollama_model` — Ollama model to use (default: `"gemma2:2b"`)
 - `digest.ollama_num_ctx` — Ollama context window tokens (default: 16384)
+- `digest.ollama_timeout` — seconds to wait for an Ollama response (default: 1800; raise for slow CPU-only hardware)
 - `digest.max_chars_per_source` — max characters fetched per source before summarization (default: 3000)
-- `digest.default_schedule` — fallback cron schedule for topics that don't define their own (default: `"0 6 * * *"` = 6 AM UTC)
-- `digest.timezone` — timezone for the scheduler (default: `"UTC"`)
+- `digest.max_total_chars_per_topic` — total prompt budget per topic across all sources (default: 20000)
+- `digest.data_dir` — path used for digest history and source-health JSON (default: `"data"`; persisted in a Docker volume)
+- `digest.default_schedule` — fallback cron schedule for topics that don't define their own (default: `"0 6 * * *"`, interpreted in `digest.timezone`)
+- `digest.timezone` — timezone for the scheduler. Code default: `"UTC"`. Shipped `config.yaml` value: `"Australia/Brisbane"`.
 - `digest.top_stories_count` — how many top stories are shown with a full summary; the rest appear as headline+link only (default: 10, adjustable at runtime with `!digest top <N>`). Individual topics can override this with `top_stories_count` in `watchlist.yaml`.
 - `digest.interest_topics` — optional list of keywords (e.g. `["ransomware", "zero-day", "CISA"]`) passed to the LLM to help rank the most relevant stories higher
 - `whisper.enabled` — enable Whisper audio transcription service
@@ -220,8 +235,11 @@ APScheduler registers one cron job per topic (using each topic's own schedule)
         → _postprocess_summary(): cross-topic dedup + trend classification
     → post to notifiers (slack_bot.send_digest, discord_bot.send_digest)
         → Message 1: topic header + overview + source coverage footer
-        → Messages 2..N+1: one card per top story (full summary + Read More link)
-        → Message N+2: remaining stories as a compact headline+link list
+        → Messages 2..N+1: one card per top story — headline, full summary, source host
+                          (e.g. "reddit.com"), Read More link. Severity drives the embed colour
+                          on Discord but is no longer printed as a "Medium" badge on the card.
+        → Message N+2: remaining stories as a compact list, each shown as
+                          "• <icon> headline · source.com"
 ```
 
 The number of top stories `N` is set by `digest.top_stories_count` in `config.yaml` (default 10) and can be changed at runtime with `!digest top <N>`. Individual topics can override this with `top_stories_count` in `watchlist.yaml` (e.g. `top_stories_count: 5` on a Cybersecurity topic). Interest keywords in `digest.interest_topics` are injected into the LLM prompt to influence ranking.
@@ -329,16 +347,17 @@ RSS/Atom feeds (`.xml`, `.rss`, `.atom`) are automatically detected and parsed w
 | **GreyNoise** | 100 req/day (community) | Works without key at reduced rate. Premium API has higher limits. |
 | **AbuseIPDB** | 1,000 req/day | Free registration required. |
 | **AlienVault OTX** | Unlimited (free) | Works unauthenticated but with stricter rate limits. Free registration recommended. |
-| **URLhaus** | No key required | Completely free, no registration needed. |
+| **URLhaus** | Unlimited | Free `ABUSECH_API_KEY` required (sign up at https://auth.abuse.ch). |
 | **URLScan** | No key required | Completely free public API. |
-| **ThreatFox** | No key required | Completely free, no registration needed. |
+| **ThreatFox** | Unlimited | Free `ABUSECH_API_KEY` required (same key as URLhaus). |
 | **MalwareBazaar** | No key required | Completely free, no registration needed. |
 | **IPInfo** | 50,000 req/month (free) | Works without key up to rate limit. |
 | **CIRCL CVE** | No key required | Completely free public API. |
 | **crt.sh** | No key required | Certificate transparency — domain lookups. |
 | **WHOIS Age** | No key required | Uses free RDAP. Optional `WHOISXML_API_KEY` lifts rate limits. |
-| **CIRCL PDNS** | No key required | Passive DNS — domain and IP lookups. |
+| **CIRCL PDNS** | Free account | `CIRCL_PDNS_KEY` as `user:password`. Passive DNS — domain and IP lookups. |
 | **HIBP** | Paid key required | Have I Been Pwned — email breach lookups. ~$3.50/month. |
+| **BGPView** | No key required | Free ASN/prefix lookups via `!osint asn`. |
 | **Ollama** | Free (local) | Requires local GPU/CPU. Default digest LLM. Pull models with `ollama pull <model>`. |
 | **Anthropic Claude** | Pay per token | Optional digest LLM. ~$0.25/MTok input, $1.25/MTok output for Haiku. |
 
@@ -403,7 +422,8 @@ SignalSage/
     │   ├── anthropic_llm.py # Anthropic API backend
     │   └── ollama.py        # Ollama local backend (default)
     ├── digest/
-    │   ├── fetcher.py       # RSS/web content fetcher
+    │   ├── fetcher.py       # RSS/web/audio content fetcher
+    │   ├── history.py       # Persistent digest history + source-health tracking
     │   └── summarizer.py    # LLM-based digest summarization
     └── bots/
         ├── commands.py      # !digest command parsing (shared by Slack + Discord)

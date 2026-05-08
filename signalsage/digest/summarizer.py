@@ -4,7 +4,11 @@ import asyncio
 import json
 import logging
 import re
+import time
 from datetime import date
+from urllib.parse import urlparse
+
+from cachetools import TTLCache
 
 from signalsage.intel.base import IntelResult
 from signalsage.ioc.models import IOC
@@ -17,6 +21,36 @@ _URL_MATCH_THRESHOLD = 0.20  # minimum Jaccard similarity to inject a URL
 logger = logging.getLogger(__name__)
 
 _PUNCT_RE = re.compile(r"[^\w\s]")
+# Stamps each "Title: ..." line in fetched source content with an [A<N>] article ID.
+# Compiled once at module load instead of per topic-run.
+_TITLE_LINE_RE = re.compile(
+    r"^Title:\s*(.+)\n(URL:\s*https?://[^\s<>|\"'`{}\\^]+)?",
+    re.MULTILINE,
+)
+_INLINE_URL_RE = re.compile(r"URL:\s*(https?://[^\s<>|\"'`{}\\^]+)")
+
+# A URL coming from an attacker-influenced source (a feed entry, an LLM hallucination)
+# can contain characters like "|" or "<" that break Slack's <url|label> link syntax
+# or Discord embed boundaries — letting a crafted feed point a "Read More" button at
+# one URL while displaying another. These chars are illegal in well-formed URLs anyway.
+_UNSAFE_URL_CHARS = set("|<>\"'`{}\\^")
+
+
+def _safe_url(url: str | None) -> str | None:
+    """Return *url* if it is an http(s) URL with a host and no message-formatting
+    metacharacters; otherwise None. Used to validate URLs from third-party content."""
+    if not url:
+        return None
+    url = url.strip().rstrip(".,;)")
+    if any(c in url for c in _UNSAFE_URL_CHARS):
+        return None
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return None
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        return None
+    return url
 
 
 def _jaccard(a: str, b: str) -> float:
@@ -61,8 +95,11 @@ def _inject_urls(
                 obj = json.loads(m.group(0))
             except (json.JSONDecodeError, ValueError):
                 return m.group(0)
-            if str(obj.get("url") or "").startswith("http"):
-                return m.group(0)
+            existing = _safe_url(str(obj.get("url") or ""))
+            if existing:
+                obj["url"] = existing
+                return json.dumps(obj)
+            obj["url"] = ""  # drop tainted/invalid URL before fallback lookup
             art_id = re.split(
                 r"[,\s]+", re.sub(r"[\[\]]", "", str(obj.get("art_id") or "")).strip().upper()
             )[0]
@@ -90,9 +127,14 @@ def _inject_urls(
     for item in items:
         if not isinstance(item, dict):
             continue
-        existing = str(item.get("url") or "").strip()
-        if existing.startswith("http"):
-            continue  # already have a good URL
+        existing = _safe_url(str(item.get("url") or ""))
+        if existing:
+            item["url"] = existing  # normalise (strip trailing punctuation)
+            continue
+        # Drop any URL the LLM emitted that didn't pass _safe_url so we don't
+        # propagate a tainted URL into the rendered card.
+        if item.get("url"):
+            item["url"] = ""
 
         # Try art_id lookup — normalise brackets/case and take first id if LLM emits "A1, A3"
         art_id_raw = re.sub(r"[\[\]]", "", str(item.get("art_id") or "")).strip().upper()
@@ -190,11 +232,22 @@ class DigestSummarizer:
         max_chars: int = 3000,
         max_total_chars: int = 20000,
         interest_topics: list[str] | None = None,
+        ioc_assessment_cache_ttl: int = 3600,
+        ioc_assessment_capacity: int = 30,
+        ioc_assessment_refill_per_sec: float = 0.5,
     ) -> None:
         self.llm = llm
         self.max_chars = max_chars
         self.max_total_chars = max_total_chars
         self.interest_topics: list[str] = interest_topics or []
+        # IOC assessments are cached identically to intel results so a re-posted IOC
+        # doesn't re-spend LLM tokens. The token-bucket caps the burst rate of LLM
+        # calls so a user dumping fresh IOCs cannot run up an unbounded API bill.
+        self._ioc_cache: TTLCache = TTLCache(maxsize=500, ttl=ioc_assessment_cache_ttl)
+        self._ioc_bucket_capacity = float(ioc_assessment_capacity)
+        self._ioc_bucket_refill = float(ioc_assessment_refill_per_sec)
+        self._ioc_bucket = self._ioc_bucket_capacity
+        self._ioc_bucket_last = time.monotonic()
 
     async def summarize_topic(
         self, topic_name: str, sources: list[dict], lookback: str | None = None
@@ -221,18 +274,17 @@ class DigestSummarizer:
                 art_id = f"A{art_counter}"
                 headline = m.group(1).strip()
                 url_line = m.group(2) or ""
-                url = re.search(r"URL:\s*(https?://\S+)", url_line)
-                if url:
-                    url_map[art_id] = url.group(1)
-                    title_url_pairs.append((headline, url.group(1)))
+                # Restrict to URL-safe chars so a crafted feed cannot smuggle "|" or "<"
+                # into the captured URL (would later break Slack <url|label> boundaries).
+                url_match = _INLINE_URL_RE.search(url_line)
+                if url_match:
+                    safe = _safe_url(url_match.group(1))
+                    if safe:
+                        url_map[art_id] = safe
+                        title_url_pairs.append((headline, safe))
                 return f"[{art_id}] Title: {headline}\n{url_line}"
 
-            labelled = re.sub(
-                r"^Title:\s*(.+)\n(URL:\s*https?://\S+)?",
-                _stamp_article,
-                content,
-                flags=re.MULTILINE,
-            )
+            labelled = _TITLE_LINE_RE.sub(_stamp_article, content)
 
             block = f"### {src['name']}\nSource URL: {src['url']}\n{labelled}\n"
             if total_chars + len(block) > self.max_total_chars:
@@ -335,8 +387,41 @@ class DigestSummarizer:
                 lines.append(f"  • {h}")
         return "\n".join(lines)
 
+    def _take_ioc_token(self) -> bool:
+        """Consume one token from the IOC-assessment bucket. Returns False if empty."""
+        now = time.monotonic()
+        elapsed = now - self._ioc_bucket_last
+        self._ioc_bucket_last = now
+        self._ioc_bucket = min(
+            self._ioc_bucket_capacity, self._ioc_bucket + elapsed * self._ioc_bucket_refill
+        )
+        if self._ioc_bucket >= 1.0:
+            self._ioc_bucket -= 1.0
+            return True
+        return False
+
+    @staticmethod
+    def _ioc_cache_key(ioc: IOC, results: list[IntelResult]) -> tuple:
+        """Build a cache key from the IOC plus a fingerprint of every provider's verdict."""
+        sig = tuple(
+            sorted((r.provider, r.malicious, r.score, bool(r.error)) for r in results)
+        )
+        return (ioc.value, ioc.type.value, sig)
+
     async def summarize_ioc(self, ioc: IOC, results: list[IntelResult]) -> str:
         """Generate a plain-English assessment of an IOC from its enrichment results."""
+        cache_key = self._ioc_cache_key(ioc, results)
+        cached = self._ioc_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        if not self._take_ioc_token():
+            logger.warning(
+                "IOC assessment rate-limited (token bucket empty); skipping LLM call for %s",
+                ioc.value,
+            )
+            return "⚠️ Assessment rate-limited — try again in a moment."
+
         lines: list[str] = []
         for r in results:
             if r.error:
@@ -356,7 +441,10 @@ class DigestSummarizer:
             f"Indicator: {ioc.value} ({label})\n\nThreat intelligence results:\n" + "\n".join(lines)
         )
         try:
-            return await self.llm.complete(system=_IOC_SYSTEM_PROMPT, user=user_prompt)
+            text = await self.llm.complete(system=_IOC_SYSTEM_PROMPT, user=user_prompt)
         except Exception as exc:
             logger.error("LLM error summarizing IOC %s: %s", ioc.value, exc)
             return f"⚠️ Assessment unavailable - {exc}"
+
+        self._ioc_cache[cache_key] = text
+        return text

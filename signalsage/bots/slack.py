@@ -8,6 +8,7 @@ from slack_bolt.async_app import AsyncApp
 
 from signalsage.ioc.processor import IOCProcessor
 
+from .auth import CommandAuth
 from .commands import (
     HELP_TEXT,
     Platform,
@@ -23,10 +24,17 @@ logger = logging.getLogger(__name__)
 class SlackBot:
     """Async Slack bot that monitors messages and enriches IOCs."""
 
-    def __init__(self, config: dict, ioc_processor: IOCProcessor, summarizer=None) -> None:
+    def __init__(
+        self,
+        config: dict,
+        ioc_processor: IOCProcessor,
+        summarizer=None,
+        auth: CommandAuth | None = None,
+    ) -> None:
         self.cfg = config["platforms"]["slack"]
         self.ioc_processor = ioc_processor
         self.summarizer = summarizer  # optional DigestSummarizer for IOC assessment
+        self.auth = auth or CommandAuth()
         self.app = AsyncApp(token=self.cfg["bot_token"])
         self._bot_user_id: str | None = None
         self.scheduler = None  # set by main.py after scheduler creation
@@ -63,6 +71,20 @@ class SlackBot:
             cmd = parse_command(text)
             if cmd is not None:
                 cmd_name, cmd_args = cmd
+                user_id = event.get("user", "") or ""
+                if cmd_name in ("digest", "osint", "help", "?"):
+                    if not self.auth.authorized_slack(user_id):
+                        logger.info(
+                            "Slack user %s denied command %r — not in allowlist",
+                            user_id,
+                            cmd_name,
+                        )
+                        return
+                    cd = self.auth.cooldown_remaining("slack", user_id)
+                    if cd:
+                        await say(text=f"⏳ Slow down — try again in {cd}s.")
+                        return
+                    self.auth.record("slack", user_id)
                 if cmd_name == "digest":
                     await handle_digest_command(
                         cmd_args,
@@ -117,14 +139,36 @@ class SlackBot:
         async def on_mention(event: dict, say) -> None:
             """Handle @SignalSage mentions as commands."""
             text = event.get("text", "")
+            user_id = event.get("user", "") or ""
             cmd = parse_command(text)
             if cmd is not None:
                 cmd_name, cmd_args = cmd
+                if cmd_name in ("digest", "osint", "help", "?"):
+                    if not self.auth.authorized_slack(user_id):
+                        logger.info(
+                            "Slack user %s denied @mention command %r — not in allowlist",
+                            user_id,
+                            cmd_name,
+                        )
+                        return
+                    cd = self.auth.cooldown_remaining("slack", user_id)
+                    if cd:
+                        await say(text=f"⏳ Slow down — try again in {cd}s.")
+                        return
+                    self.auth.record("slack", user_id)
                 if cmd_name == "digest":
                     await handle_digest_command(
                         cmd_args,
                         self.scheduler,
                         reply=lambda msg: say(text=msg),
+                    )
+                    return
+                if cmd_name == "osint":
+                    await handle_osint_command(
+                        cmd_args,
+                        self.ioc_processor,
+                        reply=lambda msg: say(text=msg),
+                        platform=Platform.SLACK,
                     )
                     return
             await say(text=HELP_TEXT)

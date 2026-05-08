@@ -35,7 +35,7 @@ class VirusTotalProvider(BaseProvider):
 
         headers = {"x-apikey": self.api_key}
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
+            async with self._http() as client:
                 if ioc.type in (IOCType.IPV4, IOCType.IPV6):
                     return await self._lookup_ip(client, ioc, headers)
                 elif ioc.type == IOCType.DOMAIN:

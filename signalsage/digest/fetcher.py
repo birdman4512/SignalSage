@@ -3,12 +3,15 @@
 import asyncio
 import calendar
 import datetime
+import ipaddress
 import json
 import logging
 import re
+import socket
 import tempfile
 import time
 from pathlib import Path
+from urllib.parse import urlparse
 
 import feedparser
 import httpx
@@ -38,6 +41,43 @@ def _user_agent(url: str) -> str:
 
 # Max audio file size to attempt transcription (bytes). Downloads larger than this are skipped.
 _MAX_AUDIO_BYTES = 200 * 1024 * 1024  # 200 MB
+
+# Cap how many redirect hops the audio downloader will follow. A compromised feed
+# can redirect from a benign-looking URL to internal infrastructure (Ollama on the
+# internal Docker network, cloud metadata services, etc.) — limit + revalidate.
+_MAX_AUDIO_REDIRECTS = 3
+
+
+async def _resolve_is_public_host(host: str) -> bool:
+    """Return True only if every resolved address for *host* is publicly routable.
+
+    Used as an SSRF guard before fetching attacker-influenced URLs (audio enclosures
+    from RSS feeds). Rejects loopback/link-local/private/multicast/reserved/cloud-
+    metadata addresses (169.254.169.254 falls under link-local).
+    """
+    if not host:
+        return False
+    loop = asyncio.get_running_loop()
+    try:
+        infos = await loop.getaddrinfo(host, None)
+    except (socket.gaierror, OSError):
+        return False
+    for info in infos:
+        addr_str = info[4][0]
+        try:
+            addr = ipaddress.ip_address(addr_str)
+        except ValueError:
+            return False
+        if (
+            addr.is_private
+            or addr.is_loopback
+            or addr.is_link_local
+            or addr.is_reserved
+            or addr.is_multicast
+            or addr.is_unspecified
+        ):
+            return False
+    return True
 
 
 def parse_lookback(lookback: str | None) -> int | None:
@@ -85,11 +125,28 @@ async def _transcribe_audio(
     Returns the transcript text, or None on failure.
     """
     logger.info("Downloading audio for transcription: %s", audio_url)
+
+    # SSRF guard: only allow http(s) URLs whose host resolves to a public address.
+    # A malicious or compromised feed could otherwise redirect this fetch to
+    # cloud-metadata endpoints or internal services on the Docker network.
+    parsed = urlparse(audio_url)
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        logger.warning("Refusing audio URL with disallowed scheme/host: %s", audio_url)
+        return None
+    if not await _resolve_is_public_host(parsed.hostname):
+        logger.warning("Refusing audio URL — host resolves to non-public address: %s", audio_url)
+        return None
+
+    tmp_path: str | None = None
+    total = 0
     try:
+        # max_redirects keeps the redirect chain short; even after the upfront
+        # host check, the server could 302 toward an internal address.
         async with httpx.AsyncClient(
             timeout=60,
             follow_redirects=True,
-            headers={"User-Agent": "SignalSage/1.0 (Threat Intelligence Bot)"},
+            max_redirects=_MAX_AUDIO_REDIRECTS,
+            headers={"User-Agent": _DEFAULT_UA},
         ) as client:
             async with client.stream("GET", audio_url) as resp:
                 resp.raise_for_status()
@@ -102,11 +159,11 @@ async def _transcribe_audio(
                     )
                     return None
 
-                # Stream into a temp file
                 suffix = Path(audio_url.split("?")[0]).suffix or ".mp3"
+                # delete=False so we can re-open the file for upload to Whisper;
+                # the outer finally block guarantees cleanup on every exit path.
                 with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
                     tmp_path = tmp.name
-                    total = 0
                     async for chunk in resp.aiter_bytes(chunk_size=65536):
                         total += len(chunk)
                         if total > _MAX_AUDIO_BYTES:
@@ -115,12 +172,11 @@ async def _transcribe_audio(
                             )
                             return None
                         tmp.write(chunk)
-    except Exception as exc:
-        logger.warning("Failed to download audio %s: %s", audio_url, exc)
-        return None
 
-    logger.info("Transcribing %.1f MB audio via Whisper...", total / (1024 * 1024))
-    try:
+        if not tmp_path:
+            return None
+
+        logger.info("Transcribing %.1f MB audio via Whisper...", total / (1024 * 1024))
         whisper_url = f"{whisper_base_url.rstrip('/')}/v1/audio/transcriptions"
         async with httpx.AsyncClient(timeout=timeout) as client:
             with open(tmp_path, "rb") as audio_file:
@@ -134,13 +190,14 @@ async def _transcribe_audio(
             logger.info("Transcription complete: %d characters", len(transcript))
             return transcript or None
     except Exception as exc:
-        logger.warning("Whisper transcription failed for %s: %s", audio_url, exc)
+        logger.warning("Audio download/transcription failed for %s: %s", audio_url, exc)
         return None
     finally:
-        try:
-            Path(tmp_path).unlink(missing_ok=True)
-        except Exception:
-            pass
+        if tmp_path:
+            try:
+                Path(tmp_path).unlink(missing_ok=True)
+            except Exception:
+                pass
 
 
 def _get_audio_enclosure(entry: dict) -> str | None:
@@ -314,21 +371,25 @@ def _extract_json_feed(raw: str, max_chars: int, lookback_seconds: int | None = 
         if not isinstance(item, dict):
             continue
 
-        # Date filter
+        # Date filter — find the first present date field and decide once
         if cutoff:
+            too_old = False
             for date_field in ("dateAdded", "datePublished", "published", "date"):
                 raw_date = item.get(date_field, "")
-                if raw_date:
-                    try:
-                        parsed = datetime.date.fromisoformat(str(raw_date)[:10])
-                        item_ts = datetime.datetime(
-                            parsed.year, parsed.month, parsed.day
-                        ).timestamp()
-                        if item_ts < cutoff:
-                            continue
-                    except (ValueError, TypeError):
-                        pass
-                    break
+                if not raw_date:
+                    continue
+                try:
+                    parsed = datetime.date.fromisoformat(str(raw_date)[:10])
+                    item_ts = datetime.datetime(
+                        parsed.year, parsed.month, parsed.day
+                    ).timestamp()
+                    if item_ts < cutoff:
+                        too_old = True
+                except (ValueError, TypeError):
+                    pass
+                break
+            if too_old:
+                continue
 
         # Extract fields — prefer CISA KEV names, fall back to generic names
         title = (

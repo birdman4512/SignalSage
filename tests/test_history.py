@@ -140,7 +140,9 @@ def test_prune_removes_old_history_entries(tmp_path):
     history = DigestHistory(data_dir=str(tmp_path))
     old_date = (date.today() - timedelta(days=_KEEP_DAYS + 1)).isoformat()
     history._history["Topic"] = {old_date: []}
-    history.record_items("Topic", [])  # triggers _prune
+    # Reset the once-per-day guard so the next record_items actually prunes
+    history._last_prune_day = ""
+    history.record_items("Topic", [])
     assert old_date not in history._history.get("Topic", {})
 
 
@@ -148,7 +150,8 @@ def test_prune_keeps_recent_entries(tmp_path):
     history = DigestHistory(data_dir=str(tmp_path))
     recent_date = (date.today() - timedelta(days=_KEEP_DAYS - 1)).isoformat()
     history._history["Topic"] = {recent_date: []}
-    history.record_items("Topic", [])  # triggers _prune
+    history._last_prune_day = ""
+    history.record_items("Topic", [])
     assert recent_date in history._history.get("Topic", {})
 
 

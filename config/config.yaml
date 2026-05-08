@@ -5,11 +5,23 @@ platforms:
     app_token: ${SLACK_APP_TOKEN}
     monitor_channels: []   # empty = all channels bot is in
     digest_channel: "${SLACK_DIGEST_CHANNEL:-ioc-check}"
+    # Slack user IDs (e.g. "U01234ABCD") allowed to run !digest / !osint commands.
+    # Empty = anyone in a monitored channel may run commands. IOC enrichment is
+    # always automatic and is NOT gated by this allowlist.
+    command_allowlist: []
   discord:
     enabled: ${DISCORD_ENABLED:-false}
     bot_token: ${DISCORD_BOT_TOKEN}
     monitor_channels: []   # empty = all channels bot can read
     digest_channel: "${DISCORD_DIGEST_CHANNEL:-}"   # channel ID (integer)
+    # Discord user IDs (integer) allowed to run !digest / !osint commands.
+    # Empty = anyone in a monitored channel may run commands.
+    command_allowlist: []
+
+auth:
+  # Per-user cooldown in seconds applied to !digest / !osint commands across
+  # both platforms. 0 disables the cooldown.
+  command_cooldown_seconds: 30
 
 intel:
   max_iocs_per_message: 5
