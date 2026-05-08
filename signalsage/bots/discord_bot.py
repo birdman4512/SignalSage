@@ -24,6 +24,7 @@ from .formatter import (
     _parse_digest_json,
     _provider_icon,
     _risk_emoji,
+    _source_label,
     _topic_icon,
 )
 
@@ -126,8 +127,9 @@ def _digest_embeds(
             description=item_summary[:4096] if item_summary else None,
             color=_SEVERITY_COLOUR.get(severity, _DIGEST_COLOUR),
         )
-        if severity:
-            embed.set_footer(text=severity.title())
+        source = _source_label(url)
+        if source:
+            embed.set_footer(text=source)
         embeds.append(embed)
 
     # ── Tail stories embed ────────────────────────────────────────────────────
@@ -139,10 +141,12 @@ def _digest_embeds(
             item_icon = (str(item.get("icon") or "").strip().split() or ["📰"])[0]
             if not headline:
                 continue
+            source = _source_label(url)
+            source_suffix = f" · {source}" if source else ""
             if url.startswith("http"):
-                lines.append(f"• {item_icon} [{headline}]({url})")
+                lines.append(f"• {item_icon} [{headline}]({url}){source_suffix}")
             else:
-                lines.append(f"• {item_icon} {headline}")
+                lines.append(f"• {item_icon} {headline}{source_suffix}")
         if lines:
             tail_embed = discord.Embed(
                 title=f"📋 More Stories ({len(tail_items)})",
