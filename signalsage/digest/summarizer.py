@@ -403,9 +403,7 @@ class DigestSummarizer:
     @staticmethod
     def _ioc_cache_key(ioc: IOC, results: list[IntelResult]) -> tuple:
         """Build a cache key from the IOC plus a fingerprint of every provider's verdict."""
-        sig = tuple(
-            sorted((r.provider, r.malicious, r.score, bool(r.error)) for r in results)
-        )
+        sig = tuple(sorted((r.provider, r.malicious, r.score, bool(r.error)) for r in results))
         return (ioc.value, ioc.type.value, sig)
 
     async def summarize_ioc(self, ioc: IOC, results: list[IntelResult]) -> str:

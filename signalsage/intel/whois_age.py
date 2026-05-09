@@ -3,8 +3,6 @@
 import logging
 from datetime import UTC, datetime
 
-import httpx
-
 from signalsage.ioc.models import IOC, IOCType
 
 from .base import BaseProvider, IntelResult

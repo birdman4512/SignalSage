@@ -562,9 +562,7 @@ def format_digest_slack_message(
         # Headlines and summaries come from RSS feeds + LLM output — escape so a
         # crafted feed entry can't inject Slack <url|label> link syntax.
         headline = _escape_mrkdwn(str(item.get("headline", "")).strip())
-        item_summary = _escape_mrkdwn(
-            str(item.get("summary", "") or item.get("blurb", "")).strip()
-        )
+        item_summary = _escape_mrkdwn(str(item.get("summary", "") or item.get("blurb", "")).strip())
         url = str(item.get("url") or "").strip()
         item_icon = (str(item.get("icon") or "").strip().split() or ["📰"])[0]
         trend = str(item.get("trend") or "").lower()

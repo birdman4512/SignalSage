@@ -380,9 +380,7 @@ def _extract_json_feed(raw: str, max_chars: int, lookback_seconds: int | None = 
                     continue
                 try:
                     parsed = datetime.date.fromisoformat(str(raw_date)[:10])
-                    item_ts = datetime.datetime(
-                        parsed.year, parsed.month, parsed.day
-                    ).timestamp()
+                    item_ts = datetime.datetime(parsed.year, parsed.month, parsed.day).timestamp()
                     if item_ts < cutoff:
                         too_old = True
                 except (ValueError, TypeError):

@@ -81,7 +81,9 @@ class URLhausProvider(BaseProvider):
         )
 
     async def _lookup_host(self, client: httpx.AsyncClient, ioc: IOC) -> IntelResult:
-        resp = await client.post(f"{_BASE}/host/", data={"host": ioc.value}, headers=self._headers())
+        resp = await client.post(
+            f"{_BASE}/host/", data={"host": ioc.value}, headers=self._headers()
+        )
         if err := self._check_status(resp, ioc):
             return err
         resp.raise_for_status()

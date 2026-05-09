@@ -3,7 +3,6 @@
 import json
 
 from signalsage.bots.formatter import (
-    Platform,
     _parse_digest_json,
     format_digest_plain,
     format_digest_slack_message,
