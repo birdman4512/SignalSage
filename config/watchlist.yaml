@@ -27,9 +27,9 @@ topics:
 
   - name: "General News"
     tags: [news, aus, australia]    # !digest news
-    schedule: "0 5 * * *"          # 5:00am daily
+    schedule: "0 5,11,17,23 * * *" # 5am, 11am, 5pm, 11pm daily
     lookback: "24h"
-    top_stories_count: 10
+    top_stories_count: 5
     digest_channel: "#general"
     sources:
       - name: "ABC News"
@@ -47,7 +47,7 @@ topics:
 
   - name: "Cybersecurity News"
     tags: [cybernews, secnews]      # !digest cybernews
-    schedule: "0 6 * * *"          # 6:00am daily
+    schedule: "0 6 * * mon-fri"    # 6:00am weekdays
     lookback: "24h"
     top_stories_count: 5
     digest_channel: "#general"
@@ -96,7 +96,7 @@ topics:
 
   - name: "Government Advisories"
     tags: [advisories, gov, cisa]   # !digest advisories
-    schedule: "0 7 * * *"          # 7:00am daily
+    schedule: "0 7 * * tue-sat"    # 7:00am Tue–Sat
     lookback: "24h"
     digest_channel: "#general"
     sources:
@@ -112,8 +112,9 @@ topics:
 
   - name: "Security Community"
     tags: [community, seccomm]      # !digest community
-    schedule: "0 8 * * *"          # 8:00am daily
+    schedule: "30 5,11,17,23 * * mon-fri" # 5:30am, 11:30am, 5:30pm, 11:30pm weekdays
     lookback: "24h"
+    top_stories_count: 5
     digest_channel: "#general"
     sources:
       - name: "r/netsec"
@@ -148,7 +149,7 @@ topics:
 
   - name: "Threat Intelligence"
     tags: [ti, intel, threatintel]  # !digest ti
-    schedule: "30 6 * * 1"         # 6:30am every Monday
+    schedule: "30 6 * * wed"       # 6:30am every Wednesday
     lookback: "7d"
     digest_channel: "#general"
     sources:
@@ -165,7 +166,7 @@ topics:
 
   - name: "AI & ML News"
     tags: [ai, ml, llm]             # !digest ai
-    schedule: "15 6 * * *"         # 6:15am daily
+    schedule: "15 6 * * mon-fri"   # 6:15am weekdays
     lookback: "24h"
     digest_channel: "#general"
     sources:
