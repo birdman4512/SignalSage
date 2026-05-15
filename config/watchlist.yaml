@@ -67,7 +67,7 @@ topics:
 
   - name: "Threat Research"
     tags: [research, vendors]       # !digest research
-    schedule: "30 7 * * 1,3,5"    # 7:30am Mon/Wed/Fri — these blogs don't update daily
+    schedule: "30 7 * * mon,wed,fri" # 7:30am Mon/Wed/Fri — these blogs don't update daily
     lookback: "48h"
     digest_channel: "#general"
     sources:
@@ -134,7 +134,7 @@ topics:
 
   - name: "Vulnerability Alerts"
     tags: [vuln, cve]               # !digest vuln
-    schedule: "15 7 * * 1-5"       # 7:15am weekdays only
+    schedule: "15 7 * * mon-fri"   # 7:15am weekdays only
     lookback: "24h"
     digest_channel: "#general"
     sources:
