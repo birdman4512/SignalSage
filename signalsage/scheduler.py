@@ -6,7 +6,7 @@ import logging
 import re
 import time
 from collections.abc import Callable
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 
 from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED
 from apscheduler.executors.asyncio import AsyncIOExecutor
@@ -34,6 +34,64 @@ def _parse_cron(schedule: str, timezone: str) -> CronTrigger:
         day_of_week=parts[4],
         timezone=timezone,
     )
+
+
+def _compute_auto_lookback(
+    schedule: str,
+    timezone: str,
+    buffer_hours: float,
+    _now: datetime | None = None,
+) -> str:
+    """Return a lookback string equal to the elapsed time between the two most
+    recent scheduled fires of *schedule* plus *buffer_hours* of overhang.
+
+    Computing the gap *per run* means weekday-only schedules naturally widen
+    the lookback after a long off-period (e.g. Monday's run on a `mon-fri`
+    cron looks back ~74h to cover Fri→Mon) while Tue–Fri runs stay tight
+    (~26h). ``_now`` is only used by tests.
+
+    Falls back to the smallest *future* gap when there is no recent past fire
+    in the lookback window (e.g. a newly-added topic that hasn't fired yet).
+    """
+    trigger = _parse_cron(schedule, timezone)
+    now = _now or datetime.now(UTC)
+
+    # Walk forward from 14d ago, keeping only the two most recent fires <= now.
+    # 14d covers weekly/biweekly digest cadences. 20k iterations is a safety
+    # cap for pathological schedules (e.g. every-minute crons that have no
+    # business being a digest topic but shouldn't crash the bot if added).
+    start = now - timedelta(days=14)
+    last_two: list[datetime] = []
+    prev: datetime | None = None
+    for _ in range(20_000):
+        nxt = trigger.get_next_fire_time(prev, start if prev is None else prev)
+        if nxt is None or nxt > now:
+            break
+        last_two.append(nxt)
+        if len(last_two) > 2:
+            last_two.pop(0)
+        prev = nxt
+
+    if len(last_two) == 2:
+        gap_seconds = (last_two[1] - last_two[0]).total_seconds()
+        hours = max(1, int(round((gap_seconds + buffer_hours * 3600) / 3600)))
+        return f"{hours}h"
+
+    # No past fires (or only one) in the 14d window — fall back to smallest
+    # forward gap so a newly-added topic still gets a sensible default.
+    fires: list[datetime] = []
+    prev = None
+    for _ in range(6):
+        nxt = trigger.get_next_fire_time(prev, now if prev is None else prev)
+        if nxt is None:
+            break
+        fires.append(nxt)
+        prev = nxt
+    if len(fires) < 2:
+        return "25h"
+    min_gap = min((fires[i + 1] - fires[i]).total_seconds() for i in range(len(fires) - 1))
+    hours = max(1, int(round((min_gap + buffer_hours * 3600) / 3600)))
+    return f"{hours}h"
 
 
 def _postprocess_summary(
@@ -115,10 +173,13 @@ class DigestScheduler:
         whisper_base_url: str | None = None,
         data_dir: str = "data",
         top_stories_count: int = 10,
+        lookback_buffer_hours: float = 2.0,
     ) -> None:
         self.summarizer = summarizer
         self.notifiers = notifiers
         self.timezone = timezone
+        self.default_schedule = default_schedule
+        self.lookback_buffer_hours = float(lookback_buffer_hours)
         self.whisper_base_url = whisper_base_url
         self.top_stories_count = top_stories_count
         self._scheduler = AsyncIOScheduler(
@@ -189,6 +250,29 @@ class DigestScheduler:
         logger.info("Running digest for topic: %s", name)
 
         lookback = topic.get("lookback") or None
+        if lookback is None:
+            # No explicit lookback — derive one from the topic's schedule so
+            # high-frequency topics (e.g. every 6h) don't reprocess a full 24h
+            # of overlapping content on each run.
+            schedule = topic.get("schedule") or self.default_schedule
+            try:
+                lookback = _compute_auto_lookback(
+                    schedule, self.timezone, self.lookback_buffer_hours
+                )
+                logger.info(
+                    "Topic '%s': auto-lookback %s (schedule '%s', buffer %sh)",
+                    name,
+                    lookback,
+                    schedule,
+                    self.lookback_buffer_hours,
+                )
+            except ValueError as exc:
+                logger.warning(
+                    "Topic '%s': could not compute auto-lookback (%s) — no time filter",
+                    name,
+                    exc,
+                )
+                lookback = None
         lookback_seconds = parse_lookback(lookback)
         sources = topic.get("sources", [])
 

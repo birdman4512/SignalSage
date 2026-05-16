@@ -1,10 +1,10 @@
 """Tests for the digest scheduler."""
 
 import json
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from signalsage.scheduler import DigestScheduler
+from signalsage.scheduler import DigestScheduler, _compute_auto_lookback
 
 
 def _make_watchlist(*schedules: str) -> dict:
@@ -271,3 +271,101 @@ def test_session_not_reset_same_day(tmp_path):
     scheduler._session_hashes.add("abc123")
     scheduler._reset_session_if_new_day()
     assert "abc123" in scheduler._session_hashes
+
+
+# ---------------------------------------------------------------------------
+# Auto-lookback derived from schedule
+# ---------------------------------------------------------------------------
+
+
+# Fixed reference times so cron walks are deterministic. May 4 2026 is a Monday;
+# the 09:00 UTC offset means each scheduled fire of interest has already passed
+# earlier in the day (so the "previous fire" exists in every test schedule).
+_MON_0900 = datetime(2026, 5, 4, 9, 0, tzinfo=UTC)
+_TUE_0900 = datetime(2026, 5, 5, 9, 0, tzinfo=UTC)
+
+
+def test_auto_lookback_every_6_hours():
+    """Every-6h schedule: prev fire at 06:00, prev-prev at 00:00 → 6h gap + 2h = 8h."""
+    assert _compute_auto_lookback("0 0,6,12,18 * * *", "UTC", 2.0, _now=_MON_0900) == "8h"
+
+
+def test_auto_lookback_intraday_uses_previous_gap():
+    """At 09:00 Mon: prev fire 05:00 Mon, prev-prev 23:00 Sun → 6h gap → 8h."""
+    assert _compute_auto_lookback("0 5,11,17,23 * * *", "UTC", 2.0, _now=_MON_0900) == "8h"
+
+
+def test_auto_lookback_daily_schedule():
+    """Daily 06:00: prev = Mon 06:00, prev-prev = Sun 06:00 → 24h → 26h."""
+    assert _compute_auto_lookback("0 6 * * *", "UTC", 2.0, _now=_MON_0900) == "26h"
+
+
+def test_auto_lookback_weekday_only_monday_covers_weekend():
+    """Monday 09:00 on `mon-fri` 06:00: prev = Mon 06:00, prev-prev = Fri 06:00 → 72h → 74h.
+
+    This is the weekend-coverage case — Monday's run must look back through
+    the weekend or it misses two days of content.
+    """
+    assert _compute_auto_lookback("0 6 * * mon-fri", "UTC", 2.0, _now=_MON_0900) == "74h"
+
+
+def test_auto_lookback_weekday_only_tuesday_stays_tight():
+    """Tuesday 09:00 on `mon-fri` 06:00: prev = Tue 06:00, prev-prev = Mon 06:00 → 24h → 26h.
+
+    Tue–Fri runs should NOT widen to 74h — the wide window is only used after
+    a long off-period.
+    """
+    assert _compute_auto_lookback("0 6 * * mon-fri", "UTC", 2.0, _now=_TUE_0900) == "26h"
+
+
+def test_auto_lookback_weekly_schedule():
+    """Weekly cron → 7 days = 168h, plus 2h buffer = 170h."""
+    assert _compute_auto_lookback("0 6 * * wed", "UTC", 2.0, _now=_MON_0900) == "170h"
+
+
+def test_auto_lookback_custom_buffer():
+    """Buffer should be applied as configured."""
+    # 6h gap + 0h buffer = 6h
+    assert _compute_auto_lookback("0 0,6,12,18 * * *", "UTC", 0.0, _now=_MON_0900) == "6h"
+    # 6h gap + 1h buffer = 7h
+    assert _compute_auto_lookback("0 0,6,12,18 * * *", "UTC", 1.0, _now=_MON_0900) == "7h"
+
+
+async def test_run_topic_auto_derives_lookback_when_omitted(tmp_path):
+    """A topic without `lookback` should have one derived from its schedule."""
+    notifier = AsyncMock()
+    summarizer = _make_summarizer()
+    # 6h gap → 8h with default buffer of 2h.
+    watchlist = {
+        "topics": [{"name": "Hourly Topic", "schedule": "0 0,6,12,18 * * *", "sources": []}]
+    }
+    with patch("signalsage.scheduler.fetch_topic", new=AsyncMock(return_value=[])):
+        scheduler = _make_scheduler(
+            watchlist, notifiers=[notifier], summarizer=summarizer, tmp_path=tmp_path
+        )
+        await scheduler._run_topic(watchlist["topics"][0])
+
+    # summarizer.summarize_topic must have been called with the derived lookback
+    assert summarizer.summarize_topic.await_args.kwargs["lookback"] == "8h"
+    # notifier should also receive it so the channel header shows the right window
+    assert notifier.call_args.kwargs["lookback"] == "8h"
+
+
+async def test_run_topic_explicit_lookback_not_overridden(tmp_path):
+    """An explicit `lookback` on the topic must be preserved verbatim."""
+    summarizer = _make_summarizer()
+    watchlist = {
+        "topics": [
+            {
+                "name": "Pinned Topic",
+                "schedule": "0 0,6,12,18 * * *",
+                "lookback": "24h",
+                "sources": [],
+            }
+        ]
+    }
+    with patch("signalsage.scheduler.fetch_topic", new=AsyncMock(return_value=[])):
+        scheduler = _make_scheduler(watchlist, summarizer=summarizer, tmp_path=tmp_path)
+        await scheduler._run_topic(watchlist["topics"][0])
+
+    assert summarizer.summarize_topic.await_args.kwargs["lookback"] == "24h"

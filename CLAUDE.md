@@ -107,6 +107,7 @@ Main configuration file. Uses `${ENV_VAR}` syntax for environment variable subst
 - `digest.max_chars_per_source` — max characters fetched per source before summarization (default: 3000)
 - `digest.max_total_chars_per_topic` — total prompt budget per topic across all sources (default: 20000)
 - `digest.data_dir` — path used for digest history and source-health JSON (default: `"data"`; persisted in a Docker volume)
+- `digest.lookback_buffer_hours` — buffer added to the auto-derived lookback when a topic omits an explicit `lookback`. The scheduler computes the lookback **per run** as the elapsed time between the two most recent scheduled fires + this buffer (default: 2). Examples for buffer=2: `0 5,11,17,23 * * *` → 8h every run (6h gap). `0 6 * * mon-fri` → 26h Tue–Fri but 74h on Monday (covers Fri→Mon over the weekend). `0 6 * * wed` → 170h (weekly). Topics with an explicit `lookback` in `watchlist.yaml` always win. Newly added topics that haven't fired yet fall back to the smallest *future* gap.
 - `digest.default_schedule` — fallback cron schedule for topics that don't define their own (default: `"0 6 * * *"`, interpreted in `digest.timezone`)
 - `digest.timezone` — timezone for the scheduler. Code default: `"UTC"`. Shipped `config.yaml` value: `"Australia/Brisbane"`.
 - `digest.top_stories_count` — how many top stories are shown with a full summary; the rest appear as headline+link only (default: 10, adjustable at runtime with `!digest top <N>`). Individual topics can override this with `top_stories_count` in `watchlist.yaml`.

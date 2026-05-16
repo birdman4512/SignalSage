@@ -7,7 +7,11 @@
 #   lookback          — how far back to include content: "24h", "48h", "7d", etc.
 #                       RSS entries older than this are filtered out before summarisation.
 #                       The LLM is also instructed to focus only on this window.
-#                       Omit (or leave blank) to include all available content.
+#                       Omit (or leave blank) to AUTO-derive *per run*: elapsed time
+#                       between the two most recent scheduled fires + digest.lookback_buffer_hours.
+#                       e.g. "0 5,11,17,23 * * *" → 8h every run (6h gap + 2h buffer).
+#                       Weekday-only schedules widen automatically: "0 6 * * mon-fri" → 26h
+#                       Tue–Fri but 74h on Monday so the weekend is covered.
 #   digest_channel    — Slack: "#channel-name" or channel ID
 #                       Discord: channel ID (integer as string)
 #                       Omit to use the global platforms.slack/discord.digest_channel default
@@ -27,8 +31,7 @@ topics:
 
   - name: "General News"
     tags: [news, aus, australia]    # !digest news
-    schedule: "0 5,11,17,23 * * *" # 5am, 11am, 5pm, 11pm daily
-    lookback: "24h"
+    schedule: "0 5,11,17,23 * * *" # 5am, 11am, 5pm, 11pm daily (auto-lookback ≈ 8h)
     top_stories_count: 5
     digest_channel: "#general"
     sources:
@@ -112,8 +115,7 @@ topics:
 
   - name: "Security Community"
     tags: [community, seccomm]      # !digest community
-    schedule: "30 5,11,17,23 * * mon-fri" # 5:30am, 11:30am, 5:30pm, 11:30pm weekdays
-    lookback: "24h"
+    schedule: "30 5,11,17,23 * * mon-fri" # 5:30am, 11:30am, 5:30pm, 11:30pm weekdays (auto-lookback ≈ 8h)
     top_stories_count: 5
     digest_channel: "#general"
     sources:

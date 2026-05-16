@@ -224,6 +224,7 @@ async def main() -> None:
                 whisper_base_url=whisper_base_url,
                 data_dir=digest_cfg.get("data_dir", "data"),
                 top_stories_count=int(digest_cfg.get("top_stories_count", 10)),
+                lookback_buffer_hours=float(digest_cfg.get("lookback_buffer_hours", 2)),
             )
             scheduler.start()
             # Give bots a scheduler reference so !digest commands work

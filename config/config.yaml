@@ -84,6 +84,12 @@ digest:
   top_stories_count: 10             # top N stories shown with full summary; rest shown as headline+link only
   interest_topics: []               # keywords to help rank top stories, e.g. ["ransomware", "zero-day", "CISA advisories"]
 
+  # Auto-lookback: when a topic omits `lookback`, derive the window from the topic's
+  # schedule (smallest gap between consecutive cron fires) plus this buffer in hours.
+  # Stops 6-hourly topics from reprocessing a full 24h of overlapping content each run.
+  # Topics that set an explicit `lookback` (e.g. "24h", "7d") still win.
+  lookback_buffer_hours: 2
+
   # LLM backend: "ollama" (local, free) or "anthropic" (paid)
   llm_provider: "${LLM_PROVIDER:-ollama}"
 
