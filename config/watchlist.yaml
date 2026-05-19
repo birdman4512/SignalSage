@@ -31,7 +31,7 @@ topics:
 
   - name: "General News"
     tags: [news, aus, australia]    # !digest news
-    schedule: "0 5,11,17,23 * * *" # 5am, 11am, 5pm, 11pm daily (auto-lookback ≈ 8h)
+    schedule: "0 5,17 * * *"       # 5am, 5pm daily (auto-lookback ≈ 14h)
     top_stories_count: 5
     digest_channel: "#general"
     sources:
@@ -115,7 +115,7 @@ topics:
 
   - name: "Security Community"
     tags: [community, seccomm]      # !digest community
-    schedule: "30 5,11,17,23 * * mon-fri" # 5:30am, 11:30am, 5:30pm, 11:30pm weekdays (auto-lookback ≈ 8h)
+    schedule: "30 5,17 * * mon-fri" # 5:30am, 5:30pm weekdays (auto-lookback ≈ 14h)
     top_stories_count: 5
     digest_channel: "#general"
     sources:
