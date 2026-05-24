@@ -17,11 +17,11 @@ async def main() -> None:
     # ------------------------------------------------------------------ #
     # Config                                                               #
     # ------------------------------------------------------------------ #
-    from signalsage.config import load_config, load_watchlist
+    from signalsage.config import load_config, load_digests
 
     try:
         cfg = load_config()
-        watchlist = load_watchlist()
+        watchlist = load_digests()
     except FileNotFoundError as exc:
         logger.error("Configuration file missing: %s", exc)
         sys.exit(1)

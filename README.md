@@ -55,7 +55,7 @@ cd SignalSage
 cp .env.example .env
 ```
 
-Edit `.env` with your tokens and API keys (at minimum: a Slack or Discord bot token, plus any threat-intel keys you want — providers without a key fall back to free tiers or are skipped). `config/config.yaml` and `config/watchlist.yaml` are committed and ready to edit directly.
+Edit `.env` with your tokens and API keys (at minimum: a Slack or Discord bot token, plus any threat-intel keys you want — providers without a key fall back to free tiers or are skipped). `config/config.yaml` and the digest files in `config/digests/` are committed and ready to edit directly.
 
 ### 2. Start
 
@@ -92,24 +92,28 @@ Key digest settings:
 | `digest.interest_topics` | `[]` | Keywords to rank top stories (e.g. `["ransomware", "zero-day"]`) |
 | `digest.data_dir` | `data` | Path for history and source health files |
 
-### `config/watchlist.yaml`
-Defines digest topics — each with its own schedule, channel, short tags, and list of sources:
+### `config/digests/`
+Each digest topic is its own `*.yaml` file in this directory — one file per digest,
+each with its own schedule, channel, short tags, and list of sources. Drop a new
+file in to add a digest; delete one to remove it. The repo ships a core set; files
+with a `*.local.yaml` suffix are install-private (gitignored).
 
 ```yaml
-topics:
-  - name: "Vulnerability Alerts"
-    tags: [vuln, cve]               # !digest vuln
-    schedule: "0 7 * * 1-5"        # 7am weekdays
-    lookback: "24h"                  # only items from the last 24 hours
-    digest_channel: "#vuln-alerts"
-    sources:
-      - name: "CISA Advisories"
-        url: "https://www.cisa.gov/cybersecurity-advisories/all.xml"
+# config/digests/vulnerability-alerts.yaml
+name: "Vulnerability Alerts"
+tags: [vuln, cve]               # !digest vuln
+schedule: "0 7 * * 1-5"         # 7am weekdays
+lookback: "24h"                 # only items from the last 24 hours
+digest_channel: "#vuln-alerts"
+sources:
+  - name: "CISA Advisories"
+    url: "https://www.cisa.gov/cybersecurity-advisories/all.xml"
 ```
 
 Tags must be unique across all topics — `!digest <tag>` returns on the first match.
+Copy `config/digests/template.yaml.example` for a documented starting point.
 
-Both `config/config.yaml` and `config/watchlist.yaml` are committed to the repository — edit them in place.
+Both `config/config.yaml` and the `config/digests/` core set are committed to the repository — edit them in place.
 
 ### LLM options
 

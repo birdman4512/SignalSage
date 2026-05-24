@@ -1,0 +1,20 @@
+# One digest topic per file. See template.yaml.example for the full field reference.
+name: "Cybersecurity News"
+tags: [cybernews, secnews]      # !digest cybernews
+schedule: "0 6 * * mon-fri"     # 6:00am weekdays
+lookback: "24h"
+top_stories_count: 5
+digest_channel: "#general"
+sources:
+  - name: "The Hacker News"
+    url: "https://feeds.feedburner.com/TheHackersNews"
+  - name: "BleepingComputer"
+    url: "https://www.bleepingcomputer.com/feed/"
+  - name: "Dark Reading"
+    url: "https://www.darkreading.com/rss.xml"
+  - name: "The Record"
+    url: "https://therecord.media/feed"
+  - name: "Infosecurity Magazine"
+    url: "https://www.infosecurity-magazine.com/rss/news/"
+  - name: "CyberScoop"
+    url: "https://www.cyberscoop.com/feed/"

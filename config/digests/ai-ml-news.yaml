@@ -1,0 +1,21 @@
+# One digest topic per file. See template.yaml.example for the full field reference.
+name: "AI & ML News"
+tags: [ai, ml, llm]             # !digest ai
+schedule: "15 6 * * mon-fri"    # 6:15am weekdays
+lookback: "24h"
+digest_channel: "#general"
+sources:
+  - name: "The Verge AI"
+    url: "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml"
+  - name: "Ars Technica AI"
+    url: "https://arstechnica.com/tag/ai/feed/"
+  - name: "MIT Technology Review"
+    url: "https://www.technologyreview.com/feed/"
+  - name: "VentureBeat AI"
+    url: "https://venturebeat.com/category/ai/feed/"
+  - name: "r/MachineLearning"
+    url: "https://www.reddit.com/r/MachineLearning/.rss"
+  - name: "r/LocalLLaMA"
+    url: "https://www.reddit.com/r/LocalLLaMA/.rss"
+  - name: "r/artificial"
+    url: "https://www.reddit.com/r/artificial/.rss"

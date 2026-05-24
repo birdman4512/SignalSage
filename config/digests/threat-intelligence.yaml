@@ -1,0 +1,15 @@
+# One digest topic per file. See template.yaml.example for the full field reference.
+name: "Threat Intelligence"
+tags: [ti, intel, threatintel]  # !digest ti
+schedule: "30 6 * * wed"        # 6:30am every Wednesday
+lookback: "7d"
+digest_channel: "#general"
+sources:
+  - name: "The DFIR Report"
+    url: "https://thedfirreport.com/feed/"
+  - name: "Feodo Tracker"
+    url: "https://feodotracker.abuse.ch/feed/"
+  - name: "Krebs on Security"
+    url: "https://krebsonsecurity.com/feed/"
+  - name: "Schneier on Security"
+    url: "https://www.schneier.com/feed/atom/"

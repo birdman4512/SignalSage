@@ -18,7 +18,7 @@ cd SignalSage
 cp .env.example .env
 ```
 
-`config/config.yaml` and `config/watchlist.yaml` are committed and ready to edit directly. Edit `.env` with your tokens and keys (sections below explain how to get each one).
+`config/config.yaml` and the digest files in `config/digests/` are committed and ready to edit directly. Edit `.env` with your tokens and keys (sections below explain how to get each one).
 
 ---
 
@@ -72,7 +72,7 @@ cp .env.example .env
 
 ### 2.6 Create channels and invite the bot
 
-Create (or use existing) Slack channels matching your `config/watchlist.yaml` `digest_channel` values, plus at least one channel for IOC monitoring. Then in **each channel** type:
+Create (or use existing) Slack channels matching the `digest_channel` values in your `config/digests/` files, plus at least one channel for IOC monitoring. Then in **each channel** type:
 
 ```
 /invite @SignalSage
@@ -277,21 +277,24 @@ ABUSECH_API_KEY=...
 
 ## 8. Daily Digest Configuration
 
-Edit `config/watchlist.yaml` to configure your topics. Each topic:
+Each digest topic is its own `*.yaml` file in `config/digests/`. Add a topic by
+dropping a new file in (copy `config/digests/template.yaml.example`); remove one by
+deleting its file. Use a `*.local.yaml` suffix to keep a digest install-private
+(gitignored). Each topic:
 - has its own cron **`schedule`**
 - posts to its own Slack/Discord **`digest_channel`**
 - pulls from a list of RSS feeds or web pages
 
 ```yaml
-topics:
-  - name: "Vulnerability Alerts"
-    schedule: "0 7 * * 1-5"       # 7am weekdays
-    digest_channel: "#vuln-alerts" # Slack channel name or Discord channel ID
-    sources:
-      - name: "CISA Advisories"
-        url: "https://www.cisa.gov/cybersecurity-advisories/all.xml"
-      - name: "My Company Blog"
-        url: "https://example.com/blog"   # HTML pages work too
+# config/digests/vulnerability-alerts.yaml
+name: "Vulnerability Alerts"
+schedule: "0 7 * * 1-5"        # 7am weekdays
+digest_channel: "#vuln-alerts" # Slack channel name or Discord channel ID
+sources:
+  - name: "CISA Advisories"
+    url: "https://www.cisa.gov/cybersecurity-advisories/all.xml"
+  - name: "My Company Blog"
+    url: "https://example.com/blog"   # HTML pages work too
 ```
 
 Cron format: `minute hour day-of-month month day-of-week`

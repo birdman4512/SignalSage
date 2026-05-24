@@ -1,0 +1,19 @@
+# One digest topic per file. See template.yaml.example for the full field reference.
+name: "Solar & Propagation"
+tags: [solar, propagation, spaceweather]  # !digest solar
+schedule: "0 18 * * 3"          # 6:00pm Thursdays (APScheduler: Mon=0, Thu=3)
+lookback: "7d"
+digest_channel: "#general"
+sources:
+  - name: "Space Weather Australia — HF Conditions"
+    url: "https://www.sws.bom.gov.au/HF_Systems/6/5"
+    image_url: "https://www.sws.bom.gov.au/Images/HF%20Systems/Australasia/T%20Index/ANZTIndexMap.gif"
+  - name: "Solar Terrestrial Activity Report"
+    url: "https://solen.info/solar/index.html"
+  - name: "HamQSL Solar Data"
+    url: "https://www.hamqsl.com/solar.html"
+    image_url: "https://www.hamqsl.com/solarn0nbh.php"
+  - name: "QSL.net Propagation"
+    url: "https://dx.qsl.net/propagation/propagation.html"
+  - name: "Radio Propagation Reports"
+    url: "https://radio-propagation.net/"

@@ -55,3 +55,6 @@ Thumbs.db
 
 # Runtime data (digest history, source health)
 data/
+
+# Install-private digest topics (core set in config/digests/ is committed)
+config/digests/*.local.yaml

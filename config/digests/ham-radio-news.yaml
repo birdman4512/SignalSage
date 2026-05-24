@@ -1,0 +1,17 @@
+# One digest topic per file. See template.yaml.example for the full field reference.
+name: "Ham Radio News"
+tags: [ham, dx, hamradio]       # !digest ham
+schedule: "15 18 * * 3"         # 6:15pm Thursdays (APScheduler: Mon=0, Thu=3)
+lookback: "7d"
+digest_channel: "#general"
+sources:
+  - name: "ARRL News"
+    url: "https://www.arrl.org/news/rss"
+  - name: "DX World"
+    url: "https://dx-world.net/feed/"
+  - name: "RSGB News"
+    url: "https://rsgb.org/main/feed/"
+  - name: "Radio Propagation Reports"
+    url: "https://radio-propagation.net/"
+  - name: "Reddit: Amateur Radio"
+    url: "https://www.reddit.com/r/amateurradio/new/.rss"

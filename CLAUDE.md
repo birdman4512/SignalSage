@@ -107,34 +107,43 @@ Main configuration file. Uses `${ENV_VAR}` syntax for environment variable subst
 - `digest.max_chars_per_source` — max characters fetched per source before summarization (default: 3000)
 - `digest.max_total_chars_per_topic` — total prompt budget per topic across all sources (default: 20000)
 - `digest.data_dir` — path used for digest history and source-health JSON (default: `"data"`; persisted in a Docker volume)
-- `digest.lookback_buffer_hours` — buffer added to the auto-derived lookback when a topic omits an explicit `lookback`. The scheduler computes the lookback **per run** as the elapsed time between the two most recent scheduled fires + this buffer (default: 2). Examples for buffer=2: `0 5,11,17,23 * * *` → 8h every run (6h gap). `0 6 * * mon-fri` → 26h Tue–Fri but 74h on Monday (covers Fri→Mon over the weekend). `0 6 * * wed` → 170h (weekly). Topics with an explicit `lookback` in `watchlist.yaml` always win. Newly added topics that haven't fired yet fall back to the smallest *future* gap.
+- `digest.lookback_buffer_hours` — buffer added to the auto-derived lookback when a topic omits an explicit `lookback`. The scheduler computes the lookback **per run** as the elapsed time between the two most recent scheduled fires + this buffer (default: 2). Examples for buffer=2: `0 5,11,17,23 * * *` → 8h every run (6h gap). `0 6 * * mon-fri` → 26h Tue–Fri but 74h on Monday (covers Fri→Mon over the weekend). `0 6 * * wed` → 170h (weekly). Topics with an explicit `lookback` in their digest file always win. Newly added topics that haven't fired yet fall back to the smallest *future* gap.
 - `digest.default_schedule` — fallback cron schedule for topics that don't define their own (default: `"0 6 * * *"`, interpreted in `digest.timezone`)
 - `digest.timezone` — timezone for the scheduler. Code default: `"UTC"`. Shipped `config.yaml` value: `"Australia/Brisbane"`.
-- `digest.top_stories_count` — how many top stories are shown with a full summary; the rest appear as headline+link only (default: 10, adjustable at runtime with `!digest top <N>`). Individual topics can override this with `top_stories_count` in `watchlist.yaml`.
+- `digest.top_stories_count` — how many top stories are shown with a full summary; the rest appear as headline+link only (default: 10, adjustable at runtime with `!digest top <N>`). Individual topics can override this with `top_stories_count` in their digest file.
 - `digest.interest_topics` — optional list of keywords (e.g. `["ransomware", "zero-day", "CISA"]`) passed to the LLM to help rank the most relevant stories higher
 - `whisper.enabled` — enable Whisper audio transcription service
 - `whisper.base_url` — Whisper service endpoint (default: `"http://whisper:8000"`)
 
-### `config/watchlist.yaml`
+### `config/digests/`
 
-Defines topics and sources for the daily digest. Each topic can have its own `schedule` (5-part cron expression), `tags` list for bot command targeting, and `top_stories_count` to override the global story card limit for that topic. If `schedule` is omitted, falls back to `digest.default_schedule`. Supports RSS feeds (`.xml`, `.rss`, `.atom`) and regular HTML pages.
+Each digest topic lives in its own `*.yaml` file in this directory — one file per
+digest. Every `*.yaml` file is loaded at startup and contributes one topic, so
+**dropping a new file in adds a new digest** (no central list to edit). Each topic
+can have its own `schedule` (5-part cron expression), `tags` list for bot command
+targeting, and `top_stories_count` to override the global story card limit. If
+`schedule` is omitted, falls back to `digest.default_schedule`. Supports RSS feeds
+(`.xml`, `.rss`, `.atom`) and regular HTML pages.
+
+A digest file's top-level keys *are* the topic fields:
 
 ```yaml
-topics:
-  - name: "Cybersecurity News"
-    schedule: "0 6 * * *"     # 6am daily
-    tags: ["cyber"]
-    sources:
-      - name: "Krebs on Security"
-        url: "https://krebsonsecurity.com/feed/"
-
-  - name: "Vulnerability Alerts"
-    schedule: "0 7 * * 1-5"   # 7am weekdays
-    tags: ["vuln"]
-    sources: [...]
+# config/digests/cybersecurity-news.yaml
+name: "Cybersecurity News"
+schedule: "0 6 * * *"     # 6am daily
+tags: ["cyber"]
+sources:
+  - name: "Krebs on Security"
+    url: "https://krebsonsecurity.com/feed/"
 ```
 
-Both files are committed to the repository and can be edited directly.
+The repo ships a **core set** of digest files that are committed. Files using a
+**`*.local.yaml`** suffix are install-private — they are loaded the same way but
+are gitignored, so a deployment can carry private digests alongside the core set.
+`template.yaml.example` documents every field and is ignored by the loader.
+
+(A file may instead wrap a `topics:` list to define several topics at once; the
+loader accepts that too, but one-topic-per-file is the convention.)
 
 ---
 
@@ -320,21 +329,24 @@ class MyBackendLLM(BaseLLM):
 
 ---
 
-## Adding a New Watchlist Topic
+## Adding a New Digest Topic
 
-Edit `config/watchlist.yaml` and add a new entry under `topics`:
+Create a new file in `config/digests/` — its name is up to you (`.yaml` extension).
+Copy `config/digests/template.yaml.example` for a documented starting point. Use a
+`*.local.yaml` suffix to keep the digest install-private (gitignored).
 
 ```yaml
-topics:
-  - name: "My New Topic"
-    tags: ["mytag"]
-    sources:
-      - name: "Source Name"
-        url: "https://example.com/feed.xml"
-      - name: "Another Source"
-        url: "https://example.com/blog"
+# config/digests/my-new-topic.yaml
+name: "My New Topic"
+tags: ["mytag"]
+sources:
+  - name: "Source Name"
+    url: "https://example.com/feed.xml"
+  - name: "Another Source"
+    url: "https://example.com/blog"
 ```
 
+The file is picked up on the next start — nothing else needs editing.
 RSS/Atom feeds (`.xml`, `.rss`, `.atom`) are automatically detected and parsed with feedparser. Other URLs are fetched as HTML and parsed with BeautifulSoup.
 
 ---
@@ -405,7 +417,7 @@ SignalSage/
 ├── .env.example
 ├── config/
 │   ├── config.yaml          # Main config
-│   └── watchlist.yaml       # Digest sources and schedules
+│   └── digests/             # One YAML file per digest topic (core set + *.local.yaml)
 ├── tests/
 └── signalsage/
     ├── main.py              # Entry point, wires everything together

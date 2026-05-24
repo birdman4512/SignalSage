@@ -161,7 +161,7 @@ def _postprocess_summary(
 
 
 class DigestScheduler:
-    """Schedules one independent cron job per watchlist topic."""
+    """Schedules one independent cron job per digest topic."""
 
     def __init__(
         self,

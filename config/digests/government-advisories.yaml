@@ -1,0 +1,16 @@
+# One digest topic per file. See template.yaml.example for the full field reference.
+name: "Government Advisories"
+tags: [advisories, gov, cisa]   # !digest advisories
+schedule: "0 7 * * tue-sat"     # 7:00am Tue–Sat
+lookback: "24h"
+digest_channel: "#general"
+sources:
+  - name: "CISA Advisories"
+    url: "https://www.cisa.gov/cybersecurity-advisories/all.xml"
+  - name: "NCSC (UK)"
+    url: "https://www.ncsc.gov.uk/api/1/services/v1/news-rss-feed.xml"
+  - name: "NCSC (UK) Blog"
+    url: "https://www.ncsc.gov.uk/api/1/services/v1/blog-post-rss-feed.xml"
+  - name: "SANS Internet Storm Center"
+    url: "https://isc.sans.edu/rssfeed_full.xml"
+  # ACSC (Australia) — no working RSS feed available as of 2026-05

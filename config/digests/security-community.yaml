@@ -1,0 +1,21 @@
+# One digest topic per file. See template.yaml.example for the full field reference.
+name: "Security Community"
+tags: [community, seccomm]      # !digest community
+schedule: "30 5,17 * * mon-fri" # 5:30am, 5:30pm weekdays (auto-lookback ≈ 14h)
+top_stories_count: 5
+digest_channel: "#general"
+sources:
+  - name: "r/netsec"
+    url: "https://www.reddit.com/r/netsec/.rss"
+  - name: "r/cybersecurity"
+    url: "https://www.reddit.com/r/cybersecurity/.rss"
+  - name: "r/dfir"
+    url: "https://www.reddit.com/r/dfir/.rss"
+  - name: "r/InfoSecNews"
+    url: "https://www.reddit.com/r/InfoSecNews/.rss"
+  - name: "r/Security"
+    url: "https://www.reddit.com/r/Security/.rss"
+  - name: "Security Now (podcast)"
+    url: "https://feeds.twit.tv/sn.xml"
+  - name: "Risky Business (podcast)"
+    url: "https://risky.biz/feeds/risky-business/"

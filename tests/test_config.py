@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
-from signalsage.config import load_config, load_watchlist
+from signalsage.config import load_config, load_digests
 
 
 def _write_yaml(content: str) -> str:
@@ -76,38 +76,91 @@ def test_non_string_values_unchanged():
 
 
 # ---------------------------------------------------------------------------
-# Watchlist loading
+# Digest loading
 # ---------------------------------------------------------------------------
 
 
-def test_watchlist_topics_loaded():
-    path = _write_yaml("""
-        topics:
-          - name: "Test Topic"
-            schedule: "0 6 * * *"
-            sources:
-              - name: "Source A"
-                url: "https://example.com/feed"
-    """)
-    wl = load_watchlist(path)
+def _write_digest(dir_path, filename: str, content: str) -> None:
+    """Write a digest YAML file into a directory."""
+    (dir_path / filename).write_text(textwrap.dedent(content), encoding="utf-8")
+
+
+def test_digest_single_file_is_one_topic(tmp_path):
+    _write_digest(
+        tmp_path,
+        "test-topic.yaml",
+        """
+        name: "Test Topic"
+        schedule: "0 6 * * *"
+        sources:
+          - name: "Source A"
+            url: "https://example.com/feed"
+        """,
+    )
+    wl = load_digests(str(tmp_path))
     assert len(wl["topics"]) == 1
     assert wl["topics"][0]["name"] == "Test Topic"
     assert wl["topics"][0]["schedule"] == "0 6 * * *"
     assert len(wl["topics"][0]["sources"]) == 1
 
 
-def test_watchlist_multiple_topics():
-    path = _write_yaml("""
-        topics:
-          - name: "A"
-            sources: []
-          - name: "B"
-            sources: []
-          - name: "C"
-            sources: []
-    """)
-    wl = load_watchlist(path)
+def test_digest_one_topic_per_file(tmp_path):
+    for name in ("a", "b", "c"):
+        _write_digest(tmp_path, f"{name}.yaml", f'name: "{name.upper()}"\nsources: []\n')
+    wl = load_digests(str(tmp_path))
     assert len(wl["topics"]) == 3
+    assert sorted(t["name"] for t in wl["topics"]) == ["A", "B", "C"]
+
+
+def test_digest_local_files_are_picked_up(tmp_path):
+    _write_digest(tmp_path, "core.yaml", 'name: "Core"\nsources: []\n')
+    _write_digest(tmp_path, "private.local.yaml", 'name: "Private"\nsources: []\n')
+    wl = load_digests(str(tmp_path))
+    assert sorted(t["name"] for t in wl["topics"]) == ["Core", "Private"]
+
+
+def test_digest_example_files_are_ignored(tmp_path):
+    _write_digest(tmp_path, "core.yaml", 'name: "Core"\nsources: []\n')
+    _write_digest(tmp_path, "template.yaml.example", 'name: "Template"\nsources: []\n')
+    wl = load_digests(str(tmp_path))
+    assert [t["name"] for t in wl["topics"]] == ["Core"]
+
+
+def test_digest_file_with_topics_list(tmp_path):
+    _write_digest(
+        tmp_path,
+        "bundle.yaml",
+        """
+        topics:
+          - name: "One"
+            sources: []
+          - name: "Two"
+            sources: []
+        """,
+    )
+    wl = load_digests(str(tmp_path))
+    assert sorted(t["name"] for t in wl["topics"]) == ["One", "Two"]
+
+
+def test_digest_empty_file_skipped(tmp_path):
+    _write_digest(tmp_path, "core.yaml", 'name: "Core"\nsources: []\n')
+    _write_digest(tmp_path, "empty.yaml", "")
+    wl = load_digests(str(tmp_path))
+    assert [t["name"] for t in wl["topics"]] == ["Core"]
+
+
+def test_digest_env_var_expanded(tmp_path):
+    _write_digest(
+        tmp_path, "core.yaml", 'name: "Core"\ndigest_channel: ${DIGEST_CH}\nsources: []\n'
+    )
+    with patch.dict(os.environ, {"DIGEST_CH": "#secret"}):
+        wl = load_digests(str(tmp_path))
+    assert wl["topics"][0]["digest_channel"] == "#secret"
+
+
+def test_digest_missing_directory_is_non_fatal(tmp_path):
+    wl = load_digests(str(tmp_path / "does-not-exist"))
+    assert wl == {"topics": []}
 
 
 def test_config_file_not_found():

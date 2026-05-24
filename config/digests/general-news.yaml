@@ -1,0 +1,17 @@
+# One digest topic per file. See template.yaml.example for the full field reference.
+name: "General News"
+tags: [news, aus, australia]    # !digest news
+schedule: "0 5,17 * * *"        # 5am, 5pm daily (auto-lookback ≈ 14h)
+top_stories_count: 5
+digest_channel: "#general"
+sources:
+  - name: "ABC News"
+    url: "https://www.abc.net.au/news/feed/51120/rss.xml"
+  - name: "Guardian Australia"
+    url: "https://www.theguardian.com/australia-news/rss"
+  - name: "SBS News"
+    url: "https://www.sbs.com.au/news/feed"
+  - name: "9News Australia"
+    url: "https://www.9news.com.au/rss"
+  - name: "Reddit News"
+    url: "https://www.reddit.com/r/news/.rss"
