@@ -125,6 +125,14 @@ async def main() -> None:
                     api_key=api_key,
                     model=digest_cfg.get("anthropic_model", "claude-haiku-4-5-20251001"),
                 )
+        elif llm_provider == "cli":
+            from signalsage.llm.cli_llm import CliLLM
+
+            llm = CliLLM(
+                command=digest_cfg.get("cli_command") or "claude",
+                extra_args=digest_cfg.get("cli_extra_args") or [],
+                timeout=digest_cfg.get("cli_timeout", 600),
+            )
         else:
             from signalsage.llm.ollama import OllamaLLM
 

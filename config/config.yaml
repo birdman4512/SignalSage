@@ -90,7 +90,10 @@ digest:
   # Topics that set an explicit `lookback` (e.g. "24h", "7d") still win.
   lookback_buffer_hours: 2
 
-  # LLM backend: "ollama" (local, free) or "anthropic" (paid)
+  # LLM backend: "ollama" (local, free), "anthropic" (paid API), or "cli"
+  # ("cli" shells out to the Claude Code / Codex CLI in headless mode — bills
+  #  against your CLI subscription. Requires the CLI installed + authenticated
+  #  on the host; NOT available inside the default Docker image.)
   llm_provider: "${LLM_PROVIDER:-ollama}"
 
   # Ollama — local LLM, no API cost. Runs on your own hardware.
@@ -105,6 +108,12 @@ digest:
   # Anthropic Claude — paid API. Only used when llm_provider = "anthropic"
   anthropic_model: "claude-haiku-4-5-20251001"
   anthropic_api_key: "${ANTHROPIC_API_KEY}"
+
+  # CLI backend — only used when llm_provider = "cli".
+  # cli_command: "claude" (Claude Code) or "codex" (Codex CLI), or a full path.
+  cli_command: "${CLI_COMMAND:-claude}"
+  cli_extra_args: []        # extra flags, e.g. ["--model", "claude-opus-4-8"]
+  cli_timeout: 600          # seconds to wait for the CLI to return
 
 # ── Whisper podcast transcription (optional) ──────────────────────────────
 # When enabled, podcast RSS enclosures (audio/*) are downloaded and transcribed

@@ -11,7 +11,7 @@ SignalSage is a fully async, Docker-based threat intelligence bot that connects 
 1. **Monitors messages** for Indicators of Compromise (IOCs) — IP addresses, domains, URLs, file hashes, email addresses, and CVEs.
 2. **Enriches IOCs** in real-time by querying multiple threat intelligence APIs in parallel.
 3. **Posts enriched results** back to the same channel with risk ratings, summaries, and links.
-4. **Runs a scheduled LLM-powered news digest** by fetching configured RSS/web sources and summarizing them with a configurable LLM backend (Ollama or Anthropic Claude).
+4. **Runs a scheduled LLM-powered news digest** by fetching configured RSS/web sources and summarizing them with a configurable LLM backend (Ollama, Anthropic Claude, or a headless Claude Code / Codex CLI).
 
 ---
 
@@ -76,10 +76,11 @@ Copy `.env.example` to `.env` and fill in your credentials:
 | `HIBP_API_KEY` | Have I Been Pwned API key — https://haveibeenpwned.com/API/Key |
 | `WHOISXML_API_KEY` | WhoisXML API key (optional — falls back to free RDAP without key) |
 | `CIRCL_PDNS_KEY` | CIRCL Passive DNS credentials as `user:password` (free at https://www.circl.lu/services/passive-dns/) |
-| `LLM_PROVIDER` | `ollama` (default) or `anthropic` |
+| `LLM_PROVIDER` | `ollama` (default), `anthropic`, or `cli` |
 | `OLLAMA_BASE_URL` | Ollama endpoint URL (default `http://localhost:11434`; use `http://ollama:11434` for the bundled Docker service) |
 | `OLLAMA_MODEL` | Ollama model to use (e.g. `gemma2:2b`) |
 | `ANTHROPIC_API_KEY` | Anthropic API key (only needed when `digest.llm_provider: anthropic`) |
+| `CLI_COMMAND` | CLI executable for `digest.llm_provider: cli` — `claude` (default) or `codex`, or a full path |
 
 ### `config/config.yaml`
 
@@ -97,7 +98,10 @@ Main configuration file. Uses `${ENV_VAR}` syntax for environment variable subst
 - `intel.max_iocs_per_message` — max IOCs to look up per message (default: 5)
 - `intel.cache_ttl` — seconds to cache lookup results (default: 3600)
 - `intel.timeout` — HTTP timeout per provider request in seconds (default: 10)
-- `digest.llm_provider` — LLM backend: `"ollama"` (default) or `"anthropic"`
+- `digest.llm_provider` — LLM backend: `"ollama"` (default), `"anthropic"`, or `"cli"`
+- `digest.cli_command` — CLI executable when `llm_provider: cli` — `"claude"` (default) or `"codex"`, or a full path
+- `digest.cli_extra_args` — extra flags passed to the CLI (e.g. `["--model", "claude-opus-4-8"]`; default: `[]`)
+- `digest.cli_timeout` — seconds to wait for the CLI to return (default: 600)
 - `digest.anthropic_model` — Anthropic model ID (default: `"claude-haiku-4-5-20251001"`)
 - `digest.anthropic_api_key` — Anthropic API key (or use `${ANTHROPIC_API_KEY}`)
 - `digest.ollama_base_url` — Ollama endpoint (default: `"http://localhost:11434"`)
@@ -237,7 +241,7 @@ APScheduler registers one cron job per topic (using each topic's own schedule)
             → fetch_source() per URL
                 → feedparser for RSS/Atom feeds
                 → BeautifulSoup for HTML pages
-        → BaseLLM.complete() — via OllamaLLM or AnthropicLLM
+        → BaseLLM.complete() — via OllamaLLM, AnthropicLLM, or CliLLM
             LLM returns JSON with:
               "overview"  — 3-5 sentence narrative paragraph across all sources
               "items"     — up to 20 stories sorted by importance, each with
@@ -256,10 +260,11 @@ The number of top stories `N` is set by `digest.top_stories_count` in `config.ya
 
 ### LLM Abstraction
 
-`signalsage/llm/base.py` defines `BaseLLM` with a single `async complete(system, user, max_tokens) -> str` method. Two backends are provided:
+`signalsage/llm/base.py` defines `BaseLLM` with a single `async complete(system, user, max_tokens) -> str` method. Three backends are provided:
 
 - **`OllamaLLM`** — calls a locally-running Ollama instance (default). Requires Ollama installed and a model pulled (e.g. `ollama pull llama3.2`).
 - **`AnthropicLLM`** — calls the Anthropic API. Requires `ANTHROPIC_API_KEY`.
+- **`CliLLM`** — shells out to the **Claude Code** (`claude -p`) or **Codex** (`codex exec`) CLI in headless mode, so digest generation bills against your CLI subscription instead of a per-token API key. The CLI must be installed and authenticated on the host; it is **not** present in the default Docker image, so this backend only works when running SignalSage directly on such a machine. Slower per call (each completion boots a fresh agent process) and offers no temperature/max-token control.
 
 The active backend is selected by `digest.llm_provider` in `config.yaml`. If the LLM fails to initialize, the digest scheduler is skipped entirely (bot still runs for IOC enrichment).
 
@@ -433,6 +438,7 @@ SignalSage/
     ├── llm/
     │   ├── base.py          # BaseLLM ABC
     │   ├── anthropic_llm.py # Anthropic API backend
+    │   ├── cli_llm.py       # Claude Code / Codex CLI headless backend
     │   └── ollama.py        # Ollama local backend (default)
     ├── digest/
     │   ├── fetcher.py       # RSS/web/audio content fetcher
