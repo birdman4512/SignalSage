@@ -19,16 +19,41 @@ SignalSage is a fully async, Docker-based threat intelligence bot that connects 
 
 ### Docker (recommended)
 
+The digest LLM backend is chosen by a **compose profile** — exactly one of
+`ollama`, `codex`, or `claude`. The profile both starts the right container and
+sets `LLM_PROVIDER` (and `CLI_COMMAND`) for the bot:
+
+- **`ollama`** — starts a local Ollama container (default, free).
+- **`codex`** — builds the bot image with the Codex CLI baked in (`INSTALL_CLI_LLM=true`) and mounts your host `~/.codex` credentials.
+- **`claude`** — builds the bot image with the Claude Code CLI baked in and mounts your host `~/.claude` credentials.
+
+All three bot variants share `container_name: signalsage`, so only one runs at a
+time. Set the profile once in `.env` (`COMPOSE_PROFILES=ollama`) or pass `--profile`:
+
 ```bash
-# Build and start
-docker-compose up -d --build
+# Build and start (uses COMPOSE_PROFILES from .env)
+docker compose up -d --build
+
+# …or select the backend explicitly
+docker compose --profile codex up -d --build
 
 # Follow logs
-docker-compose logs -f
+docker compose logs -f
 
 # Stop
-docker-compose down
+docker compose down
 ```
+
+**Switching backend** (e.g. ollama → codex, or back): change `COMPOSE_PROFILES`
+in `.env`, then `docker compose down && docker compose up -d --build`. Always
+`down` first — switching without it can leave the old bot container running.
+
+The `codex`/`claude` profiles require `CLI_AUTH_DIR` in `.env` — the host
+directory that *contains* your `.codex` / `.claude` credential folder (usually
+your home dir). The bot runs as root in these profiles so the CLI can
+read/refresh those mounted credentials. Only file-based logins transfer
+(`~/.codex/auth.json`, `~/.claude/.credentials.json`); a macOS-Keychain Claude
+login does not.
 
 ### Development (without Docker)
 
@@ -264,7 +289,7 @@ The number of top stories `N` is set by `digest.top_stories_count` in `config.ya
 
 - **`OllamaLLM`** — calls a locally-running Ollama instance (default). Requires Ollama installed and a model pulled (e.g. `ollama pull llama3.2`).
 - **`AnthropicLLM`** — calls the Anthropic API. Requires `ANTHROPIC_API_KEY`.
-- **`CliLLM`** — shells out to the **Claude Code** (`claude -p`) or **Codex** (`codex exec`) CLI in headless mode, so digest generation bills against your CLI subscription instead of a per-token API key. The CLI must be installed and authenticated on the host; it is **not** present in the default Docker image, so this backend only works when running SignalSage directly on such a machine. Slower per call (each completion boots a fresh agent process) and offers no temperature/max-token control.
+- **`CliLLM`** — shells out to the **Claude Code** (`claude -p`) or **Codex** (`codex exec`) CLI in headless mode, so digest generation bills against your CLI subscription instead of a per-token API key. The CLI must be installed and authenticated. The default image does **not** include it, but the docker-compose `codex`/`claude` profiles build the image with `INSTALL_CLI_LLM=true` (which `npm install -g`'s both CLIs) and mount your host credentials (`CLI_AUTH_DIR`), so the backend works inside the container as well as on a bare host. Slower per call (each completion boots a fresh agent process) and offers no temperature/max-token control.
 
 The active backend is selected by `digest.llm_provider` in `config.yaml`. If the LLM fails to initialize, the digest scheduler is skipped entirely (bot still runs for IOC enrichment).
 

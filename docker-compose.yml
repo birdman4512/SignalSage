@@ -1,3 +1,19 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Pick the digest LLM backend with a compose profile — exactly one of:
+#
+#   ollama  → local Ollama container (default, free, runs on your hardware)
+#   codex   → bot image with the Codex CLI baked in (bills your Codex sub)
+#   claude  → bot image with the Claude Code CLI baked in (bills your Claude sub)
+#
+# Set it once in .env:           COMPOSE_PROFILES=ollama
+#   then:                        docker compose up -d --build
+# …or pass it per command:       docker compose --profile codex up -d --build
+#
+# Only the selected bot variant starts (they all share container_name "signalsage",
+# so Docker refuses to run two at once). ALWAYS `docker compose down` before
+# switching profiles. The codex/claude profiles also require CLI_AUTH_DIR in .env.
+# ─────────────────────────────────────────────────────────────────────────────
+
 networks:
   # Internal network — containers can reach each other by service name.
   # No host access; nothing binds to a host port unless explicitly mapped below.
@@ -15,34 +31,86 @@ networks:
       config:
         - subnet: 10.10.51.0/24
 
+# Shared base for every bot variant. Each profile-specific service below merges
+# this in with <<: *bot and then layers on its build args / env / mounts.
+x-bot-base: &bot-base
+  build:
+    context: .
+  container_name: signalsage
+  restart: unless-stopped
+  env_file: .env
+  networks:
+    - internal   # talks to ollama / whisper
+    - external   # reaches Slack, Discord, threat intel APIs (+ Anthropic/OpenAI for CLI)
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
 services:
-  signalsage:
-    build: .
-    container_name: signalsage
-    restart: unless-stopped
-    env_file: .env
+  # ── Bot + local Ollama LLM ──────────────────────────────────────────────
+  signalsage-ollama:
+    <<: *bot-base
+    profiles: ["ollama"]
+    environment:
+      LLM_PROVIDER: ollama
+      OLLAMA_BASE_URL: http://ollama:11434
     volumes:
       - ./config:/app/config:ro
       - ./data:/app/data
-    networks:
-      - internal   # talks to ollama
-      - external   # reaches Slack, Discord, threat intel APIs
     depends_on:
       ollama:
         condition: service_healthy
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
 
-  # ── Local Ollama LLM ───────────────────────────────────────────────────
+  # ── Bot with the Codex CLI baked in (digest.llm_provider: cli) ──────────
+  signalsage-codex:
+    <<: *bot-base
+    profiles: ["codex"]
+    build:
+      context: .
+      args:
+        INSTALL_CLI_LLM: "true"
+    # Run as root so the CLI can read/refresh the mounted host credentials
+    # regardless of who owns them on the host.
+    user: "0:0"
+    environment:
+      LLM_PROVIDER: cli
+      CLI_COMMAND: codex
+      CODEX_HOME: /root/.codex
+    volumes:
+      - ./config:/app/config:ro
+      - ./data:/app/data
+      # Host dir that CONTAINS your .codex folder (set CLI_AUTH_DIR in .env).
+      - ${CLI_AUTH_DIR:-./data}/.codex:/root/.codex
+
+  # ── Bot with the Claude Code CLI baked in (digest.llm_provider: cli) ─────
+  signalsage-claude:
+    <<: *bot-base
+    profiles: ["claude"]
+    build:
+      context: .
+      args:
+        INSTALL_CLI_LLM: "true"
+    user: "0:0"
+    environment:
+      LLM_PROVIDER: cli
+      CLI_COMMAND: claude
+      CLAUDE_CONFIG_DIR: /root/.claude
+    volumes:
+      - ./config:/app/config:ro
+      - ./data:/app/data
+      # Host dir that CONTAINS your .claude folder (set CLI_AUTH_DIR in .env).
+      - ${CLI_AUTH_DIR:-./data}/.claude:/root/.claude
+
+  # ── Local Ollama LLM (only with --profile ollama) ───────────────────────
   # Starts the server then auto-pulls OLLAMA_MODEL on first run.
   # On subsequent starts the model is already on the volume — pull is a no-op.
   # No host port binding — not accessible from outside Docker.
   ollama:
     image: ollama/ollama:latest
     container_name: ollama
+    profiles: ["ollama"]
     restart: unless-stopped
     env_file: .env
     volumes:
@@ -68,9 +136,9 @@ services:
     #           capabilities: [gpu]
 
   # ── Whisper speech-to-text (podcast transcription) ────────────────────
-  # OpenAI-compatible transcription API. Reachable by signalsage on the internal
-  # network. Needs external access on first start to download the model (~150 MB).
-  # Model is cached on a volume — subsequent starts are offline.
+  # Used by digests regardless of LLM backend, so it has no profile and always
+  # starts. OpenAI-compatible transcription API. Needs external access on first
+  # start to download the model (~150 MB), cached on a volume afterwards.
   whisper:
     image: fedirz/faster-whisper-server:latest-cpu
     container_name: whisper
