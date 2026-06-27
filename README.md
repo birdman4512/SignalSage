@@ -57,14 +57,26 @@ cp .env.example .env
 
 Edit `.env` with your tokens and API keys (at minimum: a Slack or Discord bot token, plus any threat-intel keys you want — providers without a key fall back to free tiers or are skipped). `config/config.yaml` and the digest files in `config/digests/` are committed and ready to edit directly.
 
-### 2. Start
+### 2. Choose an LLM backend and start
+
+The digest LLM runs in one of three **compose profiles** — `ollama` (local, free),
+`codex`, or `claude` (the latter two bake the matching CLI into the bot image and
+bill against your CLI subscription). Set it in `.env`:
 
 ```bash
-docker compose up -d --build
+COMPOSE_PROFILES=ollama          # or: codex / claude
+# for codex/claude only — host dir that contains your .codex / .claude folder:
+# CLI_AUTH_DIR=/home/youruser
+```
+
+```bash
+docker compose up -d --build     # honours COMPOSE_PROFILES
 docker compose logs -f
 ```
 
-The bundled Ollama service auto-pulls the configured `OLLAMA_MODEL` on first startup (~2 GB, one-time download — see [scripts/ollama-start.sh](scripts/ollama-start.sh)). The bot is ready once you see `SignalSage started` in the logs.
+With the `ollama` profile, the bundled Ollama service auto-pulls the configured `OLLAMA_MODEL` on first startup (~2 GB, one-time download — see [scripts/ollama-start.sh](scripts/ollama-start.sh)). The bot is ready once you see `SignalSage started` in the logs.
+
+To switch backend later: change `COMPOSE_PROFILES`, then `docker compose down && docker compose up -d --build`.
 
 ### 3. Test it
 
@@ -84,7 +96,7 @@ Key digest settings:
 
 | Key | Default | Description |
 |---|---|---|
-| `digest.llm_provider` | `ollama` | `ollama` or `anthropic` |
+| `digest.llm_provider` | `ollama` | `ollama`, `anthropic`, or `cli` (set via the compose profile under Docker) |
 | `digest.ollama_model` | `gemma2:2b` | Model to pull and use |
 | `digest.max_chars_per_source` | `3000` | Characters fetched per source |
 | `digest.max_total_chars_per_topic` | `20000` | Total prompt budget per topic |
@@ -117,12 +129,19 @@ Both `config/config.yaml` and the `config/digests/` core set are committed to th
 
 ### LLM options
 
-| Setting | Description |
-|---|---|
-| `LLM_PROVIDER=ollama` | Local, free. Ollama runs inside Docker automatically. |
-| `LLM_PROVIDER=anthropic` | Paid Claude API. Set `ANTHROPIC_API_KEY`. No local GPU/RAM needed. |
+Under docker-compose the backend is picked by `COMPOSE_PROFILES` in `.env`:
 
-Recommended local models (set `OLLAMA_MODEL` in `.env`):
+| Profile | Description |
+|---|---|
+| `ollama` | Local, free. Runs an Ollama container automatically. |
+| `codex` | Bakes the Codex CLI into the bot image; bills your Codex subscription. Set `CLI_AUTH_DIR` to the host dir holding `.codex`. No local GPU/RAM needed. |
+| `claude` | Bakes the Claude Code CLI into the bot image; bills your Claude subscription. Set `CLI_AUTH_DIR` to the host dir holding `.claude`. No local GPU/RAM needed. |
+
+Running **outside** Docker, the backend is set directly by `LLM_PROVIDER`
+(`ollama` / `anthropic` / `cli`); `anthropic` uses the paid Claude API
+(`ANTHROPIC_API_KEY`) and `cli` shells out to a `claude`/`codex` already on PATH.
+
+Recommended local models for the `ollama` profile (set `OLLAMA_MODEL` in `.env`):
 
 | Model | RAM | Notes |
 |---|---|---|
@@ -176,7 +195,7 @@ Cron schedule → fetch RSS/web/podcast sources → Whisper transcription (audio
 
 Digest history and source health are persisted in `./data/` (mounted as a Docker volume) so trend detection and failure tracking survive container restarts.
 
-All inter-service communication uses a private internal Docker network. Only `signalsage` and `ollama` have outbound internet access.
+All inter-service communication uses a private internal Docker network. The `signalsage` bot, `ollama`, and `whisper` have outbound internet access (the `codex`/`claude` profiles also need it to reach the Anthropic/OpenAI APIs).
 
 ---
 

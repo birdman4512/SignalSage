@@ -92,8 +92,9 @@ digest:
 
   # LLM backend: "ollama" (local, free), "anthropic" (paid API), or "cli"
   # ("cli" shells out to the Claude Code / Codex CLI in headless mode — bills
-  #  against your CLI subscription. Requires the CLI installed + authenticated
-  #  on the host; NOT available inside the default Docker image.)
+  #  against your CLI subscription). Under docker-compose this is selected for
+  #  you by COMPOSE_PROFILES (ollama|codex|claude); the codex/claude profiles
+  #  bake the CLI into the bot image and mount your host credentials.
   llm_provider: "${LLM_PROVIDER:-ollama}"
 
   # Ollama — local LLM, no API cost. Runs on your own hardware.
