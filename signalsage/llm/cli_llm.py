@@ -41,7 +41,21 @@ class CliLLM(BaseLLM):
     def _build_argv(self, prompt: str) -> list[str]:
         if self.mode == "codex":
             # `codex exec` runs a single non-interactive turn and prints the result.
-            return [self.command, "exec", *self.extra_args, prompt]
+            # Two flags are required for headless use (esp. inside the container):
+            #   --skip-git-repo-check: the working dir (/app) isn't a git repo, and
+            #     codex otherwise refuses to run outside a "trusted" git directory.
+            #   --dangerously-bypass-approvals-and-sandbox: digest generation is
+            #     pure text (no tool/command execution) and codex's Landlock/seccomp
+            #     sandbox isn't available in the container, so skip it rather than
+            #     fail. Safe here because nothing is executed.
+            return [
+                self.command,
+                "exec",
+                "--skip-git-repo-check",
+                "--dangerously-bypass-approvals-and-sandbox",
+                *self.extra_args,
+                prompt,
+            ]
         # `claude -p` headless print mode; text output is the raw final message.
         return [self.command, "-p", prompt, "--output-format", "text", *self.extra_args]
 
@@ -54,6 +68,9 @@ class CliLLM(BaseLLM):
         try:
             proc = await asyncio.create_subprocess_exec(
                 *argv,
+                # The prompt is passed as an argument; close stdin so the CLI does
+                # not block waiting to read additional input from a non-tty stdin.
+                stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
