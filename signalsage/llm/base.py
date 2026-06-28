@@ -3,6 +3,15 @@
 from abc import ABC, abstractmethod
 
 
+class LLMRateLimitError(RuntimeError):
+    """Raised when a backend reports a usage/rate limit.
+
+    Distinct from a generic failure so callers can skip futile retries (a quota
+    reset is minutes/hours away, not seconds) and surface a clear, actionable
+    message — including any reset time — to the user.
+    """
+
+
 class BaseLLM(ABC):
     """Minimal interface for LLM completion."""
 
