@@ -12,7 +12,7 @@ from cachetools import TTLCache
 
 from signalsage.intel.base import IntelResult
 from signalsage.ioc.models import IOC
-from signalsage.llm.base import BaseLLM
+from signalsage.llm.base import BaseLLM, LLMRateLimitError
 
 _LLM_RETRIES = 2
 _LLM_RETRY_DELAY = 5  # seconds between retries
@@ -342,6 +342,12 @@ class DigestSummarizer:
                 )
                 logger.debug("LLM raw output for topic %r: %s", topic_name, raw[:500])
                 return _inject_urls(raw, url_map, title_url_pairs)
+            except LLMRateLimitError as exc:
+                # A quota reset is minutes/hours away — retrying now just burns
+                # attempts and log noise. Stop and surface the message to the user.
+                last_exc = exc
+                logger.error("LLM usage limit hit for topic %s; not retrying: %s", topic_name, exc)
+                break
             except Exception as exc:
                 last_exc = exc
                 if attempt < _LLM_RETRIES:
@@ -376,9 +382,15 @@ class DigestSummarizer:
         Return a minimal plain-text summary built from raw source headlines
         when the LLM is unavailable.
         """
-        attempt_str = f" after {attempts} attempt{'s' if attempts != 1 else ''}"
-        error_detail = f": {error}" if error else ""
-        lines = [f"⚠️ LLM unavailable{attempt_str}{error_detail} — headlines only:\n"]
+        if isinstance(error, LLMRateLimitError):
+            # Clear, actionable header (includes any "try again at …" reset time)
+            # instead of the generic retry-exhausted wording.
+            header = f"⚠️ LLM usage limit reached: {error} — showing headlines only:\n"
+        else:
+            attempt_str = f" after {attempts} attempt{'s' if attempts != 1 else ''}"
+            error_detail = f": {error}" if error else ""
+            header = f"⚠️ LLM unavailable{attempt_str}{error_detail} — headlines only:\n"
+        lines = [header]
         for block in source_blocks:
             source_name = None
             headlines: list[str] = []

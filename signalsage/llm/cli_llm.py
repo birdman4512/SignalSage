@@ -14,11 +14,37 @@ Caveats vs. the OllamaLLM / AnthropicLLM backends:
 
 import asyncio
 import logging
+import re
 import shutil
 
-from .base import BaseLLM
+from .base import BaseLLM, LLMRateLimitError
 
 logger = logging.getLogger(__name__)
+
+# Markers a CLI prints when it has hit a subscription/quota limit (codex: "You've
+# hit your usage limit … try again at …"; claude: "usage limit reached"). Matched
+# case-insensitively against the CLI's combined output on a non-zero exit.
+_RATE_LIMIT_RE = re.compile(
+    r"usage limit|rate.?limit|too many requests|\b429\b|quota|purchase more credits",
+    re.IGNORECASE,
+)
+
+
+def _detect_rate_limit(output: str) -> str | None:
+    """Return a cleaned, user-facing limit message if *output* looks like a
+    usage/rate-limit error, else None."""
+    if not _RATE_LIMIT_RE.search(output):
+        return None
+    # Prefer the specific line mentioning the limit (it usually also carries the
+    # "try again at …" reset time) over the whole noisy dump.
+    line = next(
+        (ln.strip() for ln in output.splitlines() if _RATE_LIMIT_RE.search(ln)),
+        "LLM usage limit reached.",
+    )
+    for prefix in ("ERROR:", "Error:", "error:"):
+        if line.startswith(prefix):
+            line = line[len(prefix) :].strip()
+    return line
 
 
 class CliLLM(BaseLLM):
@@ -90,11 +116,20 @@ class CliLLM(BaseLLM):
                 "raise digest.cli_timeout or shorten the prompt"
             )
 
-        if proc.returncode != 0:
-            err = stderr.decode(errors="replace").strip() or "(no stderr)"
-            raise RuntimeError(f"CLI '{self.command}' exited {proc.returncode}: {err}")
+        out = stdout.decode(errors="replace")
+        err = stderr.decode(errors="replace")
 
-        text = stdout.decode(errors="replace").strip()
+        if proc.returncode != 0:
+            # A usage/quota limit surfaces as a non-zero exit; the message may land
+            # on stdout or stderr depending on the CLI, so scan both.
+            limit_msg = _detect_rate_limit(f"{err}\n{out}")
+            if limit_msg:
+                raise LLMRateLimitError(limit_msg)
+            raise RuntimeError(
+                f"CLI '{self.command}' exited {proc.returncode}: {err.strip() or '(no stderr)'}"
+            )
+
+        text = out.strip()
         if not text:
             raise RuntimeError(f"CLI '{self.command}' returned empty output")
         return text
