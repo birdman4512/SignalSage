@@ -16,5 +16,11 @@ class BaseLLM(ABC):
     """Minimal interface for LLM completion."""
 
     @abstractmethod
-    async def complete(self, system: str, user: str, max_tokens: int = 1024) -> str:
-        """Return the model's text response."""
+    async def complete(
+        self, system: str, user: str, max_tokens: int = 1024, json_mode: bool = False
+    ) -> str:
+        """Return the model's text response.
+
+        If json_mode is True, the backend should constrain output to valid JSON
+        where it supports doing so (e.g. Ollama's structured-output format).
+        """

@@ -32,7 +32,9 @@ class OllamaLLM(BaseLLM):
         self.num_ctx = num_ctx
         logger.info("Ollama LLM: model=%s base_url=%s num_ctx=%d", model, self.base_url, num_ctx)
 
-    async def complete(self, system: str, user: str, max_tokens: int = 1024) -> str:
+    async def complete(
+        self, system: str, user: str, max_tokens: int = 1024, json_mode: bool = False
+    ) -> str:
         payload = {
             "model": self.model,
             "messages": [
@@ -42,6 +44,10 @@ class OllamaLLM(BaseLLM):
             "stream": False,
             "options": {"num_predict": max_tokens, "num_ctx": self.num_ctx},
         }
+        if json_mode:
+            # Constrains decoding to syntactically valid JSON so small local models
+            # can't wrap the digest JSON in prose ("Here's your summary:\n\n{...}").
+            payload["format"] = "json"
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             try:

@@ -85,7 +85,9 @@ class CliLLM(BaseLLM):
         # `claude -p` headless print mode; text output is the raw final message.
         return [self.command, "-p", prompt, "--output-format", "text", *self.extra_args]
 
-    async def complete(self, system: str, user: str, max_tokens: int = 1024) -> str:
+    async def complete(
+        self, system: str, user: str, max_tokens: int = 1024, json_mode: bool = False
+    ) -> str:
         # These CLIs take a single prompt; fold the system prompt in so it is honoured
         # regardless of CLI-version flag differences.
         prompt = f"{system}\n\n{user}" if system else user

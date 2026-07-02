@@ -26,7 +26,9 @@ class AnthropicLLM(BaseLLM):
         self.model = model
         logger.info("Anthropic LLM: model=%s", model)
 
-    async def complete(self, system: str, user: str, max_tokens: int = 1024) -> str:
+    async def complete(
+        self, system: str, user: str, max_tokens: int = 1024, json_mode: bool = False
+    ) -> str:
         try:
             response = await self._client.messages.create(
                 model=self.model,

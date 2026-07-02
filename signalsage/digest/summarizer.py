@@ -339,6 +339,7 @@ class DigestSummarizer:
                     system=_build_system_prompt(self.interest_topics),
                     user=user_prompt,
                     max_tokens=4096,
+                    json_mode=True,
                 )
                 logger.debug("LLM raw output for topic %r: %s", topic_name, raw[:500])
                 return _inject_urls(raw, url_map, title_url_pairs)
