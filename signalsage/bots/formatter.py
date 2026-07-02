@@ -299,6 +299,44 @@ def _fix_shortcodes(text: str) -> str:
     return text
 
 
+# One emoji-ish character (pictographs, symbols, dingbats) plus an optional
+# variation selector. Used to pull the emoji out of junk-decorated icon values
+# some small models emit (e.g. "%(🔴)%" → "🔴").
+_EMOJI_RE = re.compile(
+    "["
+    "🀀-🫿"  # pictographs, emoticons, transport, supplemental
+    "←-⇿"  # arrows
+    "⌀-⏿"  # misc technical (alarm clock, hourglass, ...)
+    "■-➿"  # geometric shapes, misc symbols (sun, warning), dingbats
+    "⬀-⯿"  # misc symbols and arrows
+    "]️?"  # optional trailing variation selector (e.g. shield emoji)
+)
+
+
+def _clean_icon(value: object, default: str = "📰") -> str:
+    """Extract the first emoji from an LLM-provided icon value; fall back to *default*."""
+    m = _EMOJI_RE.search(str(value or ""))
+    return m.group(0) if m else default
+
+
+def _extract_overview(text: str) -> str | None:
+    """Regex-extract the "overview" string value from (possibly truncated) JSON.
+
+    Tolerates a missing closing quote so an overview cut off by a token limit is
+    still recovered. Returns None when no overview is present.
+    """
+    m = re.search(r'"overview"\s*:\s*"((?:[^"\\]|\\.)*)', text)
+    if not m:
+        return None
+    raw = m.group(1)
+    try:
+        value = json.loads(f'"{raw}"')  # decode \n, \", \uXXXX escapes
+    except (json.JSONDecodeError, ValueError):
+        value = raw
+    value = str(value).strip()
+    return value or None
+
+
 def _parse_digest_json(summary: str) -> dict | None:
     """
     Parse LLM output into {"overview": str|None, "tldr": [...], "items": [...]}.
@@ -317,10 +355,15 @@ def _parse_digest_json(summary: str) -> dict | None:
         # e.g. "icon": 🔴, → "icon": "🔴",
         text = re.sub(r'("icon"\s*:\s*)(?!")(\S+?)(\s*[,}\]])', r'\1"\2"\3', text)
         parsed = json.loads(text)
-        if isinstance(parsed, dict) and "items" in parsed:
+        # Accept an overview-only object (small models sometimes stop after the
+        # overview even in JSON mode) — rendering just the overview beats the
+        # plain-text fallback dumping raw JSON into the channel.
+        if isinstance(parsed, dict) and (
+            "items" in parsed or str(parsed.get("overview") or "").strip()
+        ):
             overview = str(parsed.get("overview") or "").strip() or None
             tldr = [str(b) for b in parsed.get("tldr", []) if str(b).strip()]
-            items = [i for i in parsed["items"] if isinstance(i, dict)]
+            items = [i for i in parsed.get("items") or [] if isinstance(i, dict)]
             return {
                 "overview": overview,
                 "tldr": tldr,
@@ -390,11 +433,20 @@ def _parse_digest_json(summary: str) -> dict | None:
                 len(recovered_items),
             )
             return {
-                "overview": None,
+                "overview": _extract_overview(text),
                 "tldr": tldr,
                 "items": recovered_items,
                 "coverage_confidence": None,
             }
+
+    # 6. Last resort — no items were salvageable, but if an overview string is
+    #    present, render that alone rather than dumping raw JSON into the channel.
+    overview = _extract_overview(text)
+    if overview:
+        logger.warning(
+            "Digest JSON unparseable (length=%d) — recovered overview text only", len(summary)
+        )
+        return {"overview": overview, "tldr": [], "items": [], "coverage_confidence": None}
 
     logger.warning("Failed to parse digest JSON (length=%d): %r…", len(summary), summary[:120])
     return None
@@ -456,9 +508,9 @@ def format_digest_slack_message(
     """
     Return a list of ``chat_postMessage`` payloads for a digest topic.
 
-    Message 0: topic header + overview narrative + metadata footer + images.
+    Message 0: topic header + overview narrative + compact list of the remaining
+               stories (headline + link) + metadata footer + images.
     Messages 1..top_n: one card per top story (headline + full summary + Read More button).
-    Message top_n+1: remaining stories as a compact headline+link list (if any).
 
     Falls back to a single-message plain rendering when JSON parsing fails.
     """
@@ -534,6 +586,54 @@ def format_digest_slack_message(
         )
         header_blocks.append({"type": "divider"})
 
+    # Remaining stories ride along in the header message as a compact link list
+    # (rather than a separate trailing message) to keep the digest to
+    # 1 + top_n messages total.
+    if tail_items:
+        tail_lines: list[str] = []
+        for item in tail_items:
+            headline = _escape_mrkdwn(str(item.get("headline", "")).strip())
+            url = str(item.get("url") or "").strip()
+            item_icon = _clean_icon(item.get("icon"))
+            if not headline:
+                continue
+            source = _source_label(url)
+            source_suffix = f"  ·  {source}" if source else ""
+            tail_lines.append(
+                f"• {item_icon} <{url}|{headline}>{source_suffix}"
+                if url.startswith("http")
+                else f"• {item_icon} {headline}{source_suffix}"
+            )
+        if tail_lines:
+            header_blocks.append(
+                {
+                    "type": "section",
+                    "text": {"type": "mrkdwn", "text": f"*📋 More Stories ({len(tail_lines)})*"},
+                }
+            )
+            current_lines: list[str] = []
+            current_len = 0
+            for line in tail_lines:
+                if current_len + len(line) + 1 > 2900 and current_lines:
+                    header_blocks.append(
+                        {
+                            "type": "section",
+                            "text": {"type": "mrkdwn", "text": "\n".join(current_lines)},
+                        }
+                    )
+                    current_lines = []
+                    current_len = 0
+                current_lines.append(line)
+                current_len += len(line) + 1
+            if current_lines:
+                header_blocks.append(
+                    {
+                        "type": "section",
+                        "text": {"type": "mrkdwn", "text": "\n".join(current_lines)},
+                    }
+                )
+            header_blocks.append({"type": "divider"})
+
     footer_parts = _digest_footer_parts(parsed, meta)
     if footer_parts:
         header_blocks.append(
@@ -564,7 +664,7 @@ def format_digest_slack_message(
         headline = _escape_mrkdwn(str(item.get("headline", "")).strip())
         item_summary = _escape_mrkdwn(str(item.get("summary", "") or item.get("blurb", "")).strip())
         url = str(item.get("url") or "").strip()
-        item_icon = (str(item.get("icon") or "").strip().split() or ["📰"])[0]
+        item_icon = _clean_icon(item.get("icon"))
         trend = str(item.get("trend") or "").lower()
 
         source = _source_label(url)
@@ -589,51 +689,6 @@ def format_digest_slack_message(
             }
         )
 
-    # ── Message top_n+1: remaining stories (headline + link only) ────────────
-    if tail_items:
-        tail_blocks: list[dict] = [
-            {
-                "type": "section",
-                "text": {"type": "mrkdwn", "text": f"*📋 More Stories ({len(tail_items)})*"},
-            },
-        ]
-        current_lines: list[str] = []
-        current_len = 0
-        for item in tail_items:
-            headline = _escape_mrkdwn(str(item.get("headline", "")).strip())
-            url = str(item.get("url") or "").strip()
-            item_icon = (str(item.get("icon") or "").strip().split() or ["📰"])[0]
-            if not headline:
-                continue
-            source = _source_label(url)
-            source_suffix = f"  ·  {source}" if source else ""
-            line = (
-                f"• {item_icon} <{url}|{headline}>{source_suffix}"
-                if url.startswith("http")
-                else f"• {item_icon} {headline}{source_suffix}"
-            )
-            if current_len + len(line) + 2 > 2900 and current_lines:
-                tail_blocks.append(
-                    {
-                        "type": "section",
-                        "text": {"type": "mrkdwn", "text": "\n\n".join(current_lines)},
-                    }
-                )
-                current_lines = []
-                current_len = 0
-            current_lines.append(line)
-            current_len += len(line) + 2
-        if current_lines:
-            tail_blocks.append(
-                {"type": "section", "text": {"type": "mrkdwn", "text": "\n\n".join(current_lines)}}
-            )
-        messages.append(
-            {
-                "text": f"📋 {len(tail_items)} more stories",
-                "attachments": [{"color": _DIGEST_COLOUR, "blocks": tail_blocks}],
-            }
-        )
-
     return messages
 
 
@@ -646,9 +701,9 @@ def format_digest_plain(
     """
     Return a list of plain-text messages for Discord.
 
-    Message 0: topic header + overview + metadata footer + images.
+    Message 0: topic header + overview + compact list of the remaining stories
+               + metadata footer + images.
     Messages 1..top_n: one message per top story (headline + full summary + link).
-    Message top_n+1: remaining stories as a compact headline+link list (if any).
 
     Each message may exceed Discord's 2000-char limit for very long summaries;
     Discord clients truncate gracefully but the caller may want to chunk further.
@@ -694,6 +749,27 @@ def format_digest_plain(
         header_lines.append("")
         header_lines.append(overview_text)
 
+    # Remaining stories ride along in the header message (rather than a separate
+    # trailing message) to keep the digest to 1 + top_n messages total.
+    if tail_items:
+        tail_item_lines: list[str] = []
+        for item in tail_items:
+            headline = str(item.get("headline", "")).strip()
+            url = str(item.get("url") or "").strip()
+            item_icon = _clean_icon(item.get("icon"))
+            if not headline:
+                continue
+            source = _source_label(url)
+            source_suffix = f" · {source}" if source else ""
+            if url and url.startswith("http"):
+                tail_item_lines.append(f"• {item_icon} [{headline}]({url}){source_suffix}")
+            else:
+                tail_item_lines.append(f"• {item_icon} {headline}{source_suffix}")
+        if tail_item_lines:
+            header_lines.append("")
+            header_lines.append(f"**📋 More Stories ({len(tail_item_lines)})**")
+            header_lines.extend(tail_item_lines)
+
     footer_parts = _digest_footer_parts(parsed, meta)
     if footer_parts:
         header_lines.append("")
@@ -711,7 +787,7 @@ def format_digest_plain(
         headline = str(item.get("headline", "")).strip()
         item_summary = str(item.get("summary", "") or item.get("blurb", "")).strip()
         url = str(item.get("url") or "").strip()
-        item_icon = (str(item.get("icon") or "").strip().split() or ["📰"])[0]
+        item_icon = _clean_icon(item.get("icon"))
         trend = str(item.get("trend") or "").lower()
 
         source = _source_label(url)
@@ -723,23 +799,5 @@ def format_digest_plain(
         if url and url.startswith("http"):
             story_lines.append(f"<{url}>")
         messages.append("\n".join(story_lines))
-
-    # ── Message top_n+1: remaining stories (headline + link only) ────────────
-    if tail_items:
-        tail_header = "\n".join([f"**📋 More Stories ({len(tail_items)})**", sep])
-        tail_item_lines: list[str] = []
-        for item in tail_items:
-            headline = str(item.get("headline", "")).strip()
-            url = str(item.get("url") or "").strip()
-            item_icon = (str(item.get("icon") or "").strip().split() or ["📰"])[0]
-            if not headline:
-                continue
-            source = _source_label(url)
-            source_suffix = f" · {source}" if source else ""
-            if url and url.startswith("http"):
-                tail_item_lines.append(f"• {item_icon} [{headline}]({url}){source_suffix}")
-            else:
-                tail_item_lines.append(f"• {item_icon} {headline}{source_suffix}")
-        messages.append(tail_header + "\n" + "\n\n".join(tail_item_lines))
 
     return messages

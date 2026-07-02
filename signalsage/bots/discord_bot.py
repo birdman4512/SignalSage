@@ -19,6 +19,7 @@ from .commands import (
 from .formatter import (
     _SEVERITY_ORDER,
     IOC_TYPE_LABEL,
+    _clean_icon,
     _digest_footer_parts,
     _overall_verdict,
     _overview_text,
@@ -54,7 +55,11 @@ def _digest_embeds(
     lookback: str | None = None,
     meta: dict | None = None,
 ) -> list[discord.Embed]:
-    """Build Discord Embeds for a digest topic (header + per-story cards + tail list)."""
+    """Build Discord Embeds for a digest topic.
+
+    Header embed (overview + remaining-story links as fields) followed by one
+    embed per top story — 1 + top_n messages total.
+    """
     from datetime import date
 
     icon = _topic_icon(topic_name)
@@ -114,7 +119,7 @@ def _digest_embeds(
         headline = str(item.get("headline", "")).strip()
         item_summary = str(item.get("summary", "") or item.get("blurb", "")).strip()
         url = str(item.get("url") or "").strip()
-        item_icon = (str(item.get("icon") or "").strip().split() or ["📰"])[0]
+        item_icon = _clean_icon(item.get("icon"))
         severity = str(item.get("severity") or "").lower()
         trend = str(item.get("trend") or "").lower()
 
@@ -133,13 +138,15 @@ def _digest_embeds(
             embed.set_footer(text=source)
         embeds.append(embed)
 
-    # ── Tail stories embed ────────────────────────────────────────────────────
+    # ── Remaining stories — fields on the header embed ────────────────────────
+    # Riding along in the header (rather than a separate trailing embed) keeps
+    # the digest to 1 + top_n messages total.
     if tail_items:
         lines: list[str] = []
         for item in tail_items:
             headline = str(item.get("headline", "")).strip()
             url = str(item.get("url") or "").strip()
-            item_icon = (str(item.get("icon") or "").strip().split() or ["📰"])[0]
+            item_icon = _clean_icon(item.get("icon"))
             if not headline:
                 continue
             source = _source_label(url)
@@ -148,13 +155,20 @@ def _digest_embeds(
                 lines.append(f"• {item_icon} [{headline}]({url}){source_suffix}")
             else:
                 lines.append(f"• {item_icon} {headline}{source_suffix}")
-        if lines:
-            tail_embed = discord.Embed(
-                title=f"📋 More Stories ({len(tail_items)})",
-                description="\n\n".join(lines)[:4096],
-                color=_DIGEST_COLOUR,
-            )
-            embeds.append(tail_embed)
+        # Discord embed fields cap at 1024 chars — chunk lines across fields.
+        field_name = f"📋 More Stories ({len(lines)})"
+        chunk: list[str] = []
+        chunk_len = 0
+        for line in lines:
+            if chunk_len + len(line) + 1 > 1024 and chunk:
+                header.add_field(name=field_name, value="\n".join(chunk), inline=False)
+                field_name = "​"  # zero-width name for continuation fields
+                chunk = []
+                chunk_len = 0
+            chunk.append(line[:1024])
+            chunk_len += len(line) + 1
+        if chunk:
+            header.add_field(name=field_name, value="\n".join(chunk), inline=False)
 
     return embeds
 

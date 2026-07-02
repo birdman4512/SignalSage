@@ -4,6 +4,7 @@ tags: [advisories, gov, cisa]   # !digest advisories
 schedule: "0 7 * * tue-sat"     # 7:00am Tue–Sat
 lookback: "24h"
 digest_channel: "#general"
+top_stories_count: 4
 sources:
   - name: "CISA Advisories"
     url: "https://www.cisa.gov/cybersecurity-advisories/all.xml"

@@ -4,6 +4,7 @@ tags: [solar, propagation, spaceweather]  # !digest solar
 schedule: "0 18 * * 3"          # 6:00pm Thursdays (APScheduler: Mon=0, Thu=3)
 lookback: "7d"
 digest_channel: "#general"
+top_stories_count: 4
 sources:
   - name: "Space Weather Australia — HF Conditions"
     url: "https://www.sws.bom.gov.au/HF_Systems/6/5"

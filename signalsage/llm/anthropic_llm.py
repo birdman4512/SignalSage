@@ -27,7 +27,12 @@ class AnthropicLLM(BaseLLM):
         logger.info("Anthropic LLM: model=%s", model)
 
     async def complete(
-        self, system: str, user: str, max_tokens: int = 1024, json_mode: bool = False
+        self,
+        system: str,
+        user: str,
+        max_tokens: int = 1024,
+        json_mode: bool = False,
+        json_schema: dict | None = None,
     ) -> str:
         try:
             response = await self._client.messages.create(

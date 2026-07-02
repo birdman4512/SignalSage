@@ -4,6 +4,7 @@ tags: [ai, ml, llm]             # !digest ai
 schedule: "15 6 * * mon-fri"    # 6:15am weekdays
 lookback: "24h"
 digest_channel: "#general"
+top_stories_count: 4
 sources:
   - name: "The Verge AI"
     url: "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml"

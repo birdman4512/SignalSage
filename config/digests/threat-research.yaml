@@ -4,6 +4,7 @@ tags: [research, vendors]        # !digest research
 schedule: "30 7 * * mon,wed,fri" # 7:30am Mon/Wed/Fri — these blogs don't update daily
 lookback: "48h"
 digest_channel: "#general"
+top_stories_count: 4
 sources:
   - name: "Mandiant Blog"
     url: "https://www.mandiant.com/resources/blog/rss.xml"

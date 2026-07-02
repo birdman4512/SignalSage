@@ -3,6 +3,7 @@
 import json
 
 from signalsage.bots.formatter import (
+    _clean_icon,
     _parse_digest_json,
     format_digest_plain,
     format_digest_slack_message,
@@ -132,6 +133,43 @@ def test_parse_digest_json_invalid_returns_none():
     assert _parse_digest_json('{"no_items_key": true}') is None
 
 
+def test_parse_digest_json_overview_only_object():
+    """Small models sometimes stop after the overview — render it, not raw JSON."""
+    summary = '{"overview": "Tonight we look at solar activity."}'
+    result = _parse_digest_json(summary)
+    assert result is not None
+    assert result["overview"] == "Tonight we look at solar activity."
+    assert result["items"] == []
+
+
+def test_parse_digest_json_truncated_overview_recovered():
+    """JSON cut off mid-overview by a token limit still yields the overview text."""
+    summary = '{"overview": "We begin tonight with news out of the AI world that'
+    result = _parse_digest_json(summary)
+    assert result is not None
+    assert result["overview"].startswith("We begin tonight")
+    assert result["items"] == []
+
+
+def test_parse_digest_json_truncated_items_keeps_overview():
+    """Truncation recovery salvages complete items AND the overview."""
+    item = '{"art_id": "A1", "icon": "🔴", "headline": "X", "summary": "Y", "url": ""}'
+    summary = '{"overview": "The big picture.", "items": [' + item + ', {"art_id": "A2", "head'
+    result = _parse_digest_json(summary)
+    assert result is not None
+    assert result["overview"] == "The big picture."
+    assert len(result["items"]) == 1
+
+
+def test_clean_icon_strips_junk_wrapping():
+    assert _clean_icon("%(🔴)%") == "🔴"
+    assert _clean_icon("🛡️") == "🛡️"
+    assert _clean_icon("⚠️ advisory") == "⚠️"
+    assert _clean_icon("critical") == "📰"
+    assert _clean_icon("") == "📰"
+    assert _clean_icon(None) == "📰"
+
+
 # ---------------------------------------------------------------------------
 # format_digest_slack_message
 # ---------------------------------------------------------------------------
@@ -216,7 +254,7 @@ def test_format_digest_slack_fallback_plain_text():
 
 
 def test_format_digest_slack_top_n_split():
-    """Top-N stories become individual messages; extras go into the tail message."""
+    """Top-N stories become individual messages; extras become links in the header."""
     items = [
         {
             "icon": "📰",
@@ -230,11 +268,12 @@ def test_format_digest_slack_top_n_split():
     ]
     summary = json.dumps({"overview": "Overview.", "items": items})
     payloads = format_digest_slack_message("Test Topic", summary, meta={"top_stories_count": 3})
-    # message 0 = header, messages 1-3 = top stories, message 4 = tail
-    assert len(payloads) == 5
-    tail_texts = _all_section_texts([payloads[-1]])
-    assert "Story 4" in " ".join(tail_texts)
-    assert "Story 5" in " ".join(tail_texts)
+    # message 0 = header (overview + remaining-story links), messages 1-3 = top stories
+    assert len(payloads) == 4
+    header_texts = " ".join(_all_section_texts([payloads[0]]))
+    assert "More Stories" in header_texts
+    assert "Story 4" in header_texts
+    assert "Story 5" in header_texts
 
 
 # ---------------------------------------------------------------------------
@@ -288,7 +327,7 @@ def test_format_digest_plain_fallback():
 
 
 def test_format_digest_plain_top_n_split():
-    """Returns separate messages for each top story and one tail message."""
+    """Returns a header message (with remaining-story links) plus one message per top story."""
     items = [
         {
             "icon": "📰",
@@ -302,10 +341,11 @@ def test_format_digest_plain_top_n_split():
     ]
     summary = json.dumps({"overview": "Overview.", "items": items})
     messages = format_digest_plain("Test Topic", summary, meta={"top_stories_count": 3})
-    # message 0 = header, messages 1-3 = top stories, message 4 = tail
-    assert len(messages) == 5
-    assert "Story 4" in messages[-1]
-    assert "Story 5" in messages[-1]
+    # message 0 = header (overview + remaining-story links), messages 1-3 = top stories
+    assert len(messages) == 4
+    assert "More Stories" in messages[0]
+    assert "Story 4" in messages[0]
+    assert "Story 5" in messages[0]
 
 
 def test_format_digest_slack_images():

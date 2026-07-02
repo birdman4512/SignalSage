@@ -86,7 +86,12 @@ class CliLLM(BaseLLM):
         return [self.command, "-p", prompt, "--output-format", "text", *self.extra_args]
 
     async def complete(
-        self, system: str, user: str, max_tokens: int = 1024, json_mode: bool = False
+        self,
+        system: str,
+        user: str,
+        max_tokens: int = 1024,
+        json_mode: bool = False,
+        json_schema: dict | None = None,
     ) -> str:
         # These CLIs take a single prompt; fold the system prompt in so it is honoured
         # regardless of CLI-version flag differences.

@@ -33,7 +33,12 @@ class OllamaLLM(BaseLLM):
         logger.info("Ollama LLM: model=%s base_url=%s num_ctx=%d", model, self.base_url, num_ctx)
 
     async def complete(
-        self, system: str, user: str, max_tokens: int = 1024, json_mode: bool = False
+        self,
+        system: str,
+        user: str,
+        max_tokens: int = 1024,
+        json_mode: bool = False,
+        json_schema: dict | None = None,
     ) -> str:
         payload = {
             "model": self.model,
@@ -47,7 +52,10 @@ class OllamaLLM(BaseLLM):
         if json_mode:
             # Constrains decoding to syntactically valid JSON so small local models
             # can't wrap the digest JSON in prose ("Here's your summary:\n\n{...}").
-            payload["format"] = "json"
+            # A full schema is stronger still: bare "json" mode lets a small model
+            # legally stop after {"overview": "..."} — the schema's required keys
+            # force the "items" array to be emitted too.
+            payload["format"] = json_schema or "json"
 
         async with httpx.AsyncClient(timeout=self.timeout) as client:
             try:

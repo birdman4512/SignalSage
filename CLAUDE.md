@@ -139,7 +139,7 @@ Main configuration file. Uses `${ENV_VAR}` syntax for environment variable subst
 - `digest.lookback_buffer_hours` — buffer added to the auto-derived lookback when a topic omits an explicit `lookback`. The scheduler computes the lookback **per run** as the elapsed time between the two most recent scheduled fires + this buffer (default: 2). Examples for buffer=2: `0 5,11,17,23 * * *` → 8h every run (6h gap). `0 6 * * mon-fri` → 26h Tue–Fri but 74h on Monday (covers Fri→Mon over the weekend). `0 6 * * wed` → 170h (weekly). Topics with an explicit `lookback` in their digest file always win. Newly added topics that haven't fired yet fall back to the smallest *future* gap.
 - `digest.default_schedule` — fallback cron schedule for topics that don't define their own (default: `"0 6 * * *"`, interpreted in `digest.timezone`)
 - `digest.timezone` — timezone for the scheduler. Code default: `"UTC"`. Shipped `config.yaml` value: `"Australia/Brisbane"`.
-- `digest.top_stories_count` — how many top stories are shown with a full summary; the rest appear as headline+link only (default: 10, adjustable at runtime with `!digest top <N>`). Individual topics can override this with `top_stories_count` in their digest file.
+- `digest.top_stories_count` — how many top stories are shown with a full summary; the rest appear as headline+link only (default: 10, adjustable at runtime with `!digest top <N>`). Individual topics can override this with `top_stories_count` in their digest file; all shipped digest files set 4 (5 messages per digest run including the overview).
 - `digest.interest_topics` — optional list of keywords (e.g. `["ransomware", "zero-day", "CISA"]`) passed to the LLM to help rank the most relevant stories higher
 - `whisper.enabled` — enable Whisper audio transcription service
 - `whisper.base_url` — Whisper service endpoint (default: `"http://whisper:8000"`)
@@ -273,12 +273,11 @@ APScheduler registers one cron job per topic (using each topic's own schedule)
                             headline, 3-5 sentence summary, severity, icon, url
         → _postprocess_summary(): cross-topic dedup + trend classification
     → post to notifiers (slack_bot.send_digest, discord_bot.send_digest)
-        → Message 1: topic header + overview + source coverage footer
+        → Message 1: topic header + overview + remaining stories as a compact
+                          "• <icon> headline · source.com" link list + source coverage footer
         → Messages 2..N+1: one card per top story — headline, full summary, source host
                           (e.g. "reddit.com"), Read More link. Severity drives the embed colour
                           on Discord but is no longer printed as a "Medium" badge on the card.
-        → Message N+2: remaining stories as a compact list, each shown as
-                          "• <icon> headline · source.com"
 ```
 
 The number of top stories `N` is set by `digest.top_stories_count` in `config.yaml` (default 10) and can be changed at runtime with `!digest top <N>`. Individual topics can override this with `top_stories_count` in `watchlist.yaml` (e.g. `top_stories_count: 5` on a Cybersecurity topic). Interest keywords in `digest.interest_topics` are injected into the LLM prompt to influence ranking.

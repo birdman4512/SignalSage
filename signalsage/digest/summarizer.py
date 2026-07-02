@@ -190,7 +190,9 @@ or telegraphic notes. Produce a single JSON object with EXACTLY these keys.
 
 STEP 1 — Write "overview" first: your on-air opening. A flowing 3-5 sentence paragraph that \
 welcomes the audience and walks them through the major themes and biggest developments across \
-ALL sources, the way an anchor opens a bulletin ("Tonight's top stories...", "We begin with..."). \
+ALL sources, the way an anchor opens a bulletin ("In today's top stories...", "We begin with..."). \
+Never reference a time of day ("tonight", "this morning", "this evening") — the bulletin may be \
+read at any hour; say "today" or nothing at all. \
 Synthesise across stories and connect them — do not just read headlines back. This field is \
 REQUIRED and must never be null, empty, or a single sentence.
 
@@ -214,12 +216,69 @@ of facts, or copy-pasted feed text is NOT acceptable.
 STRICT RULES — you will be penalised for breaking these:
 - Output ONLY the raw JSON object. No markdown fences, no code blocks, no explanation.
 - Write in a spoken broadcast-anchor voice throughout — conversational, active voice, flowing prose.
+- Never mention a time of day ("tonight", "this morning", "this evening") anywhere in the output.
 - "overview" MUST be a non-empty paragraph. Never return null or "".
 - Every item "summary" MUST be 3-5 sentences. Never return one sentence.
 - Use ONLY content from the sources provided. Do not invent facts or URLs.
 - "art_id" must match an [A<N>] label in the source content.
 - "url" must be copied verbatim — do not paraphrase or shorten.
 """
+
+
+# JSON schema enforced via Ollama structured outputs. Plain "json" mode only
+# guarantees syntactic validity — a small model can legally emit
+# {"overview": "..."} and stop, which is exactly the overview-only failure seen
+# with phi3:mini. Required keys force the "items" array to be generated.
+_DIGEST_JSON_SCHEMA: dict = {
+    "type": "object",
+    "properties": {
+        "overview": {"type": "string"},
+        "coverage_confidence": {"type": "string", "enum": ["high", "medium", "low"]},
+        "items": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+                "type": "object",
+                "properties": {
+                    "art_id": {"type": "string"},
+                    "icon": {"type": "string"},
+                    "severity": {
+                        "type": "string",
+                        "enum": ["critical", "high", "medium", "low"],
+                    },
+                    "headline": {"type": "string"},
+                    "summary": {"type": "string"},
+                    "url": {"type": "string"},
+                },
+                "required": ["art_id", "icon", "severity", "headline", "summary", "url"],
+            },
+        },
+    },
+    "required": ["overview", "coverage_confidence", "items"],
+}
+
+
+def _lacks_story_items(raw: str) -> bool:
+    """True when an LLM response contains no story items at all.
+
+    An overview-only object (missing "items") or JSON truncated before the first
+    complete item is worth retrying. An explicit "items": [] or a truncated
+    response that still holds salvageable item objects is not.
+    """
+    text = raw.strip()
+    text = re.sub(r"^```[a-zA-Z]*\s*", "", text)
+    text = re.sub(r"\s*```$", "", text).strip()
+    try:
+        data = json.loads(text)
+    except (json.JSONDecodeError, ValueError):
+        # Unparseable (likely truncated) — the formatter can salvage complete
+        # item objects, so only retry when none survived.
+        return not re.search(r'\{[^{}]*"art_id"[^{}]*\}', text, re.DOTALL)
+    if isinstance(data, list):
+        return not any(isinstance(i, dict) for i in data)
+    if isinstance(data, dict):
+        return not isinstance(data.get("items"), list)
+    return True
 
 
 _IOC_SYSTEM_PROMPT = (
@@ -340,8 +399,28 @@ class DigestSummarizer:
                     user=user_prompt,
                     max_tokens=4096,
                     json_mode=True,
+                    json_schema=_DIGEST_JSON_SCHEMA,
                 )
                 logger.debug("LLM raw output for topic %r: %s", topic_name, raw[:500])
+                if _lacks_story_items(raw):
+                    # Small local models sometimes stop after the overview even in
+                    # JSON mode. Retry immediately (no sleep — the LLM call itself
+                    # provides pacing); on the last attempt return what we have so
+                    # the formatter can render the overview instead of raw JSON.
+                    if attempt < _LLM_RETRIES:
+                        logger.warning(
+                            "LLM returned no story items for topic %s (attempt %d/%d) - retrying",
+                            topic_name,
+                            attempt + 1,
+                            1 + _LLM_RETRIES,
+                        )
+                        continue
+                    logger.warning(
+                        "LLM returned no story items for topic %s after %d attempts - "
+                        "rendering overview only",
+                        topic_name,
+                        1 + _LLM_RETRIES,
+                    )
                 return _inject_urls(raw, url_map, title_url_pairs)
             except LLMRateLimitError as exc:
                 # A quota reset is minutes/hours away — retrying now just burns

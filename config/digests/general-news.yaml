@@ -2,7 +2,7 @@
 name: "General News"
 tags: [news, aus, australia]    # !digest news
 schedule: "0 5,17 * * *"        # 5am, 5pm daily (auto-lookback ≈ 14h)
-top_stories_count: 5
+top_stories_count: 4
 digest_channel: "#general"
 sources:
   - name: "ABC News"

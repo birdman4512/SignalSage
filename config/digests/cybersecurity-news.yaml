@@ -3,7 +3,7 @@ name: "Cybersecurity News"
 tags: [cybernews, secnews]      # !digest cybernews
 schedule: "0 6 * * mon-fri"     # 6:00am weekdays
 lookback: "24h"
-top_stories_count: 5
+top_stories_count: 4
 digest_channel: "#general"
 sources:
   - name: "The Hacker News"
