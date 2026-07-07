@@ -677,6 +677,8 @@ def format_digest_slack_message(
         source_str = f"  ·  {source}" if source else ""
         trend_str = "  🔥 Trending" if trend == "trending" else ""
         text = f"{item_icon}  *{headline}*{source_str}{trend_str}"
+        if bare:
+            text = f"{icon} *{topic_name}*\n{text}"
         if item_summary:
             text += f"\n{item_summary}"
 
@@ -803,6 +805,8 @@ def format_digest_plain(
         source_str = f" · {source}" if source else ""
         trend_str = "  🔥 Trending" if trend == "trending" else ""
         story_lines = [f"{item_icon}  **{headline}**{source_str}{trend_str}"]
+        if bare:
+            story_lines.insert(0, f"{icon}  **{topic_name}**")
         if item_summary:
             story_lines.append(item_summary)
         if url and url.startswith("http"):

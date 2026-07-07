@@ -65,6 +65,7 @@ def _digest_embeds(
     icon = _topic_icon(topic_name)
     window = f"last {lookback}" if lookback else date.today().strftime("%B %d, %Y")
     top_n = int((meta or {}).get("top_stories_count", 10))
+    bare = bool((meta or {}).get("bare"))
 
     parsed = _parse_digest_json(summary)
     if not parsed:
@@ -87,32 +88,35 @@ def _digest_embeds(
     embeds: list[discord.Embed] = []
 
     # ── Header embed: overview + metadata ────────────────────────────────────
-    overview = _overview_text(parsed, valid_items)
-    header = discord.Embed(
-        title=f"{icon}  {topic_name}",
-        description=overview[:4096] if overview else None,
-        color=_DIGEST_COLOUR,
-    )
-    footer_parts = _digest_footer_parts(parsed, meta)
-    header.set_footer(
-        text=f"Digest  ·  {window}" + (f"  ·  {'  ·  '.join(footer_parts)}" if footer_parts else "")
-    )
+    # Skipped entirely in "bare" mode (watch-mode alerts) — just the story card(s).
+    if not bare:
+        overview = _overview_text(parsed, valid_items)
+        header = discord.Embed(
+            title=f"{icon}  {topic_name}",
+            description=overview[:4096] if overview else None,
+            color=_DIGEST_COLOUR,
+        )
+        footer_parts = _digest_footer_parts(parsed, meta)
+        header.set_footer(
+            text=f"Digest  ·  {window}"
+            + (f"  ·  {'  ·  '.join(footer_parts)}" if footer_parts else "")
+        )
 
-    extra_image_embeds: list[discord.Embed] = []
-    header_image_set = False
-    for img_url in (meta or {}).get("images", []):
-        if not img_url or not str(img_url).startswith("http"):
-            continue
-        if not header_image_set:
-            header.set_image(url=img_url)
-            header_image_set = True
-        else:
-            img_embed = discord.Embed(color=_DIGEST_COLOUR)
-            img_embed.set_image(url=img_url)
-            extra_image_embeds.append(img_embed)
+        extra_image_embeds: list[discord.Embed] = []
+        header_image_set = False
+        for img_url in (meta or {}).get("images", []):
+            if not img_url or not str(img_url).startswith("http"):
+                continue
+            if not header_image_set:
+                header.set_image(url=img_url)
+                header_image_set = True
+            else:
+                img_embed = discord.Embed(color=_DIGEST_COLOUR)
+                img_embed.set_image(url=img_url)
+                extra_image_embeds.append(img_embed)
 
-    embeds.append(header)
-    embeds.extend(extra_image_embeds)
+        embeds.append(header)
+        embeds.extend(extra_image_embeds)
 
     # ── Story card embeds ─────────────────────────────────────────────────────
     for item in top_items:
@@ -133,6 +137,8 @@ def _digest_embeds(
             description=item_summary[:4096] if item_summary else None,
             color=_SEVERITY_COLOUR.get(severity, _DIGEST_COLOUR),
         )
+        if bare:
+            embed.set_author(name=f"{icon}  {topic_name}")
         source = _source_label(url)
         if source:
             embed.set_footer(text=source)
@@ -140,8 +146,9 @@ def _digest_embeds(
 
     # ── Remaining stories — fields on the header embed ────────────────────────
     # Riding along in the header (rather than a separate trailing embed) keeps
-    # the digest to 1 + top_n messages total.
-    if tail_items:
+    # the digest to 1 + top_n messages total. Not applicable in bare mode since
+    # there's no header embed and top_n already equals the full matched-item count.
+    if tail_items and not bare:
         lines: list[str] = []
         for item in tail_items:
             headline = str(item.get("headline", "")).strip()
