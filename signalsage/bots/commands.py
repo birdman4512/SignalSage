@@ -2,6 +2,7 @@
 
 import logging
 import re
+import shlex
 from collections.abc import Awaitable, Callable
 
 from signalsage.ioc.models import IOC, IOCType
@@ -29,6 +30,8 @@ HELP_TEXT = """\
 • `!digest keywords <topic> remove <word>` — remove an include keyword
 • `!digest keywords <topic> exclude <word>` — never post items mentioning this word
 • `!digest keywords <topic> unexclude <word>` — remove an exclude keyword
+• Quote multi-word keywords (`add "open weight"`) and add several at once by
+  separating them with spaces or commas (`add "open weight" llm`)
 
 *OSINT*
 • `!osint email <address>` — breach check via Have I Been Pwned
@@ -67,7 +70,14 @@ def parse_command(text: str) -> tuple[str, list[str]] | None:
     if not stripped.startswith(COMMAND_PREFIX):
         return None
 
-    parts = stripped[len(COMMAND_PREFIX) :].split()
+    body = stripped[len(COMMAND_PREFIX) :]
+    try:
+        # shlex respects "quoted phrases" so multi-word keywords/topics can be
+        # passed as a single argument; fall back to a plain split on unbalanced
+        # quotes rather than erroring out.
+        parts = shlex.split(body)
+    except ValueError:
+        parts = body.split()
     if not parts:
         return None
     # Strip Slack auto-link formatting from every argument token
@@ -78,11 +88,26 @@ def parse_command(text: str) -> tuple[str, list[str]] | None:
 _KEYWORDS_USAGE = (
     "Usage:\n"
     "• `!digest keywords <topic>` — show include/exclude keywords\n"
-    "• `!digest keywords <topic> add <word>` — add an include keyword\n"
-    "• `!digest keywords <topic> remove <word>` — remove an include keyword\n"
-    "• `!digest keywords <topic> exclude <word>` — add an exclude keyword\n"
-    "• `!digest keywords <topic> unexclude <word>` — remove an exclude keyword\n"
+    "• `!digest keywords <topic> add <word> [<word2> ...]` — add include keyword(s)\n"
+    "• `!digest keywords <topic> remove <word> [<word2> ...]` — remove include keyword(s)\n"
+    "• `!digest keywords <topic> exclude <word> [<word2> ...]` — add exclude keyword(s)\n"
+    "• `!digest keywords <topic> unexclude <word> [<word2> ...]` — remove exclude keyword(s)\n"
+    'Multi-word keywords need quotes (e.g. `add "open weight"`); multiple '
+    "keywords can be comma- or space-separated.\n"
 )
+
+_KEYWORD_ACTIONS = ("add", "remove", "exclude", "unexclude")
+
+
+def _split_keyword_tokens(tokens: list[str]) -> list[str]:
+    """Split *tokens* (each possibly a quoted phrase) on commas into individual keywords."""
+    words = []
+    for tok in tokens:
+        for part in tok.split(","):
+            part = part.strip()
+            if part:
+                words.append(part)
+    return words
 
 
 async def _handle_keywords_command(
@@ -98,13 +123,19 @@ async def _handle_keywords_command(
         return
 
     action = None
-    word = None
-    if len(args) >= 3 and args[-2].lower() in ("add", "remove", "exclude", "unexclude"):
-        action = args[-2].lower()
-        word = args[-1]
-        topic_query = " ".join(args[:-2])
+    action_idx = None
+    for i, tok in enumerate(args):
+        if i > 0 and tok.lower() in _KEYWORD_ACTIONS:
+            action = tok.lower()
+            action_idx = i
+            break
+
+    if action is not None:
+        topic_query = " ".join(args[:action_idx])
+        words = _split_keyword_tokens(args[action_idx + 1 :])
     else:
         topic_query = " ".join(args)
+        words = []
 
     topic = scheduler.find_watch_topic(topic_query)
     if topic is None:
@@ -129,26 +160,30 @@ async def _handle_keywords_command(
         )
         return
 
-    if action == "add":
-        if keywords.add(name, word, exclude=False):
-            await reply(f"✅ Added include keyword `{word}` to *{name}*.")
+    if not words:
+        await reply(f"⚠️ No keyword given. Usage: `!digest keywords <topic> {action} <word>`")
+        return
+
+    is_remove = action in ("remove", "unexclude")
+    is_exclude_list = action in ("exclude", "unexclude")
+    verb = "Removed" if is_remove else "Added"
+    kind = "exclude" if is_exclude_list else "include"
+
+    ok, failed = [], []
+    for word in words:
+        if is_remove:
+            success = keywords.remove(name, word, exclude=is_exclude_list)
         else:
-            await reply(f"⚠️ `{word}` is already an include keyword for *{name}*.")
-    elif action == "remove":
-        if keywords.remove(name, word, exclude=False):
-            await reply(f"✅ Removed include keyword `{word}` from *{name}*.")
-        else:
-            await reply(f"⚠️ `{word}` is not an include keyword for *{name}*.")
-    elif action == "exclude":
-        if keywords.add(name, word, exclude=True):
-            await reply(f"✅ Added exclude keyword `{word}` to *{name}*.")
-        else:
-            await reply(f"⚠️ `{word}` is already an exclude keyword for *{name}*.")
-    elif action == "unexclude":
-        if keywords.remove(name, word, exclude=True):
-            await reply(f"✅ Removed exclude keyword `{word}` from *{name}*.")
-        else:
-            await reply(f"⚠️ `{word}` is not an exclude keyword for *{name}*.")
+            success = keywords.add(name, word, exclude=is_exclude_list)
+        (ok if success else failed).append(word)
+
+    parts = []
+    if ok:
+        parts.append(f"✅ {verb} {kind} keyword(s) `{'`, `'.join(ok)}` for *{name}*.")
+    if failed:
+        reason = "not present" if is_remove else "already present"
+        parts.append(f"⚠️ `{'`, `'.join(failed)}` {reason} ({kind}) for *{name}*.")
+    await reply("\n".join(parts))
 
 
 async def handle_digest_command(

@@ -1,7 +1,7 @@
 """Tests for bot command parsing and dispatch."""
 
 from datetime import UTC, datetime
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, call
 
 from signalsage.bots.commands import (
     Platform,
@@ -261,6 +261,52 @@ async def test_keywords_add_duplicate_warns():
     scheduler.watch_keywords.add.return_value = False
     await handle_digest_command(["keywords", "watched", "add", "ransomware"], scheduler, reply)
     assert "already" in reply.call_args[0][0].lower()
+
+
+async def test_keywords_add_multiword_phrase_via_quoted_arg():
+    # parse_command preserves a quoted phrase like `"open weight"` as one token
+    reply = AsyncMock()
+    scheduler = _keywords_scheduler(topic={"name": "Watched Topic"})
+    scheduler.watch_keywords.add.return_value = True
+    await handle_digest_command(["keywords", "watched", "add", "open weight"], scheduler, reply)
+    scheduler.watch_keywords.add.assert_called_once_with(
+        "Watched Topic", "open weight", exclude=False
+    )
+    assert "Added" in reply.call_args[0][0]
+
+
+async def test_keywords_add_multiple_keywords_at_once():
+    reply = AsyncMock()
+    scheduler = _keywords_scheduler(topic={"name": "Watched Topic"})
+    scheduler.watch_keywords.add.return_value = True
+    await handle_digest_command(
+        ["keywords", "watched", "add", "open weight", "llm"], scheduler, reply
+    )
+    assert scheduler.watch_keywords.add.call_args_list == [
+        call("Watched Topic", "open weight", exclude=False),
+        call("Watched Topic", "llm", exclude=False),
+    ]
+    text = reply.call_args[0][0]
+    assert "open weight" in text
+    assert "llm" in text
+
+
+async def test_keywords_add_comma_separated_in_single_token():
+    reply = AsyncMock()
+    scheduler = _keywords_scheduler(topic={"name": "Watched Topic"})
+    scheduler.watch_keywords.add.return_value = True
+    await handle_digest_command(["keywords", "watched", "add", "llm,transformer"], scheduler, reply)
+    assert scheduler.watch_keywords.add.call_args_list == [
+        call("Watched Topic", "llm", exclude=False),
+        call("Watched Topic", "transformer", exclude=False),
+    ]
+
+
+async def test_parse_command_preserves_quoted_multiword_arg():
+    assert parse_command('!digest keywords watched add "open weight"') == (
+        "digest",
+        ["keywords", "watched", "add", "open weight"],
+    )
 
 
 # ---------------------------------------------------------------------------
