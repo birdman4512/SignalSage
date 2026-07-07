@@ -17,6 +17,22 @@ def _headline_hash(headline: str) -> str:
     return hashlib.md5(normalised.encode()).hexdigest()[:12]
 
 
+def _load_json(path: Path) -> dict:
+    try:
+        if path.exists():
+            return json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        logger.warning("Could not load %s: %s", path, exc)
+    return {}
+
+
+def _save_json(path: Path, data: dict) -> None:
+    try:
+        path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception as exc:
+        logger.warning("Could not save %s: %s", path, exc)
+
+
 _LLM_TIMING_SAMPLES = 50  # rolling window size
 
 
@@ -55,18 +71,10 @@ class DigestHistory:
     # ── I/O helpers ─────────────────────────────────────────────────────────
 
     def _load(self, path: Path) -> dict:
-        try:
-            if path.exists():
-                return json.loads(path.read_text(encoding="utf-8"))
-        except Exception as exc:
-            logger.warning("Could not load %s: %s", path, exc)
-        return {}
+        return _load_json(path)
 
     def _save(self, path: Path, data: dict) -> None:
-        try:
-            path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-        except Exception as exc:
-            logger.warning("Could not save %s: %s", path, exc)
+        _save_json(path, data)
 
     def _prune_if_due(self) -> None:
         """Drop entries older than _KEEP_DAYS, but only once per calendar day."""

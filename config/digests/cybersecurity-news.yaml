@@ -1,9 +1,9 @@
 # One digest topic per file. See template.yaml.example for the full field reference.
 name: "Cybersecurity News"
 tags: [cybernews, secnews]      # !digest cybernews
-schedule: "0 6 * * mon-fri"     # 6:00am weekdays
-lookback: "24h"
-top_stories_count: 4
+watch_mode: true                # polls continuously; manage keywords with `!digest keywords cybernews ...`
+keywords: ["zero-day", "breach", "apt", "cve", "exploit"]
+exclude_keywords: []
 digest_channel: "#general"
 sources:
   - name: "The Hacker News"

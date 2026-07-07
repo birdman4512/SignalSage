@@ -141,6 +141,7 @@ Main configuration file. Uses `${ENV_VAR}` syntax for environment variable subst
 - `digest.timezone` — timezone for the scheduler. Code default: `"UTC"`. Shipped `config.yaml` value: `"Australia/Brisbane"`.
 - `digest.top_stories_count` — how many top stories are shown with a full summary; the rest appear as headline+link only (default: 10, adjustable at runtime with `!digest top <N>`). Individual topics can override this with `top_stories_count` in their digest file; all shipped digest files set 4 (5 messages per digest run including the overview).
 - `digest.interest_topics` — optional list of keywords (e.g. `["ransomware", "zero-day", "CISA"]`) passed to the LLM to help rank the most relevant stories higher
+- `digest.watch_default_poll_minutes` — default poll interval (minutes) for watch-mode topics that don't set their own `poll_interval_minutes` (default: 15)
 - `whisper.enabled` — enable Whisper audio transcription service
 - `whisper.base_url` — Whisper service endpoint (default: `"http://whisper:8000"`)
 
@@ -153,6 +154,10 @@ can have its own `schedule` (5-part cron expression), `tags` list for bot comman
 targeting, and `top_stories_count` to override the global story card limit. If
 `schedule` is omitted, falls back to `digest.default_schedule`. Supports RSS feeds
 (`.xml`, `.rss`, `.atom`) and regular HTML pages.
+
+A topic can instead set `watch_mode: true` to poll continuously rather than run
+on a schedule — see "Watch-mode Digests" below. `schedule` and `lookback` are
+ignored for watch-mode topics.
 
 A digest file's top-level keys *are* the topic fields:
 
@@ -218,6 +223,9 @@ Both Slack and Discord support the `!` command prefix (or `@SignalSage` mention 
 | `!digest <name>` | Run a topic by partial name match (case-insensitive) |
 | `!digest top <N>` | Set how many top stories get full summaries this session (1–20, default 10) |
 | `!digest help` | Show the command reference |
+| `!digest keywords <topic>` | Show a watch-mode topic's include/exclude keywords |
+| `!digest keywords <topic> add/remove <word>` | Add/remove an include keyword for a watch-mode topic |
+| `!digest keywords <topic> exclude/unexclude <word>` | Add/remove an exclude keyword for a watch-mode topic |
 | `!help` | Show the command reference (shortcut) |
 | `!osint email <address>` | Have I Been Pwned breach check for an email address |
 | `!osint domain <domain>` | crt.sh cert transparency + WHOIS age + passive DNS |
@@ -281,6 +289,43 @@ APScheduler registers one cron job per topic (using each topic's own schedule)
 ```
 
 The number of top stories `N` is set by `digest.top_stories_count` in `config.yaml` (default 10) and can be changed at runtime with `!digest top <N>`. Individual topics can override this with `top_stories_count` in `watchlist.yaml` (e.g. `top_stories_count: 5` on a Cybersecurity topic). Interest keywords in `digest.interest_topics` are injected into the LLM prompt to influence ranking.
+
+### Watch-mode Digests
+
+Topics with `watch_mode: true` (the shipped `general-news.yaml`, `ai-ml-news.yaml`,
+`cybersecurity-news.yaml`, `security-community.yaml`) replace the scheduled cron
+digest with continuous polling:
+
+```
+APScheduler registers an IntervalTrigger job per watch-mode topic
+    (poll_interval_minutes, default digest.watch_default_poll_minutes)
+    → DigestScheduler._run_watch_topic(topic)
+        → fetch_topic_items() — per-item fetch (feed entries, JSON feed items,
+              or the whole page as one item for plain HTML sources)
+        → WatchSeenItems.filter_new() — drop items already evaluated (by link,
+              or content hash for whole-page HTML items), then mark ALL fetched
+              items seen immediately (so a later keyword change never re-triggers
+              old items, and a crash mid-summary can't cause a repeat post)
+        → WatchKeywords.get(topic) → matches_keywords() — plain, case-insensitive
+              substring match against title+summary; empty include list matches
+              everything; any exclude hit vetoes
+        → if any items matched: build a synthetic per-source content block from
+              just the matches and reuse DigestSummarizer.summarize_topic() +
+              the normal notifier/formatter pipeline unchanged — the digest is
+              posted immediately with every match as a full story card (no
+              "more stories" tail truncation)
+```
+
+Keywords are runtime-mutable, not baked into the YAML: a topic's `keywords`/
+`exclude_keywords` fields only *seed* the initial list on first startup
+(`signalsage/digest/watch.py::WatchKeywords.seed_defaults`); after that, manage
+them with `!digest keywords <topic> add/remove/exclude/unexclude <word>` (see
+Bot Commands). State is persisted in `data_dir` alongside `digest_history.json`:
+`watch_keywords.json` and `watch_seen.json` (pruned after 30 days).
+
+`!digest <name>` and `!digest` still work for watch-mode topics — they trigger
+an immediate poll, but may report nothing posted if there are no new items or
+no keyword matches.
 
 ### LLM Abstraction
 
@@ -467,7 +512,8 @@ SignalSage/
     ├── digest/
     │   ├── fetcher.py       # RSS/web/audio content fetcher
     │   ├── history.py       # Persistent digest history + source-health tracking
-    │   └── summarizer.py    # LLM-based digest summarization
+    │   ├── summarizer.py    # LLM-based digest summarization
+    │   └── watch.py         # Watch-mode keyword filters + seen-item tracking
     └── bots/
         ├── commands.py      # !digest command parsing (shared by Slack + Discord)
         ├── formatter.py     # Platform-aware message formatting

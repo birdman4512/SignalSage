@@ -90,6 +90,12 @@ digest:
   # Topics that set an explicit `lookback` (e.g. "24h", "7d") still win.
   lookback_buffer_hours: 2
 
+  # Watch-mode topics (watch_mode: true in the topic file) poll their sources on
+  # an interval instead of a cron schedule and post immediately when a new item
+  # matches the topic's keywords. This is the default poll interval for watch-mode
+  # topics that don't set their own `poll_interval_minutes`.
+  watch_default_poll_minutes: 15
+
   # LLM backend: "ollama" (local, free), "anthropic" (paid API), or "cli"
   # ("cli" shells out to the Claude Code / Codex CLI in headless mode — bills
   #  against your CLI subscription). Under docker-compose this is selected for

@@ -233,6 +233,7 @@ async def main() -> None:
                 data_dir=digest_cfg.get("data_dir", "data"),
                 top_stories_count=int(digest_cfg.get("top_stories_count", 10)),
                 lookback_buffer_hours=float(digest_cfg.get("lookback_buffer_hours", 2)),
+                watch_default_poll_minutes=int(digest_cfg.get("watch_default_poll_minutes", 15)),
             )
             scheduler.start()
             # Give bots a scheduler reference so !digest commands work

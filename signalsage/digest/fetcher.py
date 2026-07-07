@@ -210,27 +210,32 @@ def _get_audio_enclosure(entry: dict) -> str | None:
     return None
 
 
-async def _extract_feed_content(
+async def _extract_feed_items(
     feed_data: dict,
     max_chars: int,
     lookback_seconds: int | None = None,
     whisper_base_url: str | None = None,
-) -> str:
-    """Extract text content from a parsed feedparser feed, optionally filtered by age."""
+) -> list[dict]:
+    """Extract discrete items from a parsed feedparser feed, optionally filtered by age.
+
+    Returns a list of {title, link, summary, published_ts} dicts, newest-feed-order
+    preserved, capped at 10 entries (mirrors the digest text-blob cap).
+    """
     cutoff = time.time() - lookback_seconds if lookback_seconds else None
-    parts: list[str] = []
+    items: list[dict] = []
 
     entries = feed_data.get("entries", [])[:10]
     logger.info("Feed has %d entries (cutoff=%s)", len(entries), "set" if cutoff else "none")
     for entry in entries:
+        published_ts: float | None = None
+        published = entry.get("published_parsed") or entry.get("updated_parsed")
+        if published:
+            published_ts = calendar.timegm(published)
+
         # Filter by publish date when lookback is set
-        if cutoff is not None:
-            published = entry.get("published_parsed") or entry.get("updated_parsed")
-            if published:
-                entry_ts = calendar.timegm(published)
-                if entry_ts < cutoff:
-                    logger.info("Skipping entry (too old): %r", entry.get("title", ""))
-                    continue  # too old
+        if cutoff is not None and published_ts is not None and published_ts < cutoff:
+            logger.info("Skipping entry (too old): %r", entry.get("title", ""))
+            continue  # too old
 
         title = entry.get("title", "")
         summary = entry.get("summary", "") or entry.get("description", "")
@@ -253,19 +258,44 @@ async def _extract_feed_content(
 
         if not link:
             logger.warning("Feed entry has no link: %r", title)
-        text = f"Title: {title}"
-        if link:
-            text += f"\nURL: {link}"
-        if summary:
-            text += f"\n{summary}"
-        parts.append(text)
 
-        if len(parts) >= 10:
+        items.append(
+            {
+                "title": title,
+                "link": link,
+                "summary": summary,
+                "published_ts": published_ts,
+            }
+        )
+
+        if len(items) >= 10:
             break
 
-    if not parts:
+    return items
+
+
+def _item_to_block(item: dict) -> str:
+    """Render a single {title, link, summary} item as a 'Title:/URL:' text block."""
+    text = f"Title: {item.get('title', '')}"
+    if item.get("link"):
+        text += f"\nURL: {item['link']}"
+    if item.get("summary"):
+        text += f"\n{item['summary']}"
+    return text
+
+
+async def _extract_feed_content(
+    feed_data: dict,
+    max_chars: int,
+    lookback_seconds: int | None = None,
+    whisper_base_url: str | None = None,
+) -> str:
+    """Extract text content from a parsed feedparser feed, optionally filtered by age."""
+    items = await _extract_feed_items(feed_data, max_chars, lookback_seconds, whisper_base_url)
+    if not items:
         return ""
 
+    parts = [_item_to_block(item) for item in items]
     linked = sum(1 for p in parts if "\nURL: " in p)
     logger.info("Feed: %d entries included, %d have URLs", len(parts), linked)
     combined = "\n\n---\n\n".join(parts)
@@ -340,54 +370,55 @@ def _extract_web_content(html: str, max_chars: int) -> tuple[str, str]:
     return text[:max_chars], page_title
 
 
-def _extract_json_feed(raw: str, max_chars: int, lookback_seconds: int | None = None) -> str:
+def _extract_json_feed_items(raw: str, lookback_seconds: int | None = None) -> list[dict]:
     """
-    Extract digest content from JSON feeds.
+    Extract discrete items from JSON feeds.
 
     Handles the CISA KEV format ({"vulnerabilities": [...]}) and generic
     arrays-of-objects that have title/name + description/summary fields.
+    Returns a list of {title, link, summary, published_ts} dicts.
     """
     try:
         data = json.loads(raw)
     except (ValueError, json.JSONDecodeError):
-        return ""
+        return []
 
     cutoff = time.time() - lookback_seconds if lookback_seconds else None
 
     # Normalise to a list of objects
     if isinstance(data, dict):
         # CISA KEV: {"vulnerabilities": [...]}
-        items = data.get("vulnerabilities") or data.get("items") or data.get("entries") or []
+        raw_items = data.get("vulnerabilities") or data.get("items") or data.get("entries") or []
     elif isinstance(data, list):
-        items = data
+        raw_items = data
     else:
-        return ""
+        return []
 
-    if not isinstance(items, list):
-        return ""
+    if not isinstance(raw_items, list):
+        return []
 
-    parts: list[str] = []
-    for item in items[:20]:
+    items: list[dict] = []
+    for item in raw_items[:20]:
         if not isinstance(item, dict):
             continue
 
         # Date filter — find the first present date field and decide once
-        if cutoff:
-            too_old = False
-            for date_field in ("dateAdded", "datePublished", "published", "date"):
-                raw_date = item.get(date_field, "")
-                if not raw_date:
-                    continue
-                try:
-                    parsed = datetime.date.fromisoformat(str(raw_date)[:10])
-                    item_ts = datetime.datetime(parsed.year, parsed.month, parsed.day).timestamp()
-                    if item_ts < cutoff:
-                        too_old = True
-                except (ValueError, TypeError):
-                    pass
-                break
-            if too_old:
+        item_ts: float | None = None
+        too_old = False
+        for date_field in ("dateAdded", "datePublished", "published", "date"):
+            raw_date = item.get(date_field, "")
+            if not raw_date:
                 continue
+            try:
+                parsed = datetime.date.fromisoformat(str(raw_date)[:10])
+                item_ts = datetime.datetime(parsed.year, parsed.month, parsed.day).timestamp()
+                if cutoff and item_ts < cutoff:
+                    too_old = True
+            except (ValueError, TypeError):
+                pass
+            break
+        if too_old:
+            continue
 
         # Extract fields — prefer CISA KEV names, fall back to generic names
         title = (
@@ -411,15 +442,31 @@ def _extract_json_feed(raw: str, max_chars: int, lookback_seconds: int | None = 
         if not title:
             continue
 
-        text = f"Title: {title}"
-        if url:
-            text += f"\nURL: {url}"
-        if description:
-            text += f"\n{description}"
+        summary = description
         if action:
-            text += f"\nRequired action: {action}"
-        parts.append(text)
+            summary = (
+                f"{summary}\nRequired action: {action}" if summary else f"Required action: {action}"
+            )
 
+        items.append({"title": title, "link": url, "summary": summary, "published_ts": item_ts})
+
+    return items
+
+
+def _extract_json_feed(raw: str, max_chars: int, lookback_seconds: int | None = None) -> str:
+    """
+    Extract digest content from JSON feeds.
+
+    Handles the CISA KEV format ({"vulnerabilities": [...]}) and generic
+    arrays-of-objects that have title/name + description/summary fields.
+    """
+    items = _extract_json_feed_items(raw, lookback_seconds)
+    if not items:
+        return ""
+
+    parts: list[str] = []
+    for item in items:
+        parts.append(_item_to_block(item))
         if len("".join(parts)) >= max_chars:
             break
 
@@ -429,6 +476,26 @@ def _extract_json_feed(raw: str, max_chars: int, lookback_seconds: int | None = 
     combined = "\n\n---\n\n".join(parts)
     logger.info("JSON feed: extracted %d item(s)", len(parts))
     return combined[:max_chars]
+
+
+async def _fetch_raw(url: str, timeout: int) -> tuple[str, str, str] | None:
+    """Fetch *url* and return (raw_content, content_type, final_url), or None on failure."""
+    try:
+        async with httpx.AsyncClient(
+            timeout=timeout,
+            follow_redirects=True,
+            headers={"User-Agent": _user_agent(url)},
+        ) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            return resp.text, resp.headers.get("content-type", ""), str(resp.url)
+    except httpx.TimeoutException:
+        logger.warning("Timeout fetching %s", url)
+    except httpx.HTTPStatusError as exc:
+        logger.warning("HTTP error %d fetching %s", exc.response.status_code, url)
+    except Exception as exc:
+        logger.warning("Error fetching %s: %s", url, exc)
+    return None
 
 
 async def fetch_source(
@@ -444,26 +511,10 @@ async def fetch_source(
     Returns:
         tuple: (text_content, canonical_url)
     """
-    try:
-        async with httpx.AsyncClient(
-            timeout=timeout,
-            follow_redirects=True,
-            headers={"User-Agent": _user_agent(url)},
-        ) as client:
-            resp = await client.get(url)
-            resp.raise_for_status()
-            content_type = resp.headers.get("content-type", "")
-            raw_content = resp.text
-            final_url = str(resp.url)
-    except httpx.TimeoutException:
-        logger.warning("Timeout fetching %s", url)
+    fetched = await _fetch_raw(url, timeout)
+    if fetched is None:
         return "", url
-    except httpx.HTTPStatusError as exc:
-        logger.warning("HTTP error %d fetching %s", exc.response.status_code, url)
-        return "", url
-    except Exception as exc:
-        logger.warning("Error fetching %s: %s", url, exc)
-        return "", url
+    raw_content, content_type, final_url = fetched
 
     # Determine if it's a feed
     if _is_feed_url(url, content_type) or "xml" in content_type.lower():
@@ -493,6 +544,53 @@ async def fetch_source(
         else:
             content = f"{content}\nURL: {final_url}"
     return content, final_url
+
+
+async def fetch_source_items(
+    url: str,
+    timeout: int = 15,
+    lookback_seconds: int | None = None,
+    whisper_base_url: str | None = None,
+    max_chars: int = 3000,
+) -> tuple[list[dict], str]:
+    """
+    Fetch a URL and return discrete items rather than a joined text blob.
+
+    Feeds (RSS/Atom/JSON) yield one item per entry. Plain HTML pages have no
+    reliable per-article structure, so the whole page is treated as a single
+    item — watch-mode dedup falls back to hashing its content in that case.
+
+    Returns:
+        tuple: (items, canonical_url) where each item is
+               {title, link, summary, published_ts}
+    """
+    fetched = await _fetch_raw(url, timeout)
+    if fetched is None:
+        return [], url
+    raw_content, content_type, final_url = fetched
+
+    if _is_feed_url(url, content_type) or "xml" in content_type.lower():
+        try:
+            feed_data = feedparser.parse(raw_content)
+            if feed_data.get("entries"):
+                items = await _extract_feed_items(
+                    feed_data, max_chars, lookback_seconds, whisper_base_url
+                )
+                return items, final_url
+        except Exception as exc:
+            logger.warning("Feedparser failed for %s: %s", url, exc)
+
+    if "json" in content_type.lower() or url.lower().split("?")[0].endswith(".json"):
+        items = _extract_json_feed_items(raw_content, lookback_seconds)
+        if items:
+            return items, final_url
+
+    content, page_title = _extract_web_content(raw_content, max_chars)
+    if not content:
+        return [], final_url
+    return [
+        {"title": page_title, "link": final_url, "summary": content, "published_ts": None}
+    ], final_url
 
 
 async def fetch_topic(
@@ -548,5 +646,54 @@ async def fetch_topic(
             )
         else:
             output.append(result)  # type: ignore[arg-type]
+
+    return output
+
+
+async def fetch_topic_items(
+    sources: list[dict],
+    timeout: int = 15,
+    lookback_seconds: int | None = None,
+    whisper_base_url: str | None = None,
+    max_chars: int = 3000,
+) -> list[dict]:
+    """
+    Fetch all sources for a topic concurrently, returning discrete items instead
+    of joined text blobs. Used by watch-mode polling for per-item keyword
+    filtering and dedup.
+
+    Returns:
+        list of dicts: {source_name, source_url, title, link, summary, published_ts}
+    """
+
+    async def _fetch_one(source: dict) -> list[dict]:
+        name = source.get("name", "Unknown")
+        url = source.get("url", "")
+        if not url:
+            return []
+        items, canonical_url = await fetch_source_items(
+            url, timeout, lookback_seconds, whisper_base_url, max_chars
+        )
+        return [
+            {
+                "source_name": name,
+                "source_url": canonical_url or url,
+                "title": item.get("title", ""),
+                "link": item.get("link", ""),
+                "summary": item.get("summary", ""),
+                "published_ts": item.get("published_ts"),
+            }
+            for item in items
+        ]
+
+    tasks = [_fetch_one(s) for s in sources]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    output: list[dict] = []
+    for source, result in zip(sources, results):
+        if isinstance(result, Exception):
+            logger.warning("Failed to fetch %s: %s", source.get("url", ""), result)
+            continue
+        output.extend(result)  # type: ignore[arg-type]
 
     return output

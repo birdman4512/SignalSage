@@ -12,9 +12,11 @@ from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED
 from apscheduler.executors.asyncio import AsyncIOExecutor
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 
-from signalsage.digest.fetcher import fetch_topic, parse_lookback
+from signalsage.digest.fetcher import fetch_topic, fetch_topic_items, parse_lookback
 from signalsage.digest.history import DigestHistory, _headline_hash
+from signalsage.digest.watch import WatchKeywords, WatchSeenItems, matches_keywords
 
 logger = logging.getLogger(__name__)
 
@@ -174,6 +176,7 @@ class DigestScheduler:
         data_dir: str = "data",
         top_stories_count: int = 10,
         lookback_buffer_hours: float = 2.0,
+        watch_default_poll_minutes: int = 15,
     ) -> None:
         self.summarizer = summarizer
         self.notifiers = notifiers
@@ -182,12 +185,15 @@ class DigestScheduler:
         self.lookback_buffer_hours = float(lookback_buffer_hours)
         self.whisper_base_url = whisper_base_url
         self.top_stories_count = top_stories_count
+        self.watch_default_poll_minutes = int(watch_default_poll_minutes)
         self._scheduler = AsyncIOScheduler(
             timezone=timezone,
             executors={"default": AsyncIOExecutor()},
         )
         self._scheduler.add_listener(self._on_job_executed, EVENT_JOB_EXECUTED | EVENT_JOB_ERROR)
         self._history = DigestHistory(data_dir=data_dir)
+        self._watch_keywords = WatchKeywords(data_dir=data_dir)
+        self._watch_seen = WatchSeenItems(data_dir=data_dir)
         self._session_hashes: set[str] = set()
         self._session_date: str = date.today().isoformat()
 
@@ -198,6 +204,23 @@ class DigestScheduler:
 
         for topic in topics:
             name = topic.get("name", "Unnamed")
+
+            if topic.get("watch_mode"):
+                self._watch_keywords.seed_defaults(
+                    name, topic.get("keywords") or [], topic.get("exclude_keywords") or []
+                )
+                poll_minutes = int(topic.get("poll_interval_minutes") or watch_default_poll_minutes)
+                job_id = "watch_" + name.lower().replace(" ", "_")
+                self._scheduler.add_job(
+                    self._run_watch_topic,
+                    IntervalTrigger(minutes=poll_minutes),
+                    args=[topic],
+                    id=job_id,
+                    replace_existing=True,
+                )
+                logger.info("Scheduled watch-mode topic '%s' — every %d min", name, poll_minutes)
+                continue
+
             schedule = topic.get("schedule") or default_schedule
             job_id = "digest_" + name.lower().replace(" ", "_")
 
@@ -376,6 +399,93 @@ class DigestScheduler:
                     exc,
                 )
 
+    async def _run_watch_topic(self, topic: dict, progress=None, override_channel=None) -> bool:
+        """Poll a watch-mode topic's sources, filter by keywords, and post any new matches.
+
+        Unlike ``_run_topic``, this never re-processes an item: every fetched item
+        (matched or not) is marked seen so keyword changes only affect future items.
+
+        Returns True if any new (matching or not) items were found this poll.
+        """
+        name = topic.get("name", "Unknown")
+        logger.info("Polling watch-mode topic: %s", name)
+
+        if progress:
+            await progress(f"📡 Polling {len(topic.get('sources', []))} source(s) for *{name}*…")
+        items = await fetch_topic_items(
+            topic.get("sources", []), timeout=15, whisper_base_url=self.whisper_base_url
+        )
+        new_items = self._watch_seen.filter_new(name, items)
+        if not new_items:
+            logger.info("Watch topic '%s': no new items", name)
+            return False
+
+        # Mark seen immediately — before summarization — so a crash mid-summary
+        # can't cause the same item to be re-evaluated on the next poll.
+        self._watch_seen.mark_seen(name, new_items)
+
+        include, exclude = self._watch_keywords.get(name)
+        matched = [i for i in new_items if matches_keywords(i, include, exclude)]
+        if not matched:
+            logger.info(
+                "Watch topic '%s': %d new item(s), none matched keywords", name, len(new_items)
+            )
+            return True
+
+        logger.info("Watch topic '%s': %d matched item(s) — summarizing", name, len(matched))
+
+        # Group matched items back into per-source content blocks so the existing
+        # summarizer/formatter pipeline (built for the scheduled-digest shape) can
+        # be reused unchanged.
+        by_source: dict[str, list[dict]] = {}
+        for i in matched:
+            by_source.setdefault(i["source_name"], []).append(i)
+        fetched = [
+            {
+                "name": source_name,
+                "url": source_items[0]["source_url"],
+                "content": "\n\n---\n\n".join(
+                    f"Title: {i['title']}\nURL: {i['link']}\n{i['summary']}" for i in source_items
+                ),
+                "image_url": None,
+            }
+            for source_name, source_items in by_source.items()
+        ]
+
+        try:
+            summary = await self.summarizer.summarize_topic(name, fetched)
+        except Exception as exc:
+            logger.exception("Failed to summarize watch matches for topic '%s': %s", name, exc)
+            return True
+
+        summary, extra_meta = _postprocess_summary(
+            summary, name, self._history, self._session_hashes
+        )
+
+        meta = {
+            "sources_total": len(fetched),
+            "sources_ok": len(fetched),
+            "empty_sources": [],
+            "chronically_failing": [],
+            "deduped_count": extra_meta["deduped_count"],
+            "coverage_confidence": extra_meta["coverage_confidence"],
+            "images": [],
+            "top_stories_count": len(matched),
+        }
+        topic_channel = topic.get("digest_channel") or override_channel or None
+
+        for notify in self.notifiers:
+            try:
+                await notify(name, summary, lookback=None, channel=topic_channel, meta=meta)
+            except Exception as exc:
+                logger.error(
+                    "Notifier %s failed for watch topic '%s': %s",
+                    getattr(notify, "__qualname__", repr(notify)),
+                    name,
+                    exc,
+                )
+        return True
+
     def set_top_stories_count(self, n: int) -> None:
         """Update the number of top stories shown with full summaries (session only)."""
         self.top_stories_count = max(1, min(n, 20))
@@ -386,11 +496,11 @@ class DigestScheduler:
         return [name for name, _tags, _next in self.get_topics()]
 
     def get_topics(self) -> list[tuple[str, list[str], object]]:
-        """Return (name, tags, next_run_time) for all scheduled digest topics."""
+        """Return (name, tags, next_run_time) for all scheduled digest and watch-mode topics."""
         return [
             (job.args[0]["name"], job.args[0].get("tags", []), getattr(job, "next_run_time", None))
             for job in self._scheduler.get_jobs()
-            if job.id.startswith("digest_")
+            if job.id.startswith("digest_") or job.id.startswith("watch_")
         ]
 
     async def run_topic_now(self, topic_query: str, progress=None, override_channel=None) -> bool:
@@ -410,35 +520,73 @@ class DigestScheduler:
         Returns True if a matching topic was found and triggered, False otherwise.
         """
         query = topic_query.strip().lower()
-        jobs = [j for j in self._scheduler.get_jobs() if j.id.startswith("digest_")]
+        jobs = [
+            j
+            for j in self._scheduler.get_jobs()
+            if j.id.startswith("digest_") or j.id.startswith("watch_")
+        ]
+
+        async def _dispatch(job) -> None:
+            topic = job.args[0]
+            logger.info("Triggering on-demand digest for topic '%s'", topic["name"])
+            if job.id.startswith("watch_"):
+                await self._run_watch_topic(
+                    topic, progress=progress, override_channel=override_channel
+                )
+            else:
+                await self._run_topic(topic, progress=progress, override_channel=override_channel)
 
         # Pass 1: exact tag match
         for job in jobs:
-            topic = job.args[0]
-            tags = [t.lower() for t in topic.get("tags", [])]
+            tags = [t.lower() for t in job.args[0].get("tags", [])]
             if query in tags:
-                logger.info("Triggering on-demand digest for topic '%s'", topic["name"])
-                await self._run_topic(topic, progress=progress, override_channel=override_channel)
+                await _dispatch(job)
                 return True
 
         # Pass 2: partial name match
         for job in jobs:
-            topic = job.args[0]
-            name = topic["name"].lower()
+            name = job.args[0]["name"].lower()
             if query in name or name in query:
-                logger.info("Triggering on-demand digest for topic '%s'", topic["name"])
-                await self._run_topic(topic, progress=progress, override_channel=override_channel)
+                await _dispatch(job)
                 return True
 
         logger.warning("No topic matching query '%s'", topic_query)
         return False
 
     async def run_all_now(self, override_channel=None) -> None:
-        """Trigger all digest topics immediately."""
+        """Trigger all digest and watch-mode topics immediately."""
         for job in self._scheduler.get_jobs():
             if job.id.startswith("digest_"):
                 logger.info("Triggering on-demand digest for topic '%s'", job.args[0]["name"])
                 await self._run_topic(job.args[0], override_channel=override_channel)
+            elif job.id.startswith("watch_"):
+                logger.info("Triggering on-demand poll for watch topic '%s'", job.args[0]["name"])
+                await self._run_watch_topic(job.args[0], override_channel=override_channel)
+
+    def find_watch_topic(self, topic_query: str) -> dict | None:
+        """Return the watch-mode topic dict matching *topic_query* by tag or name, or None."""
+        query = topic_query.strip().lower()
+        jobs = [j for j in self._scheduler.get_jobs() if j.id.startswith("watch_")]
+
+        for job in jobs:
+            tags = [t.lower() for t in job.args[0].get("tags", [])]
+            if query in tags:
+                return job.args[0]
+        for job in jobs:
+            name = job.args[0]["name"].lower()
+            if query in name or name in query:
+                return job.args[0]
+        return None
+
+    def get_watch_topic_names(self) -> list[str]:
+        """Return names of all watch-mode topics."""
+        return [
+            job.args[0]["name"] for job in self._scheduler.get_jobs() if job.id.startswith("watch_")
+        ]
+
+    @property
+    def watch_keywords(self) -> WatchKeywords:
+        return self._watch_keywords
 
     def start(self) -> None:
         # Explicitly bind to the running event loop so APScheduler 3.x doesn't

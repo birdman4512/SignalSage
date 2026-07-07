@@ -1,10 +1,10 @@
 # One digest topic per file. See template.yaml.example for the full field reference.
 name: "AI & ML News"
 tags: [ai, ml, llm]             # !digest ai
-schedule: "15 6 * * mon-fri"    # 6:15am weekdays
-lookback: "24h"
+watch_mode: true                # polls continuously; manage keywords with `!digest keywords ai ...`
+keywords: ["gpt", "claude", "gemini", "llm", "model release"]
+exclude_keywords: []
 digest_channel: "#general"
-top_stories_count: 4
 sources:
   - name: "The Verge AI"
     url: "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml"

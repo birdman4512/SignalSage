@@ -1,8 +1,9 @@
 # One digest topic per file. See template.yaml.example for the full field reference.
 name: "Security Community"
 tags: [community, seccomm]      # !digest community
-schedule: "30 5,17 * * mon-fri" # 5:30am, 5:30pm weekdays (auto-lookback ≈ 14h)
-top_stories_count: 4
+watch_mode: true                # polls continuously; manage keywords with `!digest keywords community ...`
+keywords: ["cve", "exploit", "incident", "apt"]
+exclude_keywords: []
 digest_channel: "#general"
 sources:
   - name: "r/netsec"

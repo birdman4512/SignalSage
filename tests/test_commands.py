@@ -175,6 +175,95 @@ async def test_handle_digest_help():
 
 
 # ---------------------------------------------------------------------------
+# handle_digest_command — keywords
+# ---------------------------------------------------------------------------
+
+
+def _keywords_scheduler(topic=None, include=None, exclude=None):
+    scheduler = MagicMock()
+    scheduler.find_watch_topic.return_value = topic
+    scheduler.get_watch_topic_names.return_value = ["Watched Topic"] if topic else []
+    scheduler.watch_keywords.get.return_value = (include or [], exclude or [])
+    return scheduler
+
+
+async def test_keywords_no_args_lists_watch_topics():
+    reply = AsyncMock()
+    scheduler = _keywords_scheduler(topic={"name": "Watched Topic"})
+    await handle_digest_command(["keywords"], scheduler, reply)
+    reply.assert_called_once()
+    assert "Watched Topic" in reply.call_args[0][0]
+
+
+async def test_keywords_show_lists_for_topic():
+    reply = AsyncMock()
+    scheduler = _keywords_scheduler(
+        topic={"name": "Watched Topic"}, include=["ransomware"], exclude=["sponsored"]
+    )
+    await handle_digest_command(["keywords", "watched"], scheduler, reply)
+    reply.assert_called_once()
+    text = reply.call_args[0][0]
+    assert "ransomware" in text
+    assert "sponsored" in text
+
+
+async def test_keywords_unknown_topic():
+    reply = AsyncMock()
+    scheduler = _keywords_scheduler(topic=None)
+    await handle_digest_command(["keywords", "nonexistent"], scheduler, reply)
+    reply.assert_called_once()
+    assert "No watch-mode topic" in reply.call_args[0][0]
+
+
+async def test_keywords_add_calls_scheduler():
+    reply = AsyncMock()
+    scheduler = _keywords_scheduler(topic={"name": "Watched Topic"})
+    scheduler.watch_keywords.add.return_value = True
+    await handle_digest_command(["keywords", "watched", "add", "ransomware"], scheduler, reply)
+    scheduler.watch_keywords.add.assert_called_once_with(
+        "Watched Topic", "ransomware", exclude=False
+    )
+    assert "Added" in reply.call_args[0][0]
+
+
+async def test_keywords_remove_calls_scheduler():
+    reply = AsyncMock()
+    scheduler = _keywords_scheduler(topic={"name": "Watched Topic"})
+    scheduler.watch_keywords.remove.return_value = True
+    await handle_digest_command(["keywords", "watched", "remove", "ransomware"], scheduler, reply)
+    scheduler.watch_keywords.remove.assert_called_once_with(
+        "Watched Topic", "ransomware", exclude=False
+    )
+    assert "Removed" in reply.call_args[0][0]
+
+
+async def test_keywords_exclude_calls_scheduler():
+    reply = AsyncMock()
+    scheduler = _keywords_scheduler(topic={"name": "Watched Topic"})
+    scheduler.watch_keywords.add.return_value = True
+    await handle_digest_command(["keywords", "watched", "exclude", "sponsored"], scheduler, reply)
+    scheduler.watch_keywords.add.assert_called_once_with("Watched Topic", "sponsored", exclude=True)
+
+
+async def test_keywords_unexclude_calls_scheduler():
+    reply = AsyncMock()
+    scheduler = _keywords_scheduler(topic={"name": "Watched Topic"})
+    scheduler.watch_keywords.remove.return_value = True
+    await handle_digest_command(["keywords", "watched", "unexclude", "sponsored"], scheduler, reply)
+    scheduler.watch_keywords.remove.assert_called_once_with(
+        "Watched Topic", "sponsored", exclude=True
+    )
+
+
+async def test_keywords_add_duplicate_warns():
+    reply = AsyncMock()
+    scheduler = _keywords_scheduler(topic={"name": "Watched Topic"})
+    scheduler.watch_keywords.add.return_value = False
+    await handle_digest_command(["keywords", "watched", "add", "ransomware"], scheduler, reply)
+    assert "already" in reply.call_args[0][0].lower()
+
+
+# ---------------------------------------------------------------------------
 # _normalize_value — URL scheme stripping for !osint domain / ip
 # ---------------------------------------------------------------------------
 

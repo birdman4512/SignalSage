@@ -31,6 +31,22 @@
 #                       RSS/Atom feeds (.xml, .rss, .atom) are auto-detected.
 #                       HTML pages are scraped with BeautifulSoup.
 #                       A source may also carry an optional image_url.
+#
+#   watch_mode        — set to `true` to switch this topic from a scheduled digest to
+#                       continuous polling: sources are fetched every `poll_interval_minutes`
+#                       and any NEW item (never seen before) whose title/summary matches the
+#                       topic's keywords is summarized and posted immediately. `schedule` and
+#                       `lookback` are ignored when watch_mode is on. Note: plain HTML sources
+#                       (not RSS/Atom/JSON feeds) have no reliable per-article structure, so
+#                       the whole page is treated as one "item" and only re-checked when its
+#                       content changes.
+#   poll_interval_minutes — how often to poll in watch_mode (default: digest.watch_default_poll_minutes)
+#   keywords          — seed list of include keywords for watch_mode (plain, case-insensitive
+#                       substring match against title+summary). Only used to seed the runtime
+#                       keyword store on first startup — after that, manage keywords with
+#                       `!digest keywords <topic> add/remove <word>`. Omit/empty = match everything.
+#   exclude_keywords  — seed list of exclude keywords for watch_mode (any match vetoes a post).
+#                       Manage at runtime with `!digest keywords <topic> exclude/unexclude <word>`.
 
 name: "My Custom Topic"
 schedule: "0 8 * * *"
@@ -40,3 +56,9 @@ tags: [mytag]                 # must be unique across all topics
 sources:
   - name: "My Source"
     url: "https://example.com/feed.xml"
+
+# --- OR, for continuous keyword-triggered posting instead of a scheduled digest: ---
+# watch_mode: true
+# poll_interval_minutes: 15
+# keywords: ["zero-day", "ransomware"]
+# exclude_keywords: ["sponsored"]

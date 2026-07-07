@@ -23,6 +23,13 @@ HELP_TEXT = """\
 • `!digest top <N>` — set how many top stories get full summaries this session (1–20, default 10)
 • `!digest help` — show this reference
 
+*Watch-mode keywords* (topics that poll continuously instead of a daily digest)
+• `!digest keywords <topic>` — show a watch topic's include/exclude keywords
+• `!digest keywords <topic> add <word>` — only post items mentioning this word
+• `!digest keywords <topic> remove <word>` — remove an include keyword
+• `!digest keywords <topic> exclude <word>` — never post items mentioning this word
+• `!digest keywords <topic> unexclude <word>` — remove an exclude keyword
+
 *OSINT*
 • `!osint email <address>` — breach check via Have I Been Pwned
 • `!osint domain <domain>` — crt.sh cert transparency + WHOIS age + passive DNS
@@ -66,6 +73,82 @@ def parse_command(text: str) -> tuple[str, list[str]] | None:
     # Strip Slack auto-link formatting from every argument token
     args = [_strip_slack_link(p) for p in parts[1:]]
     return parts[0].lower(), args
+
+
+_KEYWORDS_USAGE = (
+    "Usage:\n"
+    "• `!digest keywords <topic>` — show include/exclude keywords\n"
+    "• `!digest keywords <topic> add <word>` — add an include keyword\n"
+    "• `!digest keywords <topic> remove <word>` — remove an include keyword\n"
+    "• `!digest keywords <topic> exclude <word>` — add an exclude keyword\n"
+    "• `!digest keywords <topic> unexclude <word>` — remove an exclude keyword\n"
+)
+
+
+async def _handle_keywords_command(
+    args: list[str],
+    scheduler,
+    reply: Callable[[str], Awaitable[None]],
+) -> None:
+    """Handle `!digest keywords <topic> [add|remove|exclude|unexclude <word>]`."""
+    if not args:
+        names = scheduler.get_watch_topic_names()
+        listing = "\n".join(f"• {n}" for n in names) if names else "  (none)"
+        await reply(f"{_KEYWORDS_USAGE}\nWatch-mode topics:\n{listing}")
+        return
+
+    action = None
+    word = None
+    if len(args) >= 3 and args[-2].lower() in ("add", "remove", "exclude", "unexclude"):
+        action = args[-2].lower()
+        word = args[-1]
+        topic_query = " ".join(args[:-2])
+    else:
+        topic_query = " ".join(args)
+
+    topic = scheduler.find_watch_topic(topic_query)
+    if topic is None:
+        names = scheduler.get_watch_topic_names()
+        listing = "\n".join(f"• {n}" for n in names) if names else "  (none)"
+        await reply(
+            f"⚠️ No watch-mode topic matching *{topic_query}*. Watch-mode topics:\n{listing}"
+        )
+        return
+
+    name = topic["name"]
+    keywords = scheduler.watch_keywords
+
+    if action is None:
+        include, exclude = keywords.get(name)
+        include_str = (
+            ", ".join(f"`{w}`" for w in include) if include else "_(none — matches everything)_"
+        )
+        exclude_str = ", ".join(f"`{w}`" for w in exclude) if exclude else "_(none)_"
+        await reply(
+            f"🔑 Keywords for *{name}*:\n• Include: {include_str}\n• Exclude: {exclude_str}"
+        )
+        return
+
+    if action == "add":
+        if keywords.add(name, word, exclude=False):
+            await reply(f"✅ Added include keyword `{word}` to *{name}*.")
+        else:
+            await reply(f"⚠️ `{word}` is already an include keyword for *{name}*.")
+    elif action == "remove":
+        if keywords.remove(name, word, exclude=False):
+            await reply(f"✅ Removed include keyword `{word}` from *{name}*.")
+        else:
+            await reply(f"⚠️ `{word}` is not an include keyword for *{name}*.")
+    elif action == "exclude":
+        if keywords.add(name, word, exclude=True):
+            await reply(f"✅ Added exclude keyword `{word}` to *{name}*.")
+        else:
+            await reply(f"⚠️ `{word}` is already an exclude keyword for *{name}*.")
+    elif action == "unexclude":
+        if keywords.remove(name, word, exclude=True):
+            await reply(f"✅ Removed exclude keyword `{word}` from *{name}*.")
+        else:
+            await reply(f"⚠️ `{word}` is not an exclude keyword for *{name}*.")
 
 
 async def handle_digest_command(
@@ -125,6 +208,9 @@ async def handle_digest_command(
 
     elif args[0] in ("help", "?"):
         await reply(HELP_TEXT)
+
+    elif args[0] == "keywords":
+        await _handle_keywords_command(args[1:], scheduler, reply)
 
     else:
         topic_query = " ".join(args)
