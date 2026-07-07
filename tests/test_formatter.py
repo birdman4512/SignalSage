@@ -276,6 +276,40 @@ def test_format_digest_slack_top_n_split():
     assert "Story 5" in header_texts
 
 
+def test_format_digest_slack_bare_mode_skips_header():
+    """Watch-mode alerts (meta.bare) post only the story card, no topic header/overview."""
+    payloads = format_digest_slack_message(
+        "Watched Topic", _structured_summary(), meta={"bare": True, "top_stories_count": 1}
+    )
+    assert len(payloads) == 1  # just the one card, no header message
+    texts = _all_section_texts(payloads)
+    assert not any("Top signal" in t for t in texts)  # overview text absent
+    assert any("Test Headline" in t for t in texts)
+
+
+def test_format_digest_slack_bare_mode_all_items_shown_no_tail():
+    """Bare mode must not silently drop items into a suppressed 'more stories' tail."""
+    items = [
+        {
+            "icon": "📰",
+            "severity": "high",
+            "headline": f"Story {i}",
+            "summary": "Detail.",
+            "url": f"https://example.com/{i}",
+            "art_id": f"A{i}",
+        }
+        for i in range(1, 4)
+    ]
+    summary = json.dumps({"overview": "", "items": items})
+    payloads = format_digest_slack_message(
+        "Watched Topic", summary, meta={"bare": True, "top_stories_count": 3}
+    )
+    assert len(payloads) == 3
+    texts = _all_section_texts(payloads)
+    assert any("Story 1" in t for t in texts)
+    assert any("Story 3" in t for t in texts)
+
+
 # ---------------------------------------------------------------------------
 # format_digest_plain
 # ---------------------------------------------------------------------------
@@ -346,6 +380,16 @@ def test_format_digest_plain_top_n_split():
     assert "More Stories" in messages[0]
     assert "Story 4" in messages[0]
     assert "Story 5" in messages[0]
+
+
+def test_format_digest_plain_bare_mode_skips_header():
+    messages = format_digest_plain(
+        "Watched Topic", _structured_summary(), meta={"bare": True, "top_stories_count": 1}
+    )
+    assert len(messages) == 1  # just the one card, no header message
+    combined = _joined_plain(messages)
+    assert "Top signal" not in combined
+    assert "Test Headline" in combined
 
 
 def test_format_digest_slack_images():

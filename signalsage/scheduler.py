@@ -453,14 +453,44 @@ class DigestScheduler:
         ]
 
         try:
-            summary = await self.summarizer.summarize_topic(name, fetched)
+            raw = await self.summarizer.summarize_watch_items(name, fetched, include, exclude)
         except Exception as exc:
             logger.exception("Failed to summarize watch matches for topic '%s': %s", name, exc)
             return True
 
-        summary, extra_meta = _postprocess_summary(
-            summary, name, self._history, self._session_hashes
+        try:
+            parsed = json.loads(raw)
+        except (json.JSONDecodeError, ValueError):
+            parsed = None
+        candidate_items = [i for i in (parsed or {}).get("items", []) if isinstance(i, dict)]
+        # A missing "relevant" key defaults to keeping the item — the schema requires
+        # it, so this only guards against a malformed/partial LLM response.
+        relevant_items = [i for i in candidate_items if i.get("relevant", True)]
+        if not relevant_items:
+            logger.info(
+                "Watch topic '%s': LLM judged 0/%d matched item(s) relevant",
+                name,
+                len(candidate_items),
+            )
+            return True
+
+        watch_summary = json.dumps(
+            {
+                "overview": "",
+                "coverage_confidence": (parsed or {}).get("coverage_confidence"),
+                "items": relevant_items,
+            }
         )
+        summary, extra_meta = _postprocess_summary(
+            watch_summary, name, self._history, self._session_hashes
+        )
+        try:
+            final_item_count = len(json.loads(summary).get("items", []))
+        except (json.JSONDecodeError, ValueError):
+            final_item_count = len(relevant_items)
+        if final_item_count == 0:
+            logger.info("Watch topic '%s': all matched items were cross-topic duplicates", name)
+            return True
 
         meta = {
             "sources_total": len(fetched),
@@ -470,7 +500,8 @@ class DigestScheduler:
             "deduped_count": extra_meta["deduped_count"],
             "coverage_confidence": extra_meta["coverage_confidence"],
             "images": [],
-            "top_stories_count": len(matched),
+            "top_stories_count": final_item_count,
+            "bare": True,
         }
         topic_channel = topic.get("digest_channel") or override_channel or None
 

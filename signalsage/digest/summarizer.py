@@ -258,6 +258,93 @@ _DIGEST_JSON_SCHEMA: dict = {
 }
 
 
+def _build_watch_system_prompt(include_keywords: list[str], exclude_keywords: list[str]) -> str:
+    """Build the system prompt for watch-mode items that were pre-filtered by keyword match.
+
+    A plain substring match can be a false positive (the keyword appears in an
+    unrelated context, or only in passing), so the LLM is asked to judge genuine
+    relevance per item rather than trust the substring match blindly.
+    """
+    include_str = (
+        ", ".join(f'"{k}"' for k in include_keywords)
+        if include_keywords
+        else "(any newsworthy item)"
+    )
+    exclude_section = ""
+    if exclude_keywords:
+        exclude_str = ", ".join(f'"{k}"' for k in exclude_keywords)
+        exclude_section = (
+            f"\nAn item primarily about one of these excluded topics is NOT relevant, "
+            f"even if it also mentions an include keyword: {exclude_str}.\n"
+        )
+    return f"""\
+You are screening a small batch of newly-published articles that were pre-filtered because their \
+text contains one of these keywords: {include_str}. A plain text match can be a false positive — \
+the keyword might appear in an unrelated context or only in passing. For EACH article, judge \
+whether it GENUINELY concerns one of the keywords as a main subject.
+{exclude_section}
+Produce a single JSON object with EXACTLY these keys.
+
+"overview": always output an empty string "" — it is not used, do not spend effort on it.
+"coverage_confidence": "high", "medium", or "low" based on how much detail the source gives you.
+"items": one object per article provided, each with:
+  "art_id": the [A<N>] label for this article. REQUIRED.
+  "relevant": true if the article genuinely concerns one of the keywords as a main subject, \
+false if it's a coincidental or unrelated match (or primarily about an excluded topic).
+  "icon": exactly ONE emoji summarising the story.
+  "severity": "critical", "high", "medium", or "low".
+  "headline": max 80 characters, factual, no clickbait.
+  "summary": EXACTLY 1-2 sentences — state what happened and why it matters. Direct and factual, \
+no filler, no broadcast-anchor voice.
+  "url": copy verbatim from the article's URL line; if none, use the source's "Source URL:" header.
+
+STRICT RULES — you will be penalised for breaking these:
+- Output ONLY the raw JSON object. No markdown fences, no commentary.
+- Judge "relevant" honestly — mark false rather than include a coincidental match.
+- "summary" must be 1-2 sentences. Never more, never a bare list of facts.
+- Use ONLY content from the articles provided. Do not invent facts or URLs.
+- "art_id" must match an [A<N>] label in the source content.
+"""
+
+
+_WATCH_JSON_SCHEMA: dict = {
+    "type": "object",
+    "properties": {
+        "overview": {"type": "string"},
+        "coverage_confidence": {"type": "string", "enum": ["high", "medium", "low"]},
+        "items": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+                "type": "object",
+                "properties": {
+                    "art_id": {"type": "string"},
+                    "relevant": {"type": "boolean"},
+                    "icon": {"type": "string"},
+                    "severity": {
+                        "type": "string",
+                        "enum": ["critical", "high", "medium", "low"],
+                    },
+                    "headline": {"type": "string"},
+                    "summary": {"type": "string"},
+                    "url": {"type": "string"},
+                },
+                "required": [
+                    "art_id",
+                    "relevant",
+                    "icon",
+                    "severity",
+                    "headline",
+                    "summary",
+                    "url",
+                ],
+            },
+        },
+    },
+    "required": ["overview", "coverage_confidence", "items"],
+}
+
+
 def _lacks_story_items(raw: str) -> bool:
     """True when an LLM response contains no story items at all.
 
@@ -315,11 +402,16 @@ class DigestSummarizer:
         self._ioc_bucket = self._ioc_bucket_capacity
         self._ioc_bucket_last = time.monotonic()
 
-    async def summarize_topic(
-        self, topic_name: str, sources: list[dict], lookback: str | None = None
-    ) -> str:
-        today = date.today().strftime("%B %d, %Y")
+    def _build_source_blocks(
+        self, topic_name: str, sources: list[dict]
+    ) -> tuple[list[str], dict[str, str], list[tuple[str, str]]]:
+        """Stamp each source's "Title:" lines with [A<N>] article IDs and build
+        the "### Source\\nSource URL: ...\\n..." blocks shared by summarize_topic
+        and summarize_watch_items.
 
+        Returns (source_blocks, url_map, title_url_pairs) — url_map maps art_id
+        to URL, title_url_pairs is the Jaccard-matching fallback list.
+        """
         source_blocks: list[str] = []
         url_map: dict[str, str] = {}  # art_id → url  (e.g. "A3" → "https://...")
         title_url_pairs: list[tuple[str, str]] = []  # Jaccard fallback
@@ -372,6 +464,14 @@ class DigestSummarizer:
             art_counter,
             len(url_map),
         )
+        return source_blocks, url_map, title_url_pairs
+
+    async def summarize_topic(
+        self, topic_name: str, sources: list[dict], lookback: str | None = None
+    ) -> str:
+        today = date.today().strftime("%B %d, %Y")
+
+        source_blocks, url_map, title_url_pairs = self._build_source_blocks(topic_name, sources)
 
         if not source_blocks:
             window = f"the last {lookback}" if lookback else today
@@ -451,6 +551,45 @@ class DigestSummarizer:
 
         # All retries exhausted - produce a minimal fallback from raw headlines
         return self._fallback_summary(source_blocks, last_exc, 1 + _LLM_RETRIES)
+
+    async def summarize_watch_items(
+        self,
+        topic_name: str,
+        sources: list[dict],
+        include_keywords: list[str],
+        exclude_keywords: list[str],
+    ) -> str:
+        """Summarize a small batch of already keyword-matched items for an immediate
+        watch-mode post.
+
+        Unlike ``summarize_topic``, this asks the LLM to also judge genuine relevance
+        per item (a plain substring match can be a false positive) and produces short
+        1-2 sentence summaries suited to a single tile card rather than a full digest.
+        Returns raw JSON with a "relevant" boolean per item — the caller is responsible
+        for dropping items judged not relevant before posting.
+        """
+        source_blocks, url_map, title_url_pairs = self._build_source_blocks(topic_name, sources)
+        if not source_blocks:
+            return json.dumps({"overview": "", "coverage_confidence": "low", "items": []})
+
+        user_prompt = (
+            f"The following NEW article(s) were found for {topic_name}.\n"
+            "\n--- BEGIN CONTENT ---\n" + "\n".join(source_blocks) + "\n--- END CONTENT ---"
+        )
+
+        try:
+            raw = await self.llm.complete(
+                system=_build_watch_system_prompt(include_keywords, exclude_keywords),
+                user=user_prompt,
+                max_tokens=2048,
+                json_mode=True,
+                json_schema=_WATCH_JSON_SCHEMA,
+            )
+        except Exception as exc:
+            logger.error("LLM error summarizing watch items for topic %s: %s", topic_name, exc)
+            return json.dumps({"overview": "", "coverage_confidence": "low", "items": []})
+
+        return _inject_urls(raw, url_map, title_url_pairs)
 
     def _fallback_summary(
         self,

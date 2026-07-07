@@ -15,10 +15,31 @@ def _make_watchlist(*schedules: str) -> dict:
     return {"topics": topics}
 
 
-def _make_summarizer(summary: str = "summary text") -> MagicMock:
+def _default_watch_json(relevant: bool = True) -> str:
+    return json.dumps(
+        {
+            "overview": "",
+            "coverage_confidence": "high",
+            "items": [
+                {
+                    "art_id": "A1",
+                    "relevant": relevant,
+                    "icon": "🔴",
+                    "severity": "high",
+                    "headline": "Test headline",
+                    "summary": "Test summary.",
+                    "url": "https://example.com",
+                }
+            ],
+        }
+    )
+
+
+def _make_summarizer(summary: str = "summary text", watch_items: str | None = None) -> MagicMock:
     summarizer = MagicMock()
     summarizer.max_chars = 3000
     summarizer.summarize_topic = AsyncMock(return_value=summary)
+    summarizer.summarize_watch_items = AsyncMock(return_value=watch_items or _default_watch_json())
     return summarizer
 
 
@@ -460,6 +481,37 @@ async def test_run_watch_topic_matched_item_posts_immediately(tmp_path):
     notifier.assert_called_once()
     assert notifier.call_args[0][0] == "Watched Topic"
     assert notifier.call_args.kwargs["meta"]["top_stories_count"] == 1
+    assert notifier.call_args.kwargs["meta"]["bare"] is True
+
+
+async def test_run_watch_topic_llm_marks_item_irrelevant_skips_notify(tmp_path):
+    """A substring match the LLM judges as a coincidental/irrelevant hit must not post."""
+    notifier = AsyncMock()
+    topic = {
+        "name": "Watched Topic",
+        "watch_mode": True,
+        "sources": [{"name": "S", "url": "https://a.com"}],
+    }
+    watchlist = {"topics": [topic]}
+    items = [
+        {
+            "source_name": "S",
+            "source_url": "https://a.com",
+            "title": "The apt tenant renewed their lease",
+            "link": "https://a.com/1",
+            "summary": "unrelated real-estate story",
+            "published_ts": None,
+        }
+    ]
+    summarizer = _make_summarizer(watch_items=_default_watch_json(relevant=False))
+    with patch("signalsage.scheduler.fetch_topic_items", new=AsyncMock(return_value=items)):
+        scheduler = _make_scheduler(
+            watchlist, notifiers=[notifier], summarizer=summarizer, tmp_path=tmp_path
+        )
+        scheduler.watch_keywords.add("Watched Topic", "apt")
+        result = await scheduler._run_watch_topic(topic)
+    assert result is True  # new items were seen, just judged not relevant
+    notifier.assert_not_called()
 
 
 async def test_run_watch_topic_does_not_repost_same_item(tmp_path):

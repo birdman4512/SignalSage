@@ -308,12 +308,18 @@ APScheduler registers an IntervalTrigger job per watch-mode topic
               old items, and a crash mid-summary can't cause a repeat post)
         → WatchKeywords.get(topic) → matches_keywords() — plain, case-insensitive
               substring match against title+summary; empty include list matches
-              everything; any exclude hit vetoes
-        → if any items matched: build a synthetic per-source content block from
-              just the matches and reuse DigestSummarizer.summarize_topic() +
-              the normal notifier/formatter pipeline unchanged — the digest is
-              posted immediately with every match as a full story card (no
-              "more stories" tail truncation)
+              everything; any exclude hit vetoes (cheap pre-filter, no LLM cost)
+        → if any items matched: DigestSummarizer.summarize_watch_items() — a
+              separate LLM call/prompt from the scheduled-digest path. Because a
+              substring match can be a coincidental false positive, the LLM is
+              asked to judge genuine relevance per item ("relevant": true/false)
+              and write a short 1-2 sentence summary (not the broadcast-anchor,
+              3-5 sentence style used by scheduled digests)
+        → items judged not relevant are dropped; if none remain, nothing posts
+        → remaining items go through the normal notifier/formatter pipeline with
+              meta.bare=True, which skips the topic header/overview entirely —
+              each match posts as a single bare tile: headline, 1-2 sentence
+              summary, link (no "more stories" tail truncation either)
 ```
 
 Keywords are runtime-mutable, not baked into the YAML: a topic's `keywords`/

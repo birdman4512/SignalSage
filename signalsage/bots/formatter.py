@@ -518,6 +518,7 @@ def format_digest_slack_message(
     today = date.today().strftime("%B %d, %Y")
     window = f"last {lookback}" if lookback else today
     top_n = int((meta or {}).get("top_stories_count", 10))
+    bare = bool((meta or {}).get("bare"))
 
     parsed = _parse_digest_json(summary)
 
@@ -569,93 +570,98 @@ def format_digest_slack_message(
     messages: list[dict] = []
 
     # ── Message 0: header + overview + metadata + images ─────────────────────
-    header_blocks: list[dict] = [
-        {"type": "section", "text": {"type": "mrkdwn", "text": f"{icon}  *{topic_name}*"}},
-        {"type": "context", "elements": [{"type": "mrkdwn", "text": f"Digest  ·  {window}"}]},
-        {"type": "divider"},
-    ]
+    # Skipped entirely in "bare" mode (watch-mode alerts) — just the story card(s).
+    if not bare:
+        header_blocks: list[dict] = [
+            {"type": "section", "text": {"type": "mrkdwn", "text": f"{icon}  *{topic_name}*"}},
+            {"type": "context", "elements": [{"type": "mrkdwn", "text": f"Digest  ·  {window}"}]},
+            {"type": "divider"},
+        ]
 
-    overview_text = _overview_text(parsed, valid_items)
+        overview_text = _overview_text(parsed, valid_items)
 
-    if overview_text:
-        header_blocks.append(
-            {
-                "type": "section",
-                "text": {"type": "mrkdwn", "text": f"*📰 Overview*\n{overview_text}"},
-            }
-        )
-        header_blocks.append({"type": "divider"})
-
-    # Remaining stories ride along in the header message as a compact link list
-    # (rather than a separate trailing message) to keep the digest to
-    # 1 + top_n messages total.
-    if tail_items:
-        tail_lines: list[str] = []
-        for item in tail_items:
-            headline = _escape_mrkdwn(str(item.get("headline", "")).strip())
-            url = str(item.get("url") or "").strip()
-            item_icon = _clean_icon(item.get("icon"))
-            if not headline:
-                continue
-            source = _source_label(url)
-            source_suffix = f"  ·  {source}" if source else ""
-            tail_lines.append(
-                f"• {item_icon} <{url}|{headline}>{source_suffix}"
-                if url.startswith("http")
-                else f"• {item_icon} {headline}{source_suffix}"
-            )
-        if tail_lines:
+        if overview_text:
             header_blocks.append(
                 {
                     "type": "section",
-                    "text": {"type": "mrkdwn", "text": f"*📋 More Stories ({len(tail_lines)})*"},
+                    "text": {"type": "mrkdwn", "text": f"*📰 Overview*\n{overview_text}"},
                 }
             )
-            current_lines: list[str] = []
-            current_len = 0
-            for line in tail_lines:
-                if current_len + len(line) + 1 > 2900 and current_lines:
+            header_blocks.append({"type": "divider"})
+
+        # Remaining stories ride along in the header message as a compact link list
+        # (rather than a separate trailing message) to keep the digest to
+        # 1 + top_n messages total.
+        if tail_items:
+            tail_lines: list[str] = []
+            for item in tail_items:
+                headline = _escape_mrkdwn(str(item.get("headline", "")).strip())
+                url = str(item.get("url") or "").strip()
+                item_icon = _clean_icon(item.get("icon"))
+                if not headline:
+                    continue
+                source = _source_label(url)
+                source_suffix = f"  ·  {source}" if source else ""
+                tail_lines.append(
+                    f"• {item_icon} <{url}|{headline}>{source_suffix}"
+                    if url.startswith("http")
+                    else f"• {item_icon} {headline}{source_suffix}"
+                )
+            if tail_lines:
+                header_blocks.append(
+                    {
+                        "type": "section",
+                        "text": {
+                            "type": "mrkdwn",
+                            "text": f"*📋 More Stories ({len(tail_lines)})*",
+                        },
+                    }
+                )
+                current_lines: list[str] = []
+                current_len = 0
+                for line in tail_lines:
+                    if current_len + len(line) + 1 > 2900 and current_lines:
+                        header_blocks.append(
+                            {
+                                "type": "section",
+                                "text": {"type": "mrkdwn", "text": "\n".join(current_lines)},
+                            }
+                        )
+                        current_lines = []
+                        current_len = 0
+                    current_lines.append(line)
+                    current_len += len(line) + 1
+                if current_lines:
                     header_blocks.append(
                         {
                             "type": "section",
                             "text": {"type": "mrkdwn", "text": "\n".join(current_lines)},
                         }
                     )
-                    current_lines = []
-                    current_len = 0
-                current_lines.append(line)
-                current_len += len(line) + 1
-            if current_lines:
-                header_blocks.append(
-                    {
-                        "type": "section",
-                        "text": {"type": "mrkdwn", "text": "\n".join(current_lines)},
-                    }
-                )
-            header_blocks.append({"type": "divider"})
+                header_blocks.append({"type": "divider"})
 
-    footer_parts = _digest_footer_parts(parsed, meta)
-    if footer_parts:
-        header_blocks.append(
-            {
-                "type": "context",
-                "elements": [{"type": "mrkdwn", "text": "  ·  ".join(footer_parts)}],
-            }
-        )
-
-    for img_url in (meta or {}).get("images", []):
-        if img_url and str(img_url).startswith("http"):
-            header_blocks.append({"type": "divider"})
+        footer_parts = _digest_footer_parts(parsed, meta)
+        if footer_parts:
             header_blocks.append(
-                {"type": "image", "image_url": img_url, "alt_text": f"{topic_name} chart"}
+                {
+                    "type": "context",
+                    "elements": [{"type": "mrkdwn", "text": "  ·  ".join(footer_parts)}],
+                }
             )
 
-    messages.append(
-        {
-            "text": f"{icon} {topic_name} digest — {window}",
-            "attachments": [{"color": _DIGEST_COLOUR, "blocks": header_blocks}],
-        }
-    )
+        for img_url in (meta or {}).get("images", []):
+            if img_url and str(img_url).startswith("http"):
+                header_blocks.append({"type": "divider"})
+                header_blocks.append(
+                    {"type": "image", "image_url": img_url, "alt_text": f"{topic_name} chart"}
+                )
+
+        messages.append(
+            {
+                "text": f"{icon} {topic_name} digest — {window}",
+                "attachments": [{"color": _DIGEST_COLOUR, "blocks": header_blocks}],
+            }
+        )
 
     # ── Messages 1..top_n: individual story cards ────────────────────────────
     for idx, item in enumerate(top_items):
@@ -712,6 +718,7 @@ def format_digest_plain(
     window = f"last {lookback}" if lookback else today
     icon = _topic_icon(topic_name)
     top_n = int((meta or {}).get("top_stories_count", 10))
+    bare = bool((meta or {}).get("bare"))
     sep = "─" * 36
 
     parsed = _parse_digest_json(summary)
@@ -738,49 +745,51 @@ def format_digest_plain(
     messages: list[str] = []
 
     # ── Message 0: header + overview + metadata ───────────────────────────────
-    header_lines: list[str] = [
-        f"{icon}  **{topic_name}**  ·  {window}",
-        "━" * 40,
-    ]
+    # Skipped entirely in "bare" mode (watch-mode alerts) — just the story card(s).
+    if not bare:
+        header_lines: list[str] = [
+            f"{icon}  **{topic_name}**  ·  {window}",
+            "━" * 40,
+        ]
 
-    overview_text = _overview_text(parsed, valid_items)
+        overview_text = _overview_text(parsed, valid_items)
 
-    if overview_text:
-        header_lines.append("")
-        header_lines.append(overview_text)
-
-    # Remaining stories ride along in the header message (rather than a separate
-    # trailing message) to keep the digest to 1 + top_n messages total.
-    if tail_items:
-        tail_item_lines: list[str] = []
-        for item in tail_items:
-            headline = str(item.get("headline", "")).strip()
-            url = str(item.get("url") or "").strip()
-            item_icon = _clean_icon(item.get("icon"))
-            if not headline:
-                continue
-            source = _source_label(url)
-            source_suffix = f" · {source}" if source else ""
-            if url and url.startswith("http"):
-                tail_item_lines.append(f"• {item_icon} [{headline}]({url}){source_suffix}")
-            else:
-                tail_item_lines.append(f"• {item_icon} {headline}{source_suffix}")
-        if tail_item_lines:
+        if overview_text:
             header_lines.append("")
-            header_lines.append(f"**📋 More Stories ({len(tail_item_lines)})**")
-            header_lines.extend(tail_item_lines)
+            header_lines.append(overview_text)
 
-    footer_parts = _digest_footer_parts(parsed, meta)
-    if footer_parts:
-        header_lines.append("")
-        header_lines.append(sep)
-        header_lines.append(" · ".join(footer_parts))
+        # Remaining stories ride along in the header message (rather than a separate
+        # trailing message) to keep the digest to 1 + top_n messages total.
+        if tail_items:
+            tail_item_lines: list[str] = []
+            for item in tail_items:
+                headline = str(item.get("headline", "")).strip()
+                url = str(item.get("url") or "").strip()
+                item_icon = _clean_icon(item.get("icon"))
+                if not headline:
+                    continue
+                source = _source_label(url)
+                source_suffix = f" · {source}" if source else ""
+                if url and url.startswith("http"):
+                    tail_item_lines.append(f"• {item_icon} [{headline}]({url}){source_suffix}")
+                else:
+                    tail_item_lines.append(f"• {item_icon} {headline}{source_suffix}")
+            if tail_item_lines:
+                header_lines.append("")
+                header_lines.append(f"**📋 More Stories ({len(tail_item_lines)})**")
+                header_lines.extend(tail_item_lines)
 
-    for img_url in (meta or {}).get("images", []):
-        if img_url and str(img_url).startswith("http"):
-            header_lines.append(img_url)
+        footer_parts = _digest_footer_parts(parsed, meta)
+        if footer_parts:
+            header_lines.append("")
+            header_lines.append(sep)
+            header_lines.append(" · ".join(footer_parts))
 
-    messages.append("\n".join(header_lines))
+        for img_url in (meta or {}).get("images", []):
+            if img_url and str(img_url).startswith("http"):
+                header_lines.append(img_url)
+
+        messages.append("\n".join(header_lines))
 
     # ── Messages 1..top_n: individual story cards ─────────────────────────────
     for item in top_items:
