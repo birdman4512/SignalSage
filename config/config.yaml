@@ -94,7 +94,7 @@ digest:
   # an interval instead of a cron schedule and post immediately when a new item
   # matches the topic's keywords. This is the default poll interval for watch-mode
   # topics that don't set their own `poll_interval_minutes`.
-  watch_default_poll_minutes: 30
+  watch_default_poll_minutes: 120
 
   # LLM backend: "ollama" (local, free), "anthropic" (paid API), or "cli"
   # ("cli" shells out to the Claude Code / Codex CLI in headless mode — bills
