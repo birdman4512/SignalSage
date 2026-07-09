@@ -150,6 +150,10 @@ services:
     networks:
       - internal   # reachable by signalsage
       - external   # needed on first start to download the model
+    # Capped so transcription can't starve Ollama/the bot on low-RAM hosts —
+    # transcription just takes longer instead of pegging all CPUs.
+    cpus: "1.0"
+    mem_limit: 1g
 
 volumes:
   ollama_data:
