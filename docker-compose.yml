@@ -42,6 +42,15 @@ x-bot-base: &bot-base
   networks:
     - internal   # talks to ollama / whisper
     - external   # reaches Slack, Discord, threat intel APIs (+ Anthropic/OpenAI for CLI)
+  # Pinned public resolvers instead of inheriting the host's resolv.conf at
+  # container-creation time — Docker never refreshes that snapshot, so if the
+  # host's active resolver later changes (e.g. Tailscale MagicDNS toggled off),
+  # a long-running container is left pointed at a dead upstream and every
+  # outbound lookup (Discord gateway, RSS feeds, intel providers) starts
+  # failing until it's recreated. Public resolvers don't move underneath us.
+  dns:
+    - 1.1.1.1
+    - 8.8.8.8
   logging:
     driver: json-file
     options:
