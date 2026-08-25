@@ -7,6 +7,8 @@ import re
 import time
 from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta
+from datetime import time as dtime
+from zoneinfo import ZoneInfo
 
 from apscheduler.events import EVENT_JOB_ERROR, EVENT_JOB_EXECUTED
 from apscheduler.executors.asyncio import AsyncIOExecutor
@@ -96,6 +98,27 @@ def _compute_auto_lookback(
     return f"{hours}h"
 
 
+def _parse_hhmm(value: str) -> dtime:
+    hour, _, minute = value.strip().partition(":")
+    return dtime(int(hour), int(minute or 0))
+
+
+def _within_active_hours(
+    now: datetime,
+    weekday_start: str,
+    weekday_end: str,
+    weekend_start: str,
+    weekend_end: str,
+) -> bool:
+    """Return True if *now* (a tz-aware local datetime) falls inside the
+    configured active window — weekday window Mon-Fri, weekend window Sat-Sun.
+    """
+    is_weekend = now.weekday() >= 5  # Sat=5, Sun=6
+    start_s, end_s = (weekend_start, weekend_end) if is_weekend else (weekday_start, weekday_end)
+    start, end = _parse_hhmm(start_s), _parse_hhmm(end_s)
+    return start <= now.time() < end
+
+
 def _postprocess_summary(
     summary: str,
     topic: str,
@@ -177,6 +200,7 @@ class DigestScheduler:
         top_stories_count: int = 10,
         lookback_buffer_hours: float = 2.0,
         watch_default_poll_minutes: int = 15,
+        active_hours: dict | None = None,
     ) -> None:
         self.summarizer = summarizer
         self.notifiers = notifiers
@@ -186,6 +210,10 @@ class DigestScheduler:
         self.whisper_base_url = whisper_base_url
         self.top_stories_count = top_stories_count
         self.watch_default_poll_minutes = int(watch_default_poll_minutes)
+        # Quiet-hours gate for *scheduled* runs only (on-demand !digest commands
+        # always bypass it). None/{} disables the gate entirely.
+        self.active_hours = active_hours or None
+        self._tzinfo = ZoneInfo(timezone)
         self._scheduler = AsyncIOScheduler(
             timezone=timezone,
             executors={"default": AsyncIOExecutor()},
@@ -212,7 +240,7 @@ class DigestScheduler:
                 poll_minutes = int(topic.get("poll_interval_minutes") or watch_default_poll_minutes)
                 job_id = "watch_" + name.lower().replace(" ", "_")
                 self._scheduler.add_job(
-                    self._run_watch_topic,
+                    self._run_watch_topic_scheduled,
                     IntervalTrigger(minutes=poll_minutes),
                     args=[topic],
                     id=job_id,
@@ -231,7 +259,7 @@ class DigestScheduler:
                 continue
 
             self._scheduler.add_job(
-                self._run_topic,
+                self._run_topic_scheduled,
                 trigger,
                 args=[topic],
                 id=job_id,
@@ -256,6 +284,42 @@ class DigestScheduler:
             self._session_hashes.clear()
             self._session_date = today
             logger.info("New day — cross-topic dedup session reset")
+
+    def _in_active_hours(self) -> bool:
+        """True if scheduled runs are allowed right now (quiet-hours gate).
+
+        Only gates the scheduler's own cron/interval triggers — on-demand
+        ``!digest`` commands call ``_run_topic``/``_run_watch_topic`` directly
+        and always bypass it.
+        """
+        if not self.active_hours:
+            return True
+        now = datetime.now(self._tzinfo)
+        return _within_active_hours(
+            now,
+            self.active_hours.get("weekday_start", "00:00"),
+            self.active_hours.get("weekday_end", "23:59"),
+            self.active_hours.get("weekend_start", "00:00"),
+            self.active_hours.get("weekend_end", "23:59"),
+        )
+
+    async def _run_topic_scheduled(self, topic: dict) -> None:
+        """APScheduler cron job entry point — skips the run during quiet hours."""
+        if not self._in_active_hours():
+            logger.debug(
+                "Skipping scheduled digest '%s' — outside active hours", topic.get("name", "?")
+            )
+            return
+        await self._run_topic(topic)
+
+    async def _run_watch_topic_scheduled(self, topic: dict) -> None:
+        """APScheduler interval job entry point — skips the poll during quiet hours."""
+        if not self._in_active_hours():
+            logger.debug(
+                "Skipping watch-mode poll '%s' — outside active hours", topic.get("name", "?")
+            )
+            return
+        await self._run_watch_topic(topic)
 
     async def _run_topic(self, topic: dict, progress=None, override_channel=None) -> None:
         """Fetch, summarize, and notify for a single topic.

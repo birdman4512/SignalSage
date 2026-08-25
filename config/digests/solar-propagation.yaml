@@ -1,7 +1,7 @@
 # One digest topic per file. See template.yaml.example for the full field reference.
 name: "Solar & Propagation"
 tags: [solar, propagation, spaceweather]  # !digest solar
-schedule: "0 18 * * 3"          # 6:00pm Thursdays (APScheduler: Mon=0, Thu=3)
+schedule: "0 17 * * 3"          # 5:00pm Thursdays (APScheduler: Mon=0, Thu=3) — inside the 7am-6pm weekday window
 lookback: "7d"
 digest_channel: "#general"
 top_stories_count: 4

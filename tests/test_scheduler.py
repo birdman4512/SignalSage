@@ -4,7 +4,7 @@ import json
 from datetime import UTC, date, datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from signalsage.scheduler import DigestScheduler, _compute_auto_lookback
+from signalsage.scheduler import DigestScheduler, _compute_auto_lookback, _within_active_hours
 
 
 def _make_watchlist(*schedules: str) -> dict:
@@ -370,6 +370,99 @@ async def test_run_topic_auto_derives_lookback_when_omitted(tmp_path):
     assert summarizer.summarize_topic.await_args.kwargs["lookback"] == "8h"
     # notifier should also receive it so the channel header shows the right window
     assert notifier.call_args.kwargs["lookback"] == "8h"
+
+
+# ---------------------------------------------------------------------------
+# Active-hours quiet gate
+# ---------------------------------------------------------------------------
+
+_ACTIVE_HOURS = {
+    "weekday_start": "07:00",
+    "weekday_end": "18:00",
+    "weekend_start": "09:00",
+    "weekend_end": "17:00",
+}
+
+
+def test_within_active_hours_weekday_inside_window():
+    # Wed 2024-01-03 12:00
+    assert _within_active_hours(datetime(2024, 1, 3, 12, 0), **_ACTIVE_HOURS) is True
+
+
+def test_within_active_hours_weekday_before_window():
+    # Wed 2024-01-03 06:59
+    assert _within_active_hours(datetime(2024, 1, 3, 6, 59), **_ACTIVE_HOURS) is False
+
+
+def test_within_active_hours_weekday_end_is_exclusive():
+    # Wed 2024-01-03 18:00 — end boundary is exclusive
+    assert _within_active_hours(datetime(2024, 1, 3, 18, 0), **_ACTIVE_HOURS) is False
+
+
+def test_within_active_hours_weekend_uses_narrower_window():
+    # Sat 2024-01-06 08:00 — before the 9am weekend start, even though it's
+    # inside the weekday window
+    assert _within_active_hours(datetime(2024, 1, 6, 8, 0), **_ACTIVE_HOURS) is False
+    # Sat 2024-01-06 12:00 — inside
+    assert _within_active_hours(datetime(2024, 1, 6, 12, 0), **_ACTIVE_HOURS) is True
+
+
+def test_within_active_hours_disabled_when_no_config():
+    # No active_hours configured on the scheduler → gate always passes.
+    scheduler = _make_scheduler(_make_watchlist("0 6 * * *"))
+    assert scheduler._in_active_hours() is True
+
+
+async def test_scheduled_topic_skipped_outside_active_hours(tmp_path):
+    notifier = AsyncMock()
+    watchlist = _make_watchlist("0 6 * * *")
+    scheduler = DigestScheduler(
+        summarizer=_make_summarizer(),
+        watchlist=watchlist,
+        notifiers=[notifier],
+        data_dir=str(tmp_path),
+        active_hours=_ACTIVE_HOURS,
+    )
+    with patch.object(scheduler, "_in_active_hours", return_value=False):
+        await scheduler._run_topic_scheduled(watchlist["topics"][0])
+    notifier.assert_not_called()
+
+
+async def test_scheduled_watch_topic_skipped_outside_active_hours(tmp_path):
+    watchlist = {
+        "topics": [{"name": "Watch Topic", "watch_mode": True, "sources": []}],
+    }
+    scheduler = DigestScheduler(
+        summarizer=_make_summarizer(),
+        watchlist=watchlist,
+        notifiers=[],
+        data_dir=str(tmp_path),
+        active_hours=_ACTIVE_HOURS,
+    )
+    with (
+        patch.object(scheduler, "_in_active_hours", return_value=False),
+        patch("signalsage.scheduler.fetch_topic_items", new=AsyncMock(return_value=[])) as fetch,
+    ):
+        await scheduler._run_watch_topic_scheduled(watchlist["topics"][0])
+    fetch.assert_not_called()
+
+
+async def test_run_topic_now_bypasses_active_hours_gate(tmp_path):
+    """On-demand `!digest` commands must ignore the quiet-hours gate."""
+    notifier = AsyncMock()
+    watchlist = _make_watchlist("0 6 * * *")
+    with patch("signalsage.scheduler.fetch_topic", new=AsyncMock(return_value=[])):
+        scheduler = DigestScheduler(
+            summarizer=_make_summarizer(),
+            watchlist=watchlist,
+            notifiers=[notifier],
+            data_dir=str(tmp_path),
+            active_hours=_ACTIVE_HOURS,
+        )
+        with patch.object(scheduler, "_in_active_hours", return_value=False):
+            found = await scheduler.run_topic_now("Topic A")
+    assert found is True
+    notifier.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------

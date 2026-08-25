@@ -74,8 +74,9 @@ intel:
       enabled: true                   # free, no key required — https://bgpview.io/
 
 digest:
-  # Fallback schedule for topics that don't define their own (5-part cron)
-  default_schedule: "0 6 * * *"
+  # Fallback schedule for topics that don't define their own (5-part cron).
+  # 9am clears both the weekday (7am) and weekend (9am) active_hours start below.
+  default_schedule: "0 9 * * *"
   timezone: "Australia/Brisbane"
   max_chars_per_source: 3000
   max_total_chars_per_topic: 20000   # cap total content sent to LLM per topic (~5k tokens)
@@ -95,6 +96,17 @@ digest:
   # matches the topic's keywords. This is the default poll interval for watch-mode
   # topics that don't set their own `poll_interval_minutes`.
   watch_default_poll_minutes: 120
+
+  # Quiet-hours gate applied to *scheduled* digest runs and watch-mode polls only
+  # (an on-demand `!digest` command always bypasses it). A cron/interval trigger
+  # that fires outside this window is skipped rather than deferred — it simply
+  # doesn't post. Times are HH:MM in `digest.timezone`. Remove this whole block
+  # (or set `digest.active_hours: null`) to run around the clock again.
+  active_hours:
+    weekday_start: "07:00"   # Mon-Fri
+    weekday_end: "18:00"
+    weekend_start: "09:00"   # Sat-Sun
+    weekend_end: "17:00"
 
   # LLM backend: "ollama" (local, free), "anthropic" (paid API), or "cli"
   # ("cli" shells out to the Claude Code / Codex CLI in headless mode — bills

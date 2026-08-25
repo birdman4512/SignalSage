@@ -142,6 +142,7 @@ Main configuration file. Uses `${ENV_VAR}` syntax for environment variable subst
 - `digest.top_stories_count` — how many top stories are shown with a full summary; the rest appear as headline+link only (default: 10, adjustable at runtime with `!digest top <N>`). Individual topics can override this with `top_stories_count` in their digest file; all shipped digest files set 4 (5 messages per digest run including the overview).
 - `digest.interest_topics` — optional list of keywords (e.g. `["ransomware", "zero-day", "CISA"]`) passed to the LLM to help rank the most relevant stories higher
 - `digest.watch_default_poll_minutes` — default poll interval (minutes) for watch-mode topics that don't set their own `poll_interval_minutes` (default: 15)
+- `digest.active_hours` — quiet-hours gate applied to *scheduled* digest cron fires and watch-mode polls only; an on-demand `!digest` command always bypasses it. Shape: `{weekday_start, weekday_end, weekend_start, weekend_end}` as `"HH:MM"` in `digest.timezone` (shipped default: weekdays 07:00-18:00, weekends 09:00-17:00). A trigger that fires outside the window is skipped, not deferred — the topic simply doesn't run until its next fire inside the window, so per-topic `schedule` values should already land inside it. Omit the key (or set it to `null`) to run around the clock.
 - `whisper.enabled` — enable Whisper audio transcription service
 - `whisper.base_url` — Whisper service endpoint (default: `"http://whisper:8000"`)
 
