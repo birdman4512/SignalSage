@@ -352,6 +352,36 @@ def test_auto_lookback_custom_buffer():
     assert _compute_auto_lookback("0 0,6,12,18 * * *", "UTC", 1.0, _now=_MON_0900) == "7h"
 
 
+_CATCHUP_ACTIVE_HOURS = {
+    "weekday_start": "07:00",
+    "weekday_end": "18:00",
+    "weekend_start": "07:00",
+    "weekend_end": "18:00",
+}
+_TUE_1105 = datetime(2026, 5, 5, 11, 5, tzinfo=UTC)
+
+
+def test_auto_lookback_skips_quiet_hours_fires():
+    """Fires the quiet-hours gate would skip must not count as a 'last run'.
+
+    Schedule fires at 05/11/17/23; only 11:00 and 17:00 fall inside the
+    07:00-18:00 active window. Tuesday's 11:00 run must therefore catch up
+    to Monday's last *actual* run (17:00, an 18h gap), not the nominal ~6h
+    cron-field gap the un-filtered calculation would use.
+    """
+    assert (
+        _compute_auto_lookback(
+            "0 5,11,17,23 * * *", "UTC", 2.0, active_hours=_CATCHUP_ACTIVE_HOURS, _now=_TUE_1105
+        )
+        == "20h"
+    )
+
+
+def test_auto_lookback_unaffected_without_active_hours():
+    """Sanity check: active_hours=None preserves the original un-filtered gap."""
+    assert _compute_auto_lookback("0 5,11,17,23 * * *", "UTC", 2.0, _now=_MON_0900) == "8h"
+
+
 async def test_run_topic_auto_derives_lookback_when_omitted(tmp_path):
     """A topic without `lookback` should have one derived from its schedule."""
     notifier = AsyncMock()
