@@ -197,14 +197,10 @@ def test_format_digest_slack_has_item_headline():
     assert any("Test Headline" in t for t in texts)
 
 
-def test_format_digest_slack_read_more_button():
+def test_format_digest_slack_has_url_line():
     payloads = format_digest_slack_message("Test Topic", _structured_summary())
-    buttons = [
-        b.get("accessory", {})
-        for b in _all_slack_blocks(payloads)
-        if b.get("type") == "section" and b.get("accessory")
-    ]
-    assert any(b.get("url") == "https://example.com" for b in buttons)
+    texts = _all_section_texts(payloads)
+    assert any("https://example.com" in t for t in texts)
 
 
 def test_format_digest_slack_source_label_shown():
@@ -254,7 +250,7 @@ def test_format_digest_slack_fallback_plain_text():
 
 
 def test_format_digest_slack_top_n_split():
-    """Top-N stories become individual messages; extras become links in the header."""
+    """Top-N stories get the full treatment in one message; extras become links."""
     items = [
         {
             "icon": "📰",
@@ -268,20 +264,21 @@ def test_format_digest_slack_top_n_split():
     ]
     summary = json.dumps({"overview": "Overview.", "items": items})
     payloads = format_digest_slack_message("Test Topic", summary, meta={"top_stories_count": 3})
-    # message 0 = header (overview + remaining-story links), messages 1-3 = top stories
-    assert len(payloads) == 4
-    header_texts = " ".join(_all_section_texts([payloads[0]]))
-    assert "More Stories" in header_texts
-    assert "Story 4" in header_texts
-    assert "Story 5" in header_texts
+    assert len(payloads) == 1  # everything in one message
+    texts = " ".join(_all_section_texts(payloads))
+    assert "Story 1" in texts
+    assert "Story 3" in texts
+    assert "More Stories" in texts
+    assert "Story 4" in texts
+    assert "Story 5" in texts
 
 
 def test_format_digest_slack_bare_mode_skips_header():
-    """Watch-mode alerts (meta.bare) post only the story card, no topic header/overview."""
+    """Watch-mode alerts (meta.bare) post the topic name but no overview."""
     payloads = format_digest_slack_message(
         "Watched Topic", _structured_summary(), meta={"bare": True, "top_stories_count": 1}
     )
-    assert len(payloads) == 1  # just the one card, no header message
+    assert len(payloads) == 1
     texts = _all_section_texts(payloads)
     assert not any("Top signal" in t for t in texts)  # overview text absent
     assert any("Test Headline" in t for t in texts)
@@ -304,10 +301,11 @@ def test_format_digest_slack_bare_mode_all_items_shown_no_tail():
     payloads = format_digest_slack_message(
         "Watched Topic", summary, meta={"bare": True, "top_stories_count": 3}
     )
-    assert len(payloads) == 3
+    assert len(payloads) == 1
     texts = _all_section_texts(payloads)
     assert any("Story 1" in t for t in texts)
     assert any("Story 3" in t for t in texts)
+    assert not any("More Stories" in t for t in texts)
 
 
 # ---------------------------------------------------------------------------
@@ -361,7 +359,7 @@ def test_format_digest_plain_fallback():
 
 
 def test_format_digest_plain_top_n_split():
-    """Returns a header message (with remaining-story links) plus one message per top story."""
+    """Returns a single message: top-N stories in full, extras as links."""
     items = [
         {
             "icon": "📰",
@@ -375,18 +373,20 @@ def test_format_digest_plain_top_n_split():
     ]
     summary = json.dumps({"overview": "Overview.", "items": items})
     messages = format_digest_plain("Test Topic", summary, meta={"top_stories_count": 3})
-    # message 0 = header (overview + remaining-story links), messages 1-3 = top stories
-    assert len(messages) == 4
-    assert "More Stories" in messages[0]
-    assert "Story 4" in messages[0]
-    assert "Story 5" in messages[0]
+    assert len(messages) == 1
+    combined = _joined_plain(messages)
+    assert "Story 1" in combined
+    assert "Story 3" in combined
+    assert "More Stories" in combined
+    assert "Story 4" in combined
+    assert "Story 5" in combined
 
 
 def test_format_digest_plain_bare_mode_skips_header():
     messages = format_digest_plain(
         "Watched Topic", _structured_summary(), meta={"bare": True, "top_stories_count": 1}
     )
-    assert len(messages) == 1  # just the one card, no header message
+    assert len(messages) == 1
     combined = _joined_plain(messages)
     assert "Top signal" not in combined
     assert "Test Headline" in combined
