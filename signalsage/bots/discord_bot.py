@@ -115,18 +115,20 @@ def _digest_embeds(
                 img_embed.set_image(url=img_url)
                 extra_image_embeds.append(img_embed)
 
-    # Discord embeds cap at 25 fields total. A spacer only goes in when there's
-    # room for it plus at least one more real field, so a long digest degrades
-    # to tight (no-spacer) fields instead of Discord rejecting the message.
+    # Discord embeds don't support Slack-style divider blocks, so a field
+    # whose value is a row of dashes stands in for one. Embeds cap at 25
+    # fields total — a divider only goes in when there's room for it plus at
+    # least one more real field, so a long digest degrades to tight (no
+    # divider) fields instead of Discord rejecting the message.
     def _add_spacer() -> None:
         if len(embed.fields) < 24:
-            embed.add_field(name="​", value="​", inline=False)
+            embed.add_field(name="​", value="─" * 40, inline=False)
 
     # ── each story as a field: "<emoji> headline" / blurb / URL ───────────────
     # Values are truncated well under Discord's per-field 1024-char cap since
     # the embed's *total* character budget (6000) is shared across every field.
-    # A blank zero-width spacer field follows each story so Discord renders a
-    # visible gap between story blocks instead of stacking them edge-to-edge.
+    # A dashed divider field follows each story so Discord renders a visible
+    # break between story blocks instead of stacking them edge-to-edge.
     for idx, item in enumerate(top_items):
         if idx > 0:
             _add_spacer()
