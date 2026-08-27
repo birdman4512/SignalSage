@@ -1,7 +1,7 @@
 # One digest topic per file. See template.yaml.example for the full field reference.
 name: "Ham Radio News"
 tags: [ham, dx, hamradio]       # !digest ham
-schedule: "30 17 * * 3"         # 5:30pm Thursdays (APScheduler: Mon=0, Thu=3) — inside the 7am-6pm weekday window
+schedule: "30 17 * * 3"         # 5:30pm Thursdays (APScheduler: Mon=0, Thu=3) — inside the 6am-6pm weekday window
 lookback: "7d"
 digest_channel: "#general"
 top_stories_count: 4

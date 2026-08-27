@@ -103,7 +103,7 @@ digest:
   # doesn't post. Times are HH:MM in `digest.timezone`. Remove this whole block
   # (or set `digest.active_hours: null`) to run around the clock again.
   active_hours:
-    weekday_start: "07:00"   # Mon-Fri
+    weekday_start: "06:00"   # Mon-Fri
     weekday_end: "18:00"
     weekend_start: "09:00"   # Sat-Sun
     weekend_end: "17:00"
