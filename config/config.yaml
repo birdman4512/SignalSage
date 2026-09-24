@@ -82,6 +82,7 @@ digest:
   collection_minutes: 15           # collection continues through quiet hours
   bootstrap_days: 7                # initial install only; checkpoints survive restarts
   max_article_age_days: 8          # never post stories collected/published longer ago than this
+  transcript_wait_days: 4          # hold an episode this long for its published transcript (source transcript_url)
   retention_days: 90
   article_chars: 6000              # body budget for ONE shortlisted article
   max_prompt_chars: 8000

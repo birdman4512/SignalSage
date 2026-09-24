@@ -12,8 +12,13 @@ from .collection import collect_source, fetch_article_text
 from .fetcher import _transcribe_audio, parse_lookback
 from .ranking import contains, fingerprint, score_article, similar_story
 from .store import ArticleStore
+from .transcripts import fetch_transcript, select_passages, transcript_url
 
 logger = logging.getLogger(__name__)
+
+
+class TranscriptPending(ValueError):
+    """The show's published transcript isn't out yet; retry on a later run."""
 
 
 class DigestPipeline:
@@ -105,13 +110,28 @@ class DigestPipeline:
             destinations.append((f"{platform}:{resolved or 'default'}", notify, resolved))
         return destinations
 
-    async def prepare(self, article: dict) -> dict:
+    async def prepare(
+        self, article: dict, source: dict | None = None, focus_terms: list[str] | None = None
+    ) -> dict:
         if article.get("body"):
             return article
+        budget = int(self.settings.get("article_chars", 6000))
         body, kind = article.get("summary", ""), "feed excerpt"
-        if article.get("whole_page"):
+        published_url = transcript_url(source or {}, article.get("title", ""))
+        published = await fetch_transcript(published_url) if published_url else None
+        if published_url and not published:
+            # Human transcripts (e.g. GRC's for Security Now) land a few days
+            # after the episode. Hold the episode for them rather than posting
+            # from show notes; fall back only if one never appears.
+            age = time.time() - (article.get("published_ts") or article.get("collected") or 0)
+            if age < float(self.settings.get("transcript_wait_days", 4)) * 86400:
+                raise TranscriptPending(f"Transcript not yet published: {published_url}")
+            logger.info("No transcript at %s; using the feed description", published_url)
+        if published:
+            body, kind = published, "show transcript"
+        elif article.get("whole_page"):
             kind = "source page"
-        elif article.get("audio_url") and self.whisper_base_url:
+        elif article.get("audio_url") and self.whisper_base_url and not published_url:
             transcript = await _transcribe_audio(article["audio_url"], self.whisper_base_url)
             if transcript:
                 body, kind = transcript, "podcast transcript"
@@ -121,6 +141,10 @@ class DigestPipeline:
             )
             if text:
                 body, kind = text, "article text"
+        if kind in ("show transcript", "podcast transcript"):
+            # A transcript runs to ~40-130k chars but the model reads `budget`;
+            # send its most on-topic passages instead of the opening chatter.
+            body = select_passages(body, article.get("title", ""), focus_terms or [], budget)
         enrichment = []
         if self.processor and self.settings.get("enrich_cves", True):
             cves = list(
@@ -175,6 +199,7 @@ class DigestPipeline:
             if not destinations:
                 return
             include, exclude = self.keywords.get(topic["name"])
+            sources_by_url = {s["url"]: s for s in topic.get("sources", []) if s.get("url")}
             profile = {**self.profile, **topic.get("profile", {})}
             threshold = float(profile.get("minimum_score", 2.5))
             feedback = self.store.feedback_weights()
@@ -246,7 +271,9 @@ class DigestPipeline:
                         article["relevance_score"],
                         article["reasons"],
                     )
-                    article = await self.prepare(article)
+                    article = await self.prepare(
+                        article, sources_by_url.get(article.get("source_url", "")), include
+                    )
                     cache_key = self.summarizer.cache_key
                     if article.get("cached_summary") and article.get("summary_key") == cache_key:
                         summary = json.loads(article["cached_summary"])
@@ -271,6 +298,9 @@ class DigestPipeline:
                         "relevance_score": article["relevance_score"],
                     }
                     selected.append(article)
+                except TranscriptPending as exc:
+                    metrics["deferred"] = metrics.get("deferred", 0) + 1
+                    logger.info("Article %s deferred: %s", article["id"][:12], exc)
                 except Exception as exc:
                     metrics["failed"] += 1
                     self._generation_retry[article["id"]] = time.monotonic() + 300

@@ -19,6 +19,11 @@ sources:
     url: "https://www.reddit.com/r/Security/.rss"
   - name: "Security Now (podcast)"
     url: "https://feeds.twit.tv/sn.xml"
+    # GRC publishes a human transcript of every episode, usually a few days
+    # after it airs. Used instead of Whisper; the episode waits for it
+    # (digest.transcript_wait_days) before falling back to the show notes.
+    transcript_url: "https://www.grc.com/sn/sn-{episode}.txt"
+    episode_pattern: "SN\\s*(\\d+)"   # "SN 1097: ..." -> 1097
   - name: "Risky Business (podcast)"
     url: "https://risky.biz/feeds/risky-business/"
   - name: "Lobsters security"
