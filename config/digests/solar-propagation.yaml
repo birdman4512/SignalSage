@@ -6,9 +6,6 @@ lookback: "7d"
 digest_channel: "#general"
 top_stories_count: 4
 sources:
-  - name: "Space Weather Australia — HF Conditions"
-    url: "https://www.sws.bom.gov.au/HF_Systems/6/5"
-    image_url: "https://www.sws.bom.gov.au/Images/HF%20Systems/Australasia/T%20Index/ANZTIndexMap.gif"
   - name: "Solar Terrestrial Activity Report"
     url: "https://solen.info/solar/index.html"
   - name: "HamQSL Solar Data"
@@ -18,3 +15,8 @@ sources:
     url: "https://dx.qsl.net/propagation/propagation.html"
   - name: "Radio Propagation Reports"
     url: "https://radio-propagation.net/"
+  - name: "NOAA SWPC 3-Day Forecast"
+    url: "https://services.swpc.noaa.gov/text/3-day-forecast.txt"
+    # BOM's HF page itself is JavaScript-rendered (no readable text), but its
+    # Australasian T-index map is a plain image and still worth attaching.
+    image_url: "https://www.sws.bom.gov.au/Images/HF%20Systems/Australasia/T%20Index/ANZTIndexMap.gif"

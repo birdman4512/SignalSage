@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import time
 from urllib.parse import urljoin, urlparse
 
 import feedparser
@@ -17,8 +18,47 @@ from .fetcher import (
     _user_agent,
 )
 
+# Most recent entries kept per source per collection. Some feeds publish their
+# entire archive (MSRC ~5,000 items, OpenAI ~1,200); re-ingesting all of that
+# every collection is pure waste, and 100 comfortably covers late or
+# out-of-order publications.
+_MAX_ITEMS_PER_SOURCE = 100
+
+# Minimum seconds between requests to hosts with strict unauthenticated rate
+# limits. Reddit allows ~10 requests/min per IP and 429s bursts even 3s apart.
+_HOST_MIN_INTERVAL = {"reddit.com": 7.0}
+_host_locks: dict[str, asyncio.Lock] = {}
+_host_last: dict[str, float] = {}
+
+
+async def _throttle(url: str) -> None:
+    host = (urlparse(url).hostname or "").lower()
+    for domain, interval in _HOST_MIN_INTERVAL.items():
+        if host == domain or host.endswith("." + domain):
+            lock = _host_locks.setdefault(domain, asyncio.Lock())
+            async with lock:
+                wait = _host_last.get(domain, 0.0) + interval - time.monotonic()
+                if wait > 0:
+                    await asyncio.sleep(wait)
+                _host_last[domain] = time.monotonic()
+            return
+
+
+def _most_recent(items: list[dict]) -> list[dict]:
+    """Newest first (undated entries keep feed order, ahead of dated ones), capped."""
+    if len(items) <= _MAX_ITEMS_PER_SOURCE:
+        return items
+    ordered = sorted(items, key=lambda i: -(i.get("published_ts") or float("inf")))
+    return ordered[:_MAX_ITEMS_PER_SOURCE]
+
 
 async def collect_source(source: dict) -> tuple[list[dict], str | None]:
+    await _throttle(source["url"])
+    items, error = await _collect_source(source)
+    return _most_recent(items), error
+
+
+async def _collect_source(source: dict) -> tuple[list[dict], str | None]:
     url = source["url"]
     response = await _fetch_raw(url, 20)
     if response is None:

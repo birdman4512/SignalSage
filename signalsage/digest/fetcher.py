@@ -31,18 +31,29 @@ _XML_CONTENT_TYPES = (
 _WHITESPACE_RE = re.compile(r"\s+")
 
 _DEFAULT_UA = "SignalSage/1.0 (Threat Intelligence Bot)"
-# Reddit blocks non-browser User-Agents — use a generic browser UA for reddit.com
-_REDDIT_UA = "Mozilla/5.0 (X11; Linux x86_64; rv:124.0) Gecko/20100101 Firefox/124.0"
+_BROWSER_UA = "Mozilla/5.0 (X11; Linux x86_64; rv:124.0) Gecko/20100101 Firefox/124.0"
+# Hosts that reject or stall non-browser User-Agents (verified from the
+# production host): Reddit 429s, DX World and bom.gov.au 403, and
+# cyber.gov.au (ASD's ACSC) hangs until the request times out.
+_BROWSER_UA_HOSTS = ("reddit.com", "dx-world.net", "cyber.gov.au", "bom.gov.au")
 
 
 def _user_agent(url: str) -> str:
-    if "reddit.com" in url:
-        return _REDDIT_UA
+    try:
+        host = (urlparse(url).hostname or "").lower()
+    except ValueError:
+        return _DEFAULT_UA
+    if any(host == h or host.endswith("." + h) for h in _BROWSER_UA_HOSTS):
+        return _BROWSER_UA
     return _DEFAULT_UA
 
 
 # Max audio file size to attempt transcription (bytes). Downloads larger than this are skipped.
-_MAX_AUDIO_BYTES = 200 * 1024 * 1024  # 200 MB
+# Measured on the production host (base.en, 2 GB cap): a 38 MB / ~40 min episode
+# peaks Whisper at ~1.3 GB and takes ~20 min per CPU. Two-hour shows (120 MB+)
+# would take over an hour and risk the memory cap, so they fall back to the
+# episode's feed description instead.
+_MAX_AUDIO_BYTES = 80 * 1024 * 1024  # 80 MB
 
 # Cap how many redirect hops the audio downloader will follow. A compromised feed
 # can redirect from a benign-looking URL to internal infrastructure (Ollama on the
@@ -127,7 +138,7 @@ def _strip_html(html: str) -> str:
 async def _transcribe_audio(
     audio_url: str,
     whisper_base_url: str,
-    timeout: int = 600,
+    timeout: int = 1800,  # CPU transcription of a 40-min episode takes 10-20 min
 ) -> str | None:
     """
     Download an audio file and transcribe it via the Whisper API, with results

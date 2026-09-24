@@ -19,3 +19,7 @@ sources:
     url: "https://www.infosecurity-magazine.com/rss/news/"
   - name: "CyberScoop"
     url: "https://www.cyberscoop.com/feed/"
+  - name: "The Register Security"
+    url: "https://www.theregister.com/security/headlines.atom"
+  - name: "iTnews Security"  # Australian
+    url: "https://www.itnews.com.au/RSS/rss.ashx?type=Category&ID=37"

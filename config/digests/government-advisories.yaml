@@ -13,4 +13,7 @@ sources:
     url: "https://www.ncsc.gov.uk/api/1/services/v1/blog-post-rss-feed.xml"
   - name: "SANS Internet Storm Center"
     url: "https://isc.sans.edu/rssfeed_full.xml"
-  # ACSC (Australia) — no working RSS feed available as of 2026-05
+  - name: "ASD's ACSC Alerts"  # Australian Cyber Security Centre
+    url: "https://www.cyber.gov.au/rss/alerts"
+  - name: "ASD's ACSC Advisories"
+    url: "https://www.cyber.gov.au/rss/advisories"

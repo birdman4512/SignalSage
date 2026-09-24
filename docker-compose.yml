@@ -174,10 +174,12 @@ services:
     networks:
       - internal   # reachable by signalsage
       - external   # needed on first start to download the model
-    # Capped so transcription can't starve Ollama/the bot on low-RAM hosts —
-    # transcription just takes longer instead of pegging all CPUs.
-    cpus: "1.0"
-    mem_limit: 1g
+    # Capped so transcription can't starve Ollama/the bot on low-RAM hosts.
+    # 2 GB is the measured floor, not a guess: a ~40 min episode peaks at
+    # ~1.3 GB, and at 1 GB the container is OOM-killed mid-transcription.
+    # Two CPUs roughly halve the ~20 min a 40 min episode takes on one.
+    cpus: "2.0"
+    mem_limit: 2g
 
 volumes:
   ollama_data:

@@ -101,3 +101,42 @@ async def test_article_download_size_is_bounded(monkeypatch):
         )
     )
     assert await fetch_article_text("https://example.com/a") is None
+
+
+def test_browser_user_agent_only_for_hosts_that_block_bots():
+    from signalsage.digest.fetcher import _BROWSER_UA, _DEFAULT_UA, _user_agent
+
+    assert _user_agent("https://www.cyber.gov.au/rss/alerts") == _BROWSER_UA
+    assert _user_agent("https://www.reddit.com/r/netsec/.rss") == _BROWSER_UA
+    assert _user_agent("https://dx-world.net/feed/") == _BROWSER_UA
+    assert _user_agent("https://krebsonsecurity.com/feed/") == _DEFAULT_UA
+    # Host match, not substring: a lookalike domain or path mention doesn't qualify.
+    assert _user_agent("https://notreddit.com/feed") == _DEFAULT_UA
+    assert _user_agent("https://example.com/?u=reddit.com") == _DEFAULT_UA
+
+
+def test_large_feeds_keep_only_the_most_recent_entries():
+    from signalsage.digest.collection import _MAX_ITEMS_PER_SOURCE, _most_recent
+
+    # Oldest-first order, like the CISA KEV JSON feed appends new entries.
+    items = [{"title": str(i), "published_ts": 1_000_000 + i} for i in range(500)]
+    kept = _most_recent(items)
+    assert len(kept) == _MAX_ITEMS_PER_SOURCE
+    assert kept[0]["title"] == "499"
+    assert {i["title"] for i in kept} == {str(i) for i in range(400, 500)}
+
+
+async def test_reddit_requests_are_spaced_out(monkeypatch):
+    from signalsage.digest import collection
+
+    sleeps: list[float] = []
+
+    async def fake_sleep(seconds):
+        sleeps.append(seconds)
+
+    monkeypatch.setattr(collection.asyncio, "sleep", fake_sleep)
+    monkeypatch.setattr(collection, "_host_last", {})
+    await collection._throttle("https://www.reddit.com/r/a/.rss")
+    await collection._throttle("https://www.reddit.com/r/b/.rss")
+    await collection._throttle("https://krebsonsecurity.com/feed/")
+    assert len(sleeps) == 1 and 6 < sleeps[0] <= 7

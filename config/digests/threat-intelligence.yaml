@@ -8,9 +8,9 @@ top_stories_count: 4
 sources:
   - name: "The DFIR Report"
     url: "https://thedfirreport.com/feed/"
-  - name: "Feodo Tracker"
-    url: "https://feodotracker.abuse.ch/feed/"
   - name: "Krebs on Security"
     url: "https://krebsonsecurity.com/feed/"
   - name: "Schneier on Security"
     url: "https://www.schneier.com/feed/atom/"
+  - name: "Sophos X-Ops"
+    url: "https://news.sophos.com/en-us/category/threat-research/feed/"

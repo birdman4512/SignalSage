@@ -16,3 +16,5 @@ sources:
     url: "https://radio-propagation.net/"
   - name: "Reddit: Amateur Radio"
     url: "https://www.reddit.com/r/amateurradio/new/.rss"
+  - name: "AMSAT News"
+    url: "https://www.amsat.org/feed/"

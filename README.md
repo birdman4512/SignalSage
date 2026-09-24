@@ -91,6 +91,8 @@ WHISPER_ENABLED=true
 
 Only shortlisted episodes are transcribed. Their transcript and summary are persisted, so subsequent deliveries do not repeat the work. With transcription disabled or unavailable, summaries are labelled as based on feed excerpts.
 
+Resource needs, measured on a 4-core CPU-only host with `base.en`: a ~40-minute (38 MB) episode peaks Whisper at about 1.3 GB and takes roughly 20 minutes per CPU. The container is therefore given 2 GB and 2 CPUs; at 1 GB it is killed mid-transcription. Episodes over 80 MB (roughly two hours) are not transcribed and use their feed description instead. Transcription runs when an episode is shortlisted, so that topic's post can arrive 10–20 minutes after its scheduled time. Only the first `article_chars` of a transcript (about the opening 6–7 minutes) reach the summarizer.
+
 ## Persistence and upgrades
 
 Back up `data/`. Stop the bot before copying its SQLite files, or use SQLite's backup API for a consistent live database backup. The directory must be writable by the bot's container user (UID 10001 for the Ollama profile).

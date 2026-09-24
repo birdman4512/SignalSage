@@ -21,3 +21,5 @@ sources:
     url: "https://feeds.twit.tv/sn.xml"
   - name: "Risky Business (podcast)"
     url: "https://risky.biz/feeds/risky-business/"
+  - name: "Lobsters security"
+    url: "https://lobste.rs/t/security.rss"
