@@ -58,6 +58,12 @@ class ArticleStore:
     @contextmanager
     def connect(self):
         db = sqlite3.connect(self.path, timeout=10)
+        # WAL + NORMAL: a commit no longer fsyncs. Measured on the production
+        # disk, FULL cost 65 ms per commit versus 0.5 ms — enough that a publish
+        # run's per-article decisions blocked the event loop for ~10s and
+        # dropped the Slack socket. A power cut can lose the last few commits
+        # but can't corrupt the database; delivery is at-least-once regardless.
+        db.execute("PRAGMA synchronous=NORMAL")
         db.row_factory = sqlite3.Row
         try:
             with db:
@@ -300,7 +306,12 @@ class ArticleStore:
             delay = max(retry_after, min(3600, 30 * 2 ** min(attempts, 7)))
             db.execute(
                 "UPDATE outbox SET attempts=?,next_attempt=?,error=? WHERE id=?",
-                (attempts, time.time() + delay, str(error)[:500], outbox_id),
+                (
+                    attempts,
+                    time.time() + delay,
+                    f"{type(error).__name__}: {error}"[:500],
+                    outbox_id,
+                ),
             )
 
     def record_feedback(self, article_prefix: str, actor: str, useful: bool) -> bool:

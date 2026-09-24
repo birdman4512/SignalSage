@@ -454,3 +454,24 @@ async def test_digest_does_not_wait_for_running_background_collection(tmp_path):
         assert await pipeline.collect_if_idle(TOPIC) == 0
         pipeline.collect.assert_not_awaited()
     assert await pipeline.collect_if_idle(TOPIC) == 1
+
+
+async def test_failed_grounding_posts_a_quoted_excerpt_once(tmp_path):
+    from signalsage.digest.summarizer import SummaryValidationError
+
+    pipeline, dest = make_pipeline(tmp_path)
+    ingest(pipeline)
+    pipeline.summarizer.summarize_article.side_effect = SummaryValidationError("bad evidence")
+    await pipeline.publish(TOPIC, 5)
+    card = dest.messages[0][1]["items"][0]
+    assert card["summary"].startswith("A patch is available for CVE-2026-1234.")
+    assert card["content_kind"] == "quoted excerpt of feed excerpt"
+    # The fallback is cached: later runs never pay for the same failing call.
+    await pipeline.publish({**TOPIC, "digest_channel": "C999"}, 5)
+    assert pipeline.summarizer.summarize_article.await_count == 1
+
+
+def test_store_commits_without_fsync(tmp_path):
+    store = ArticleStore(str(tmp_path))
+    with store.connect() as db:
+        assert db.execute("PRAGMA synchronous").fetchone()[0] == 1  # NORMAL

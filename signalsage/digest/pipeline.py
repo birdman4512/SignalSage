@@ -13,6 +13,7 @@ from .collection import collect_source, fetch_article_text
 from .fetcher import _transcribe_audio, parse_lookback
 from .ranking import contains, fingerprint, score_article, similar_story
 from .store import ArticleStore
+from .summarizer import SummaryValidationError, excerpt_summary
 from .transcripts import fetch_transcript, select_passages, transcript_url
 
 logger = logging.getLogger(__name__)
@@ -283,9 +284,17 @@ class DigestPipeline:
                     else:
                         if progress:
                             await progress(f"Summarizing: {article['title'][:100]}")
-                        summary = await self.summarizer.summarize_article(article)
+                        try:
+                            summary = await self.summarizer.summarize_article(article)
+                            metrics["summaries"] += 1
+                        except SummaryValidationError as exc:
+                            # At temperature 0 a retry fails identically, so post a
+                            # verbatim excerpt instead. It's cached under this
+                            # model/prompt key; a model change gets a fresh attempt.
+                            logger.info("Article %s: %s; quoting it", article["id"][:12], exc)
+                            summary = excerpt_summary(article)
+                            metrics["quoted"] = metrics.get("quoted", 0) + 1
                         self.store.cache_summary(article["id"], cache_key, json.dumps(summary))
-                        metrics["summaries"] += 1
                     # Source identity and relevance are never taken from model output.
                     article["card"] = {
                         "art_id": article["id"],
@@ -296,7 +305,11 @@ class DigestPipeline:
                         "summary": summary["summary"],
                         "evidence": summary["evidence"],
                         "relevance_reason": "; ".join(article["reasons"][:3]),
-                        "content_kind": article["body_kind"],
+                        "content_kind": (
+                            f"quoted excerpt of {article['body_kind']}"
+                            if summary.get("fallback")
+                            else article["body_kind"]
+                        ),
                         "relevance_score": article["relevance_score"],
                     }
                     selected.append(article)
@@ -380,4 +393,6 @@ class DigestPipeline:
                 except Exception as exc:
                     self.store.failed(row["id"], exc)
                     failed_destinations.add(row["destination"])
-                    logger.warning("Delivery %s remains queued: %s", row["id"], exc)
+                    logger.warning(
+                        "Delivery %s remains queued: %s: %s", row["id"], type(exc).__name__, exc
+                    )

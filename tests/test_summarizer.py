@@ -123,3 +123,23 @@ async def test_ioc_rate_limit_still_applies():
         IOC(value="8.8.8.8", type=IOCType.IPV4), []
     )
     llm.complete.assert_not_awaited()
+
+
+def test_evidence_check_ignores_quote_style_spacing_and_case():
+    from signalsage.digest.summarizer import _grounded
+
+    source = "The vendor said “it’s fixed” — patch  now.\nMore text."
+    assert _grounded('The vendor said "it\'s fixed" - patch now', source)
+    assert _grounded("the VENDOR said", source)
+    assert not _grounded("The vendor said it is unfixed", source)
+    assert not _grounded("patch", source)  # too short to count as evidence
+
+
+def test_excerpt_summary_is_verbatim_and_bounded():
+    from signalsage.digest.summarizer import excerpt_summary
+
+    body = "First sentence here. Second one follows. " + "word " * 200
+    result = excerpt_summary({"body": body}, max_words=10)
+    assert result["fallback"] is True
+    assert result["summary"] == "First sentence here. Second one follows."
+    assert result["evidence"] == "First sentence here."

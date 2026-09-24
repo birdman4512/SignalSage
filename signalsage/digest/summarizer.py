@@ -39,6 +39,49 @@ _RELEVANCE_SCHEMA = {
 }
 
 
+class SummaryValidationError(ValueError):
+    """The model's summary failed grounding checks on every attempt."""
+
+
+_TYPOGRAPHY = str.maketrans(
+    {"‘": "'", "’": "'", "“": '"', "”": '"', "–": "-", "—": "-", "…": "..."}
+)
+
+
+def _normalize(text: str) -> str:
+    """Fold the cosmetic differences small models introduce when quoting."""
+    text = re.sub(r"\s+", " ", text.translate(_TYPOGRAPHY)).strip().casefold()
+    return text.strip(" \"'.,;:")
+
+
+def _grounded(evidence: str, source: str) -> bool:
+    """True if *evidence* appears in *source*, ignoring quote/dash style, spacing and case."""
+    needle = _normalize(evidence)
+    return len(needle) >= 8 and needle in _normalize(source)
+
+
+def excerpt_summary(article: dict, max_words: int = 60) -> dict:
+    """A verbatim opening excerpt, used when the model can't produce a grounded summary.
+
+    Grounded by construction, so the story can still be posted. Retrying the
+    model is pointless: at temperature 0 the same input fails the same way.
+    """
+    text = re.sub(r"\s+", " ", str(article.get("body") or article.get("summary") or "")).strip()
+    sentences = re.split(r"(?<=[.!?])\s+", text)
+    picked: list[str] = []
+    for sentence in sentences:
+        if picked and len(" ".join([*picked, sentence]).split()) > max_words:
+            break
+        picked.append(sentence)
+    excerpt = " ".join(picked)
+    words = excerpt.split()
+    if len(words) > max_words:
+        excerpt = " ".join(words[:max_words]) + "…"
+    if not excerpt:
+        raise ValueError("Article has no text to quote")
+    return {"summary": excerpt, "evidence": picked[0][:300], "fallback": True}
+
+
 class DigestSummarizer:
     def __init__(
         self,
@@ -146,7 +189,7 @@ class DigestSummarizer:
                 if (
                     not isinstance(evidence, str)
                     or not 8 <= len(evidence.strip()) <= 300
-                    or evidence not in source
+                    or not _grounded(evidence, source)
                 ):
                     raise ValueError("Evidence is not a verbatim source excerpt")
                 return {"summary": summary.strip(), "evidence": evidence}
@@ -154,7 +197,7 @@ class DigestSummarizer:
                 error = exc
                 if attempt == 0:
                     system += " Previous response failed validation. Check the exact ID and verbatim evidence."
-        raise ValueError(f"Summary validation failed: {error}")
+        raise SummaryValidationError(f"Summary validation failed: {error}")
 
     def _take_ioc_token(self) -> bool:
         """Consume one token from the IOC-assessment bucket. Returns False if empty."""
