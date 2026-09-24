@@ -116,3 +116,16 @@ async def test_collect_source_uses_api_only_when_enabled(monkeypatch):
     reddit.configure(CREDS)
     assert (await collection.collect_source(source))[0] == [{"title": "via api"}]
     rss.assert_awaited_once()
+
+
+async def test_private_front_page_feed_stays_on_rss_even_with_api(monkeypatch):
+    api = AsyncMock(return_value=([{"title": "via api"}], None))
+    rss = AsyncMock(return_value=([{"title": "home"}], None))
+    monkeypatch.setattr(reddit, "collect", api)
+    monkeypatch.setattr(collection, "_collect_source", rss)
+    monkeypatch.setattr(collection, "_throttle", AsyncMock())
+    monkeypatch.setattr(collection, "_result_cache", {})
+    reddit.configure(CREDS)
+    home = {"url": "https://www.reddit.com/.rss?feed=abc123&user=dean"}
+    assert (await collection.collect_source(home))[0] == [{"title": "home"}]
+    api.assert_not_awaited()

@@ -69,8 +69,10 @@ def _most_recent(items: list[dict]) -> list[dict]:
 
 async def collect_source(source: dict) -> tuple[list[dict], str | None]:
     url = source["url"]
-    if reddit.enabled() and reddit.is_reddit(url):
+    if reddit.enabled() and reddit.listing_url(url):
         # Approved API client: ~100 requests/min, so no spacing or hourly reuse.
+        # Other Reddit URLs (e.g. a private front-page feed, which is tied to a
+        # user rather than the app) stay on the throttled RSS path below.
         items, error = await reddit.collect(url)
         return _most_recent(items), error
     refresh = _host_setting(url, _HOST_REFRESH_SECONDS)
