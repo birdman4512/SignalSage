@@ -24,24 +24,38 @@ from .fetcher import (
 # out-of-order publications.
 _MAX_ITEMS_PER_SOURCE = 100
 
-# Minimum seconds between requests to hosts with strict unauthenticated rate
-# limits. Reddit allows ~10 requests/min per IP and 429s bursts even 3s apart.
-_HOST_MIN_INTERVAL = {"reddit.com": 7.0}
+# Hosts with strict unauthenticated rate limits. Reddit's response headers on
+# the production host show a budget of ONE request per ~60s window
+# (x-ratelimit-used=1, remaining=0, reset<=60), so requests are spaced a
+# minute apart, and each subreddit's result (success or 429) is reused for an
+# hour — digests only publish twice a day, so hourly freshness costs nothing,
+# and it keeps each 15-minute collection to a few Reddit fetches rather than
+# ten minutes of waiting. Reddit OAuth credentials would lift this to ~100/min.
+_HOST_MIN_INTERVAL = {"reddit.com": 61.0}
+_HOST_REFRESH_SECONDS = {"reddit.com": 3600.0}
 _host_locks: dict[str, asyncio.Lock] = {}
 _host_last: dict[str, float] = {}
+_result_cache: dict[str, tuple[float, list[dict], str | None]] = {}
+
+
+def _host_setting(url: str, table: dict[str, float]) -> tuple[str, float] | None:
+    host = (urlparse(url).hostname or "").lower()
+    for domain, value in table.items():
+        if host == domain or host.endswith("." + domain):
+            return domain, value
+    return None
 
 
 async def _throttle(url: str) -> None:
-    host = (urlparse(url).hostname or "").lower()
-    for domain, interval in _HOST_MIN_INTERVAL.items():
-        if host == domain or host.endswith("." + domain):
-            lock = _host_locks.setdefault(domain, asyncio.Lock())
-            async with lock:
-                wait = _host_last.get(domain, 0.0) + interval - time.monotonic()
-                if wait > 0:
-                    await asyncio.sleep(wait)
-                _host_last[domain] = time.monotonic()
-            return
+    setting = _host_setting(url, _HOST_MIN_INTERVAL)
+    if setting is None:
+        return
+    domain, interval = setting
+    async with _host_locks.setdefault(domain, asyncio.Lock()):
+        wait = _host_last.get(domain, 0.0) + interval - time.monotonic()
+        if wait > 0:
+            await asyncio.sleep(wait)
+        _host_last[domain] = time.monotonic()
 
 
 def _most_recent(items: list[dict]) -> list[dict]:
@@ -53,9 +67,17 @@ def _most_recent(items: list[dict]) -> list[dict]:
 
 
 async def collect_source(source: dict) -> tuple[list[dict], str | None]:
-    await _throttle(source["url"])
+    url = source["url"]
+    refresh = _host_setting(url, _HOST_REFRESH_SECONDS)
+    cached = _result_cache.get(url)
+    if refresh and cached and time.monotonic() - cached[0] < refresh[1]:
+        return list(cached[1]), cached[2]  # re-ingesting is idempotent
+    await _throttle(url)
     items, error = await _collect_source(source)
-    return _most_recent(items), error
+    items = _most_recent(items)
+    if refresh:
+        _result_cache[url] = (time.monotonic(), items, error)
+    return items, error
 
 
 async def _collect_source(source: dict) -> tuple[list[dict], str | None]:

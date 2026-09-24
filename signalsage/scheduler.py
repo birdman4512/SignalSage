@@ -274,7 +274,7 @@ class DigestScheduler:
         if progress:
             await progress(f"Fetching articles for {topic['name']}...")
         try:
-            await self.pipeline.collect(topic)
+            await self.pipeline.collect_if_idle(topic)
             if progress:
                 await progress("Selecting and summarizing relevant articles...")
             await self.pipeline.publish(
@@ -292,7 +292,7 @@ class DigestScheduler:
                 )
 
     async def _run_watch_topic(self, topic, progress=None, override_channel=None, scheduled=False):
-        added = await self.pipeline.collect(topic)
+        added = await self.pipeline.collect_if_idle(topic)
         await self.pipeline.publish(
             topic,
             self._top_n(topic),

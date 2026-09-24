@@ -77,6 +77,18 @@ class DigestPipeline:
                     logger.warning("Source %s failed: %s", source.get("name"), error)
             return added
 
+    async def collect_if_idle(self, topic: dict) -> int:
+        """Collect *topic* now, unless a background collection is already running.
+
+        Background collection runs every few minutes and can be slow (Reddit is
+        fetched a minute apart), so a digest never waits on it: the articles it
+        has already stored are recent enough to publish from.
+        """
+        if self._collection_lock.locked():
+            logger.info("Collection in progress; %s publishes from stored articles", topic["name"])
+            return 0
+        return await self.collect(topic)
+
     def destinations(self, topic, override_channel=None):
         destinations = []
         channel = topic.get("digest_channel") or override_channel

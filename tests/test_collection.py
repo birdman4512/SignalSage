@@ -139,4 +139,29 @@ async def test_reddit_requests_are_spaced_out(monkeypatch):
     await collection._throttle("https://www.reddit.com/r/a/.rss")
     await collection._throttle("https://www.reddit.com/r/b/.rss")
     await collection._throttle("https://krebsonsecurity.com/feed/")
-    assert len(sleeps) == 1 and 6 < sleeps[0] <= 7
+    assert len(sleeps) == 1 and 60 < sleeps[0] <= 61
+
+
+async def test_reddit_results_are_reused_for_an_hour(monkeypatch):
+    from signalsage.digest import collection
+
+    monkeypatch.setattr(collection, "_result_cache", {})
+    monkeypatch.setattr(collection, "_throttle", AsyncMock())
+    fetch = AsyncMock(return_value=([{"title": "Post"}], None))
+    monkeypatch.setattr(collection, "_collect_source", fetch)
+    reddit = {"url": "https://www.reddit.com/r/netsec/.rss"}
+    other = {"url": "https://krebsonsecurity.com/feed/"}
+
+    assert await collection.collect_source(reddit) == ([{"title": "Post"}], None)
+    assert await collection.collect_source(reddit) == ([{"title": "Post"}], None)
+    await collection.collect_source(other)
+    await collection.collect_source(other)
+    assert fetch.await_count == 3  # reddit fetched once; other sources every time
+
+    # A rate-limit error is also reused, so a 429'd feed doesn't cost a
+    # minute of waiting on every 15-minute collection.
+    collection._result_cache.clear()
+    fetch.return_value = ([], "Source download failed")
+    await collection.collect_source(reddit)
+    await collection.collect_source(reddit)
+    assert fetch.await_count == 4

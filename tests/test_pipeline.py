@@ -445,3 +445,12 @@ def test_superseded_page_versions_are_pruned_early(tmp_path):
     assert len(remaining) == 1 and remaining[0]["summary"] == "Solar flux reading 2"
     with store.connect() as db:
         assert db.execute("SELECT COUNT(*) FROM articles").fetchone()[0] == 1
+
+
+async def test_digest_does_not_wait_for_running_background_collection(tmp_path):
+    pipeline, _ = make_pipeline(tmp_path)
+    pipeline.collect = AsyncMock(return_value=1)
+    async with pipeline._collection_lock:
+        assert await pipeline.collect_if_idle(TOPIC) == 0
+        pipeline.collect.assert_not_awaited()
+    assert await pipeline.collect_if_idle(TOPIC) == 1
