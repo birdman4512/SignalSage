@@ -1,128 +1,125 @@
+import json
 from unittest.mock import AsyncMock
 
+import pytest
+
 from signalsage.digest.summarizer import DigestSummarizer
+from signalsage.intel.base import IntelResult
+from signalsage.ioc.models import IOC, IOCType
+
+ARTICLE = {
+    "id": "a123",
+    "title": "Vendor fixes vulnerability",
+    "summary": "The vendor released a patch for the vulnerability.",
+    "link": "https://source.example/a",
+}
 
 
-async def test_summarize_topic_includes_source_url_and_fallback_guidance():
-    llm = AsyncMock()
-    llm.complete = AsyncMock(return_value='{"tldr":[],"items":[]}')
-    summarizer = DigestSummarizer(llm=llm, max_chars=3000, max_total_chars=20000)
-
-    sources = [
+def response(**updates):
+    return json.dumps(
         {
-            "name": "Example Source",
-            "url": "https://example.com/source",
-            "content": "Title: Example Story\nExample body without an article URL.",
+            "art_id": "a123",
+            "summary": "The vendor released a patch.",
+            "evidence": "The vendor released a patch",
+            **updates,
         }
-    ]
-
-    await summarizer.summarize_topic("Test Topic", sources, lookback="24h")
-
-    llm.complete.assert_awaited_once()
-    kwargs = llm.complete.await_args.kwargs
-    assert "art_id" in kwargs["system"]
-    assert "[A" in kwargs["user"]  # articles are labelled [A1], [A2], etc.
-    assert "Source URL: https://example.com/source" in kwargs["user"]
-    assert kwargs["json_schema"] is not None  # Ollama structured-output schema
+    )
 
 
-async def test_summarize_topic_retries_when_items_missing():
-    """An overview-only response (no "items" key) triggers a retry; a later good
-    response is returned."""
-    good = '{"overview": "News.", "coverage_confidence": "high", "items": []}'
+async def test_summary_is_bounded_and_grounded():
     llm = AsyncMock()
-    llm.complete = AsyncMock(side_effect=['{"overview": "News tonight..."}', good])
-    summarizer = DigestSummarizer(llm=llm, max_chars=3000, max_total_chars=20000)
+    llm.complete.return_value = response()
+    result = await DigestSummarizer(llm).summarize_article(ARTICLE)
+    assert result["evidence"] in ARTICLE["summary"]
+    kwargs = llm.complete.call_args.kwargs
+    assert kwargs["max_tokens"] == 350
+    assert "url" not in kwargs["json_schema"]["properties"]
+    assert "untrusted" in kwargs["system"]
 
-    sources = [{"name": "S", "url": "https://example.com", "content": "Title: Story\nBody."}]
-    result = await summarizer.summarize_topic("Test Topic", sources)
 
+@pytest.mark.parametrize(
+    "bad",
+    [
+        response(art_id="invented"),
+        response(evidence="No patch is available"),
+        response(url="https://invented.example"),
+        response(summary="See https://invented.example"),
+        '{"art_id": "a123"}',
+        "[]",
+        "not json",
+    ],
+)
+async def test_invalid_model_response_retries_once_then_raises(bad):
+    llm = AsyncMock()
+    llm.complete.return_value = bad
+    with pytest.raises(ValueError):
+        await DigestSummarizer(llm).summarize_article(ARTICLE)
     assert llm.complete.await_count == 2
-    assert result == good
 
 
-async def test_summarize_topic_overview_only_returned_after_retries():
-    """If every attempt lacks items, the last response is still returned so the
-    formatter can render the overview instead of a raw-JSON fallback."""
-    overview_only = '{"overview": "Only an overview."}'
+async def test_valid_response_after_validation_retry():
     llm = AsyncMock()
-    llm.complete = AsyncMock(return_value=overview_only)
-    summarizer = DigestSummarizer(llm=llm, max_chars=3000, max_total_chars=20000)
-
-    sources = [{"name": "S", "url": "https://example.com", "content": "Title: Story\nBody."}]
-    result = await summarizer.summarize_topic("Test Topic", sources)
-
-    assert llm.complete.await_count == 3  # initial + 2 retries
-    assert result == overview_only
+    llm.complete.side_effect = [response(art_id="wrong"), response()]
+    assert (await DigestSummarizer(llm).summarize_article(ARTICLE))["summary"]
+    assert llm.complete.await_count == 2
 
 
-# ---------------------------------------------------------------------------
-# summarize_watch_items
-# ---------------------------------------------------------------------------
-
-
-async def test_summarize_watch_items_passes_keywords_and_schema():
+async def test_model_unavailable_is_not_an_empty_success():
     llm = AsyncMock()
-    llm.complete = AsyncMock(
-        return_value='{"overview": "", "coverage_confidence": "high", "items": '
-        '[{"art_id": "A1", "relevant": true, "icon": "🔴", "severity": "high", '
-        '"headline": "H", "summary": "S.", "url": "https://example.com"}]}'
-    )
-    summarizer = DigestSummarizer(llm=llm, max_chars=3000, max_total_chars=20000)
-    sources = [{"name": "S", "url": "https://example.com", "content": "Title: Story\nBody."}]
-
-    result = await summarizer.summarize_watch_items(
-        "Test Topic", sources, include_keywords=["ransomware"], exclude_keywords=["sponsored"]
-    )
-
+    llm.complete.side_effect = RuntimeError("offline")
+    with pytest.raises(RuntimeError):
+        await DigestSummarizer(llm).summarize_article(ARTICLE)
     llm.complete.assert_awaited_once()
-    kwargs = llm.complete.await_args.kwargs
-    assert "ransomware" in kwargs["system"]
-    assert "sponsored" in kwargs["system"]
-    assert kwargs["json_schema"] is not None
-    assert '"relevant": true' in result
 
 
-async def test_summarize_watch_items_no_content_returns_empty_items():
+async def test_empty_article_never_calls_model():
     llm = AsyncMock()
-    summarizer = DigestSummarizer(llm=llm, max_chars=3000, max_total_chars=20000)
-
-    result = await summarizer.summarize_watch_items(
-        "Test Topic", [{"name": "S", "url": "https://x.com", "content": ""}], [], []
-    )
-
+    with pytest.raises(ValueError):
+        await DigestSummarizer(llm).summarize_article({**ARTICLE, "summary": ""})
     llm.complete.assert_not_awaited()
-    import json
-
-    assert json.loads(result)["items"] == []
 
 
-async def test_summarize_watch_items_llm_error_returns_empty_items():
+async def test_large_article_input_is_bounded():
     llm = AsyncMock()
-    llm.complete = AsyncMock(side_effect=RuntimeError("boom"))
-    summarizer = DigestSummarizer(llm=llm, max_chars=3000, max_total_chars=20000)
-    sources = [{"name": "S", "url": "https://example.com", "content": "Title: Story\nBody."}]
-
-    result = await summarizer.summarize_watch_items("Test Topic", sources, [], [])
-
-    import json
-
-    assert json.loads(result)["items"] == []
+    llm.complete.return_value = response()
+    await DigestSummarizer(llm, max_chars=3000).summarize_article(
+        {**ARTICLE, "body": ARTICLE["summary"] + "x" * 50000}
+    )
+    assert len(json.loads(llm.complete.call_args.kwargs["user"])["source_text"]) == 3000
 
 
-async def test_summarize_topic_caps_items_to_max_items():
-    """Only the stories that will be posted are requested from the LLM."""
-    from signalsage.digest.summarizer import _DIGEST_JSON_SCHEMA
-
+@pytest.mark.parametrize("raw", ['{"relevant":"false","reason":"no"}', "[]", '{"relevant":false}'])
+async def test_relevance_requires_boolean_and_reason(raw):
     llm = AsyncMock()
-    llm.complete = AsyncMock(return_value='{"overview": "x", "items": []}')
-    summarizer = DigestSummarizer(llm=llm, max_chars=3000, max_total_chars=20000)
-    sources = [{"name": "S", "url": "https://example.com", "content": "Title: Story\nBody."}]
+    llm.complete.return_value = raw
+    with pytest.raises(ValueError):
+        await DigestSummarizer(llm).judge_relevance(ARTICLE, {})
 
-    await summarizer.summarize_topic("Test Topic", sources, max_items=4)
 
-    kwargs = llm.complete.await_args.kwargs
-    assert kwargs["json_schema"]["properties"]["items"]["maxItems"] == 4
-    assert "ONLY the 4 most important" in kwargs["system"]
-    assert kwargs["max_tokens"] < 4096
-    assert "maxItems" not in _DIGEST_JSON_SCHEMA["properties"]["items"]  # shared schema untouched
+async def test_ioc_assessment_preserves_verdict_and_cache():
+    llm = AsyncMock()
+    llm.complete.return_value = "This IP is malicious; block and investigate."
+    summarizer = DigestSummarizer(llm)
+    ioc = IOC(value="8.8.8.8", type=IOCType.IPV4)
+    intel = [
+        IntelResult(
+            provider="Example",
+            ioc_value=ioc.value,
+            ioc_type=ioc.type,
+            malicious=True,
+            summary="Known command and control server",
+        )
+    ]
+    assert await summarizer.summarize_ioc(ioc, intel) == llm.complete.return_value
+    assert await summarizer.summarize_ioc(ioc, intel) == llm.complete.return_value
+    llm.complete.assert_awaited_once()
+    assert "MALICIOUS" in llm.complete.call_args.kwargs["user"]
+
+
+async def test_ioc_rate_limit_still_applies():
+    llm = AsyncMock()
+    summarizer = DigestSummarizer(llm, ioc_assessment_capacity=0)
+    assert "rate-limited" in await summarizer.summarize_ioc(
+        IOC(value="8.8.8.8", type=IOCType.IPV4), []
+    )
+    llm.complete.assert_not_awaited()

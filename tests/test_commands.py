@@ -212,7 +212,7 @@ async def test_keywords_unknown_topic():
     scheduler = _keywords_scheduler(topic=None)
     await handle_digest_command(["keywords", "nonexistent"], scheduler, reply)
     reply.assert_called_once()
-    assert "No watch-mode topic" in reply.call_args[0][0]
+    assert "No topic matching" in reply.call_args[0][0]
 
 
 async def test_keywords_add_calls_scheduler():

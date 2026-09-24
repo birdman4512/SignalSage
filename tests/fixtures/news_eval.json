@@ -1,0 +1,18 @@
+{
+  "note": "Synthetic starter examples, not the user's labelled preferences. Replace or extend with saved real articles before choosing a model.",
+  "profile": {"minimum_score": 2.5, "topics": {"ransomware": 3, "local LLM": 3, "ham radio": 3}, "products": ["Linux"], "geography": ["Brisbane"], "exclude": ["sponsored"]},
+  "articles": [
+    {"title": "Ransomware disrupts Example Hospital", "summary": "Example Hospital temporarily suspended appointments after a ransomware incident. Its statement says patient data theft has not been confirmed.", "interesting": true, "expected_terms": ["appointments"], "forbidden_terms": ["confirmed data theft"]},
+    {"title": "Local LLM release runs on a laptop", "summary": "Example Lab released a local LLM with two billion parameters. The lab says it supports structured JSON responses; independent evaluations are not yet available.", "interesting": true, "expected_terms": ["billion"], "forbidden_terms": ["outperforms every"]},
+    {"title": "Linux kernel fix published", "summary": "Maintainers released a Linux kernel patch addressing a buffer overflow. The advisory does not report exploitation in the wild.", "interesting": true, "expected_terms": ["patch"], "forbidden_terms": ["actively exploited"]},
+    {"title": "Ham radio club announces field day", "summary": "A ham radio club will demonstrate portable antennas at a public field day. Visitors can observe on-air contacts and ask questions about licensing.", "interesting": true, "expected_terms": ["antennas"]},
+    {"title": "Brisbane flood warning", "summary": "A flood warning has been issued for parts of Brisbane following heavy rain. Residents in the listed areas have been told to monitor official updates.", "interesting": true, "expected_terms": ["flood"]},
+    {"title": "Brisbane celebrity opens a restaurant", "summary": "A television personality opened a restaurant in Brisbane. The launch featured a red carpet and a tasting menu.", "interesting": false},
+    {"title": "Sponsored local LLM webinar", "summary": "This sponsored webinar promotes a vendor subscription for local LLM deployment.", "interesting": false},
+    {"title": "Film adaptation wins award", "summary": "The adaptation of a popular novel won an audience award at a film festival.", "interesting": false},
+    {"title": "Small language model gains offline support", "summary": "A compact language model can now run without an internet connection on a personal computer. The update adds a schema-constrained response mode.", "interesting": true},
+    {"title": "Fashion collection debuts overseas", "summary": "A designer introduced a new collection at a fashion show overseas.", "interesting": false},
+    {"title": "Linux mentioned in a general history book", "summary": "A history book about office furniture briefly mentions Linux in a footnote. The story primarily reviews chairs and desks.", "interesting": false},
+    {"title": "Ransomware recovery research", "summary": "Researchers published a ransomware recovery study comparing offline backup strategies. The study found that isolated backups improved restoration success in its controlled tests.", "interesting": true, "expected_terms": ["backups"]}
+  ]
+}

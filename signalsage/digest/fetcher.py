@@ -249,7 +249,7 @@ async def _extract_feed_items(
     """Extract discrete items from a parsed feedparser feed, optionally filtered by age.
 
     Returns a list of {title, link, summary, published_ts} dicts, newest-feed-order
-    preserved, capped at 10 entries (mirrors the digest text-blob cap).
+    preserved. All available entries are inspected before date filtering.
 
     *skip_audio* is called with ``{"title", "link"}`` for entries that carry an
     audio enclosure; returning True skips transcription (watch mode uses it to
@@ -258,7 +258,7 @@ async def _extract_feed_items(
     cutoff = time.time() - lookback_seconds if lookback_seconds else None
     items: list[dict] = []
 
-    entries = feed_data.get("entries", [])[:10]
+    entries = feed_data.get("entries", [])
     logger.info("Feed has %d entries (cutoff=%s)", len(entries), "set" if cutoff else "none")
     for entry in entries:
         published_ts: float | None = None
@@ -272,11 +272,17 @@ async def _extract_feed_items(
             continue  # too old
 
         title = entry.get("title", "")
-        summary = entry.get("summary", "") or entry.get("description", "")
+        full_content = entry.get("content") or []
+        summary = (
+            (full_content[0].get("value", "") if full_content else "")
+            or entry.get("summary", "")
+            or entry.get("description", "")
+        )
         link = entry.get("link", "")
 
         if summary:
-            summary = _strip_html(summary)
+            # Full-content entries can be large HTML; parse off the event loop.
+            summary = await asyncio.to_thread(_strip_html, summary)
 
         # Try podcast transcription if Whisper is configured and entry has audio
         audio_url = _get_audio_enclosure(entry)
@@ -299,13 +305,12 @@ async def _extract_feed_items(
             {
                 "title": title,
                 "link": link,
-                "summary": summary,
+                "summary": summary[:max_chars],
                 "published_ts": published_ts,
+                "guid": entry.get("id", ""),
+                "audio_url": audio_url,
             }
         )
-
-        if len(items) >= 10:
-            break
 
     return items
 
@@ -434,20 +439,22 @@ def _extract_json_feed_items(raw: str, lookback_seconds: int | None = None) -> l
         return []
 
     items: list[dict] = []
-    for item in raw_items[:20]:
+    for item in raw_items:
         if not isinstance(item, dict):
             continue
 
         # Date filter — find the first present date field and decide once
         item_ts: float | None = None
         too_old = False
-        for date_field in ("dateAdded", "datePublished", "published", "date"):
+        for date_field in ("dateAdded", "date_published", "datePublished", "published", "date"):
             raw_date = item.get(date_field, "")
             if not raw_date:
                 continue
             try:
-                parsed = datetime.date.fromisoformat(str(raw_date)[:10])
-                item_ts = datetime.datetime(parsed.year, parsed.month, parsed.day).timestamp()
+                parsed = datetime.datetime.fromisoformat(str(raw_date).replace("Z", "+00:00"))
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=datetime.UTC)
+                item_ts = parsed.timestamp()
                 if cutoff and item_ts < cutoff:
                     too_old = True
             except (ValueError, TypeError):
@@ -465,7 +472,12 @@ def _extract_json_feed_items(raw: str, lookback_seconds: int | None = None) -> l
             or ""
         )
         description = (
-            item.get("shortDescription") or item.get("description") or item.get("summary") or ""
+            item.get("shortDescription")
+            or item.get("content_text")
+            or item.get("content_html")
+            or item.get("description")
+            or item.get("summary")
+            or ""
         )
         cve_id = item.get("cveID") or item.get("id") or ""
         url = (
@@ -478,7 +490,9 @@ def _extract_json_feed_items(raw: str, lookback_seconds: int | None = None) -> l
         if not title:
             continue
 
-        summary = description
+        summary = _strip_html(description)
+        if str(cve_id).startswith("CVE-"):
+            summary = f"{cve_id}: {summary}"
         if action:
             summary = (
                 f"{summary}\nRequired action: {action}" if summary else f"Required action: {action}"
@@ -522,9 +536,18 @@ async def _fetch_raw(url: str, timeout: int) -> tuple[str, str, str] | None:
             follow_redirects=True,
             headers={"User-Agent": _user_agent(url)},
         ) as client:
-            resp = await client.get(url)
-            resp.raise_for_status()
-            return resp.text, resp.headers.get("content-type", ""), str(resp.url)
+            async with client.stream("GET", url) as resp:
+                resp.raise_for_status()
+                chunks = bytearray()
+                async for chunk in resp.aiter_bytes():
+                    chunks.extend(chunk)
+                    if len(chunks) > 10 * 1024 * 1024:
+                        raise ValueError("Source exceeds 10 MB download limit")
+                return (
+                    chunks.decode(resp.encoding or "utf-8", errors="replace"),
+                    resp.headers.get("content-type", ""),
+                    str(resp.url),
+                )
     except httpx.TimeoutException:
         logger.warning("Timeout fetching %s", url)
     except httpx.HTTPStatusError as exc:

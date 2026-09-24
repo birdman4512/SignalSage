@@ -21,11 +21,13 @@ HELP_TEXT = """\
 • `!digest list` — show scheduled topics, tags, and next run time
 • `!digest <tag>` — run a topic by tag (e.g. `!digest cyber`, `!digest vuln`, `!digest ti`)
 • `!digest <name>` — run a topic by partial name match (case-insensitive)
-• `!digest top <N>` — set how many top stories get full summaries this session (1–20, default 10)
+• `!digest top <N>` — override stories per digest this session (1–20, default 5)
+• `!digest status` — show article, pending delivery and source-error counts
+• `!digest feedback <article-id> useful|less` — save feedback for future source rankings
 • `!digest help` — show this reference
 
-*Watch-mode keywords* (topics that poll continuously instead of a daily digest)
-• `!digest keywords <topic>` — show a watch topic's include/exclude keywords
+*Topic keywords* (scheduled digests and urgent alerts)
+• `!digest keywords <topic>` — show a topic's include/exclude keywords
 • `!digest keywords <topic> add <word>` — only post items mentioning this word
 • `!digest keywords <topic> remove <word>` — remove an include keyword
 • `!digest keywords <topic> exclude <word>` — never post items mentioning this word
@@ -113,13 +115,13 @@ def _split_keyword_tokens(tokens: list[str]) -> list[str]:
 async def _handle_keywords_command(
     args: list[str],
     scheduler,
-    reply: Callable[[str], Awaitable[None]],
+    reply: Callable[[str], Awaitable[object]],
 ) -> None:
     """Handle `!digest keywords <topic> [add|remove|exclude|unexclude <word>]`."""
     if not args:
         names = scheduler.get_watch_topic_names()
         listing = "\n".join(f"• {n}" for n in names) if names else "  (none)"
-        await reply(f"{_KEYWORDS_USAGE}\nWatch-mode topics:\n{listing}")
+        await reply(f"{_KEYWORDS_USAGE}\nTopics:\n{listing}")
         return
 
     action = None
@@ -130,7 +132,7 @@ async def _handle_keywords_command(
             action_idx = i
             break
 
-    if action is not None:
+    if action is not None and action_idx is not None:
         topic_query = " ".join(args[:action_idx])
         words = _split_keyword_tokens(args[action_idx + 1 :])
     else:
@@ -141,9 +143,7 @@ async def _handle_keywords_command(
     if topic is None:
         names = scheduler.get_watch_topic_names()
         listing = "\n".join(f"• {n}" for n in names) if names else "  (none)"
-        await reply(
-            f"⚠️ No watch-mode topic matching *{topic_query}*. Watch-mode topics:\n{listing}"
-        )
+        await reply(f"⚠️ No topic matching *{topic_query}*. Topics:\n{listing}")
         return
 
     name = topic["name"]
@@ -169,7 +169,8 @@ async def _handle_keywords_command(
     verb = "Removed" if is_remove else "Added"
     kind = "exclude" if is_exclude_list else "include"
 
-    ok, failed = [], []
+    ok: list[str] = []
+    failed: list[str] = []
     for word in words:
         if is_remove:
             success = keywords.remove(name, word, exclude=is_exclude_list)
@@ -189,8 +190,9 @@ async def _handle_keywords_command(
 async def handle_digest_command(
     args: list[str],
     scheduler,
-    reply: Callable[[str], Awaitable[None]],
+    reply: Callable[[str], Awaitable[object]],
     reply_channel=None,
+    actor: str = "local",
 ) -> None:
     """Execute a parsed digest command and send feedback via *reply*.
 
@@ -204,7 +206,26 @@ async def handle_digest_command(
         await reply("⚠️ Digest scheduler is not running (LLM not configured).")
         return
 
-    if not args or args[0] == "all":
+    if args and args[0] == "status":
+        status = scheduler.store.status()
+        await reply(
+            f"Articles: {status['articles']}; queued deliveries: {status['pending_deliveries']}; source errors: {status['source_errors']}"
+        )
+    elif args and args[0] == "feedback":
+        if (
+            len(args) != 3
+            or args[2] not in ("useful", "less")
+            or not re.fullmatch(r"[a-f0-9]{8,64}", args[1])
+        ):
+            await reply("Usage: !digest feedback <article ID> useful|less")
+            return
+        saved = scheduler.store.record_feedback(args[1], actor, args[2] == "useful")
+        await reply(
+            "Feedback saved. Future source rankings will reflect it."
+            if saved
+            else "Article ID not found or ambiguous."
+        )
+    elif not args or args[0] == "all":
         names = scheduler.get_topic_names()
         await reply(f"⏳ Running digest for all {len(names)} topic(s)…")
         await scheduler.run_all_now(override_channel=reply_channel)
@@ -294,7 +315,7 @@ def _normalize_value(subcommand: str, value: str) -> str:
 async def handle_osint_command(
     args: list[str],
     processor,
-    reply: Callable[[str], Awaitable[None]],
+    reply: Callable[[str], Awaitable[object]],
     platform: Platform = Platform.SLACK,
 ) -> None:
     """Run an on-demand OSINT lookup and post results via *reply*."""

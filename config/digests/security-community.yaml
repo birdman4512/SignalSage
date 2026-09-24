@@ -1,7 +1,8 @@
 # One digest topic per file. See template.yaml.example for the full field reference.
 name: "Security Community"
 tags: [community, seccomm]      # !digest community
-watch_mode: true                # polls continuously; manage keywords with `!digest keywords community ...`
+schedule: "0 9,16 * * *"         # compact morning and afternoon digests
+top_stories_count: 5
 keywords: ["cve", "exploit", "incident", "apt"]
 exclude_keywords: []
 digest_channel: "#general"

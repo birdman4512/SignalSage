@@ -26,7 +26,7 @@ class AbuseIPDBProvider(BaseProvider):
             "Key": self.api_key,
             "Accept": "application/json",
         }
-        params = {
+        params: dict[str, str | int] = {
             "ipAddress": ioc.value,
             "maxAgeInDays": 90,
         }

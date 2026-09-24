@@ -142,7 +142,7 @@ Both Slack and Discord use the `!` prefix. On Slack you can also mention the bot
 | `!digest list` | Show all scheduled topics, tags, and next run time |
 | `!digest <tag>` | Run topics matching a tag (e.g. `!digest cyber`, `!digest vuln`) |
 | `!digest <name>` | Run a topic by partial name match (case-insensitive) |
-| `!digest top <N>` | Set how many top stories get full summaries this session (1–20, default 10) |
+| `!digest top <N>` | Override stories per digest this session (1–20, default 5) |
 | `!digest help` | Show the command reference |
 
 ### OSINT commands
@@ -218,7 +218,7 @@ LLM_PROVIDER=anthropic
 ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-The default model is `claude-haiku-4-5-20251001` (cheapest Claude model, ~$0.01/day for typical digest use).
+The default model is `claude-haiku-4-5-20251001` (usage is billed by the configured API provider).
 
 ### 5.5 Docker Compose with bundled Ollama
 
@@ -275,66 +275,32 @@ ABUSECH_API_KEY=...
 
 ---
 
-## 8. Daily Digest Configuration
+## 8. News digest configuration
 
-Each digest topic is its own `*.yaml` file in `config/digests/`. Add a topic by
-dropping a new file in (copy `config/digests/template.yaml.example`); remove one by
-deleting its file. Use a `*.local.yaml` suffix to keep a digest install-private
-(gitignored). Each topic:
-- has its own cron **`schedule`**
-- posts to its own Slack/Discord **`digest_channel`**
-- pulls from a list of RSS feeds or web pages
+Collection runs every 15 minutes, including quiet hours. Articles are persisted in SQLite before selection and summarization. Four news topics publish at 09:00 and 16:00 Brisbane time; specialist topics retain their schedules.
+
+Configure personal interests under `digest.profile` and topic include/exclude keywords in `config/digests/`. Use weekday names in cron expressions: `mon-fri` avoids ambiguity because APScheduler's numeric weekdays start at Monday=0.
 
 ```yaml
-# config/digests/vulnerability-alerts.yaml
 name: "Vulnerability Alerts"
-schedule: "0 7 * * 1-5"        # 7am weekdays
-digest_channel: "#vuln-alerts" # Slack channel name or Discord channel ID
+schedule: "15 7 * * mon-fri"
+digest_channel: "#vuln-alerts"
+keywords: ["CVE", "zero-day", "exploit"]
+top_stories_count: 5
 sources:
   - name: "CISA Advisories"
     url: "https://www.cisa.gov/cybersecurity-advisories/all.xml"
-  - name: "My Company Blog"
-    url: "https://example.com/blog"   # HTML pages work too
 ```
 
-Cron format: `minute hour day-of-month month day-of-week`
-Examples:
-- `0 6 * * *` — 6am every day
-- `0 7 * * 1-5` — 7am weekdays
-- `0 8 * * 1` — 8am every Monday
-- `0 */6 * * *` — every 6 hours
+Each story is posted as its own Slack/Discord message: a short summary with its source link, reason for selection, content-basis label and feedback commands. Failed generations remain eligible; failed posts are queued and retried from the last acknowledged message. Empty digests are not posted.
 
-### Digest output format
+Use `!digest status` for collection/delivery counts and `!digest feedback <article-id> useful|less` to adjust future source rankings. Keyword commands apply to all topics. `!digest top <N>` overrides per-topic counts for the current session.
 
-Each digest posts as a sequence of messages:
+To transcribe shortlisted podcasts, set `WHISPER_ENABLED=true` and add `podcasts` to `COMPOSE_PROFILES`. Both transcription and its container are disabled by default.
 
-1. **Overview** — a 3–5 sentence narrative paragraph covering the major themes across all sources
-2. **Top story cards** — one message per top story, each showing the headline, a full 3–5 sentence summary, the source host (e.g. `reddit.com`), and a *Read More* link
-3. **Remaining stories** — a single compact message listing every other story as `headline · source.com`
+A topic's `lookback` is now an initial-import bound only. It never drops persisted pending articles; later polls inspect every available feed entry. Keep the writable `data/` volume when upgrading.
 
-The number of top stories defaults to **10** and can be changed in `config/config.yaml`:
-
-```yaml
-digest:
-  top_stories_count: 10
-```
-
-Or changed at runtime (session only) with `!digest top <N>`.
-
-### Ranking stories with interest topics
-
-Add keywords to `digest.interest_topics` in `config/config.yaml` to nudge the LLM to rank matching stories higher:
-
-```yaml
-digest:
-  interest_topics:
-    - "ransomware"
-    - "zero-day vulnerabilities"
-    - "CISA advisories"
-    - "critical infrastructure"
-```
-
-These are injected into the LLM prompt — stories most relevant to your interests appear first and are more likely to land in the full-summary top-N cards.
+See [README](../README.md) for the profile schema, retry guarantees, migration details, urgent alert rules and offline/model evaluation commands.
 
 ---
 

@@ -1,7 +1,8 @@
 # One digest topic per file. See template.yaml.example for the full field reference.
 name: "AI & ML News"
 tags: [ai, ml, llm]             # !digest ai
-watch_mode: true                # polls continuously; manage keywords with `!digest keywords ai ...`
+schedule: "0 9,16 * * *"         # compact morning and afternoon digests
+top_stories_count: 5
 keywords: ["gpt", "claude", "gemini", "llm", "model release"]
 exclude_keywords: []
 digest_channel: "#general"

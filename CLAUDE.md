@@ -1,3 +1,7 @@
+# Current news pipeline
+
+The news pipeline now uses durable per-article collection and a SQLite outbox. Current architecture, configuration, migration and evaluation instructions are in [README.md](README.md). IOC extraction, cached provider lookups and `!osint` remain active. Historical digest details below about monolithic prompts, generated URL matching, JSON seen history, watch-mode defaults and context growth have been replaced; use the README and source as the current reference.
+
 # CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.

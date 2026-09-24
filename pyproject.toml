@@ -18,3 +18,4 @@ known-first-party = ["signalsage"]
 python_version = "3.12"
 ignore_missing_imports = true
 warn_unused_ignores = true
+check_untyped_defs = true

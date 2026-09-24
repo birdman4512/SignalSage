@@ -1,6 +1,10 @@
 """Discord bot using discord.py v2 with message_content intent."""
 
 import logging
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from signalsage.scheduler import DigestScheduler
 
 import discord
 
@@ -76,6 +80,30 @@ def _digest_embeds(
         )
         embed.set_footer(text=window)
         return [embed]
+
+    if (meta or {}).get("compact"):
+        # One embed per story; send_digest posts each embed as its own message.
+        from signalsage.digest.ranking import canonical_url
+
+        compact_embeds = []
+        for item in parsed["items"]:
+            source = canonical_url(str(item.get("url", "")))
+            description = (
+                str(item.get("summary", ""))[:600]
+                + f"\n\nWhy selected: {str(item.get('relevance_reason', ''))[:160]}"
+                + f"\nBased on {item.get('content_kind', 'feed excerpt')}"
+                + (f" · [Read source]({source})" if source else "")
+                + f"\nFeedback: !digest feedback {str(item.get('art_id', ''))[:12]} useful / less"
+            )
+            embed = discord.Embed(
+                title=str(item.get("headline", ""))[:256] or None,
+                url=source or None,
+                description=description[:4096],
+                color=_DIGEST_COLOUR,
+            )
+            embed.set_author(name=f"{icon}  {topic_name}"[:256])
+            compact_embeds.append(embed)
+        return compact_embeds
 
     sorted_items = sorted(
         parsed["items"],
@@ -221,6 +249,8 @@ def _ioc_embed(ioc: IOC, results: list[IntelResult]) -> discord.Embed:
 class DiscordBot(discord.Client):
     """Discord client that monitors messages and enriches IOCs."""
 
+    platform_name = "discord"
+
     def __init__(
         self,
         config: dict,
@@ -238,7 +268,7 @@ class DiscordBot(discord.Client):
         self.ioc_processor = ioc_processor
         self.summarizer = summarizer  # optional DigestSummarizer for IOC assessment
         self.auth = auth or CommandAuth()
-        self.scheduler = None  # set by main.py after scheduler creation
+        self.scheduler: DigestScheduler | None = None  # set by main.py
 
     async def on_ready(self) -> None:
         logger.info(
@@ -281,6 +311,7 @@ class DiscordBot(discord.Client):
                     self.scheduler,
                     reply=message.channel.send,
                     reply_channel=message.channel.id,
+                    actor=str(user_id),
                 )
             elif cmd_name == "osint":
                 await handle_osint_command(
@@ -329,50 +360,42 @@ class DiscordBot(discord.Client):
     async def on_error(self, event_method: str, *args, **kwargs) -> None:
         logger.exception("Discord error in %s", event_method)
 
-    async def send_digest(
-        self,
-        topic_name: str,
-        summary: str,
-        lookback: str | None = None,
-        channel: str | None = None,
-        meta: dict | None = None,
-    ) -> None:
-        """Send a digest message to a channel."""
-        # `channel` may be a Slack channel name when called from a cross-platform
-        # on-demand digest — try to parse it as a Discord integer ID first, then
-        # fall back to the configured digest_channel.
-        ch_id_int: int | None = None
-        if channel is not None:
-            try:
-                ch_id_int = int(channel)
-            except (ValueError, TypeError):
-                pass  # Not a Discord channel ID (e.g. Slack "#general") — ignore
+    def digest_destination(self, channel=None):
+        try:
+            value = (
+                int(channel) if channel is not None else int(self.cfg.get("digest_channel") or 0)
+            )
+        except (TypeError, ValueError):
+            value = int(self.cfg.get("digest_channel") or 0)
+        if value <= 0:
+            raise ValueError("Discord digest channel must be a channel ID")
+        return self.platform_name, str(value)
 
-        if ch_id_int is None:
-            cfg_ch = self.cfg.get("digest_channel")
-            if not cfg_ch:
-                logger.warning("No digest_channel configured for Discord")
-                return
-            try:
-                ch_id_int = int(cfg_ch)
-            except (ValueError, TypeError):
-                logger.warning(
-                    "Discord digest_channel '%s' is not a valid channel ID — "
-                    "Discord requires an integer channel ID, not a channel name. "
-                    "Right-click the channel and choose 'Copy Channel ID'.",
-                    cfg_ch,
-                )
-                return
-        ch = self.get_channel(ch_id_int)
-        if not ch:
-            logger.warning("Discord channel %s not found or not accessible", ch_id_int)
-            return
-        for embed in _digest_embeds(topic_name, summary, lookback, meta=meta):
-            try:
-                await ch.send(embed=embed)  # type: ignore[attr-defined]
-            except discord.HTTPException as exc:
-                logger.error("Failed to send Discord digest embed: %s", exc)
-                break
+    def digest_payloads(self, topic, summary, meta):
+        return [embed.to_dict() for embed in _digest_embeds(topic, summary, meta=meta)]
+
+    async def send_digest(
+        self, topic_name: str, summary: str, lookback=None, channel=None, meta=None
+    ):
+        """Propagate failures to the outbox and acknowledge each delivered part."""
+        _, channel_id = self.digest_destination(channel)
+        ch = self.get_channel(int(channel_id))
+        if ch is None:
+            ch = await self.fetch_channel(int(channel_id))
+        meta = meta or {}
+        if not isinstance(ch, discord.abc.Messageable):
+            raise ValueError("Discord digest destination does not support messages")
+        embeds = (
+            [discord.Embed.from_dict(payload) for payload in meta["_payloads"]]
+            if "_payloads" in meta
+            else _digest_embeds(topic_name, summary, lookback, meta=meta)
+        )
+        for index, embed in enumerate(embeds):
+            if index < meta.get("_offset", 0):
+                continue
+            await ch.send(embed=embed)
+            if meta.get("_ack"):
+                meta["_ack"](index + 1)
 
     async def start_bot(self) -> None:
         """Start the Discord bot (blocks until stopped)."""

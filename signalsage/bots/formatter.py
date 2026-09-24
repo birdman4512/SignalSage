@@ -499,6 +499,59 @@ def _overview_text(parsed: dict, valid_items: list[dict]) -> str:
     return text
 
 
+def _compact_digest_slack(topic_name: str, parsed: dict, meta: dict) -> list[dict]:
+    """One message per story, each with a verified source link.
+
+    Stories are posted individually rather than batched so each can be read,
+    threaded and reacted to on its own.
+    """
+    from signalsage.digest.ranking import canonical_url
+
+    messages = []
+    topic_label = _escape_mrkdwn(f"{_topic_icon(topic_name)}  {topic_name}"[:150])
+    for index, item in enumerate(parsed.get("items") or []):
+        title = _escape_mrkdwn(str(item.get("headline", ""))[:160])
+        url = canonical_url(str(item.get("url", "")))
+        heading = f"<{url}|{title}>" if url else title
+        summary = _escape_mrkdwn(str(item.get("summary", ""))[:600])
+        reason = _escape_mrkdwn(str(item.get("relevance_reason", ""))[:200])
+        kind = _escape_mrkdwn(str(item.get("content_kind", "feed excerpt")))
+        article_id = str(item.get("art_id", ""))[:12]
+        text = f"*{heading}*\n{summary}\n_Why selected: {reason} · Based on {kind}_"
+        blocks: list[dict] = [
+            {"type": "context", "elements": [{"type": "mrkdwn", "text": topic_label}]},
+            {"type": "section", "text": {"type": "mrkdwn", "text": text[:2900]}},
+            {
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "mrkdwn",
+                        "text": f"Feedback: `!digest feedback {article_id} useful` or `!digest feedback {article_id} less`",
+                    }
+                ],
+            },
+        ]
+        if index == 0:
+            for image_url in meta.get("images", [])[:3]:
+                if safe_image := canonical_url(str(image_url)):
+                    blocks.append(
+                        {
+                            "type": "image",
+                            "image_url": safe_image,
+                            "alt_text": f"{topic_name} source image"[:200],
+                        }
+                    )
+        messages.append(
+            {
+                "text": f"{topic_name}: {str(item.get('headline', ''))[:160]}",
+                "blocks": blocks,
+                "unfurl_links": False,
+                "unfurl_media": False,
+            }
+        )
+    return messages
+
+
 def format_digest_slack_message(
     topic_name: str,
     summary: str,
@@ -521,6 +574,9 @@ def format_digest_slack_message(
     bare = bool((meta or {}).get("bare"))
 
     parsed = _parse_digest_json(summary)
+
+    if parsed and (meta or {}).get("compact"):
+        return _compact_digest_slack(topic_name, parsed, meta or {})
 
     # ── fallback: JSON parse failed — single plain-text message ─────────────
     if not parsed:

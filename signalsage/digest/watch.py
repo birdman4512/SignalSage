@@ -6,6 +6,7 @@ from datetime import date, timedelta
 from pathlib import Path
 
 from signalsage.digest.history import _load_json, _save_json
+from signalsage.digest.ranking import contains
 
 logger = logging.getLogger(__name__)
 
@@ -32,11 +33,11 @@ def matches_keywords(item: dict, include: list[str], exclude: list[str]) -> bool
     Empty *include* means "match everything". Any *exclude* hit vetoes a match.
     """
     haystack = f"{item.get('title', '')} {item.get('summary', '')}".lower()
-    if any(word.lower() in haystack for word in exclude if word.strip()):
+    if any(contains(haystack, word) for word in exclude if word.strip()):
         return False
     if not include:
         return True
-    return any(word.lower() in haystack for word in include if word.strip())
+    return any(contains(haystack, word) for word in include if word.strip())
 
 
 class WatchKeywords:

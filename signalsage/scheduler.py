@@ -1,12 +1,8 @@
 """APScheduler-based digest scheduler — one job registered per topic."""
 
-import asyncio
-import json
 import logging
-import re
-import time
 from collections.abc import Callable
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from datetime import time as dtime
 from zoneinfo import ZoneInfo
 
@@ -16,9 +12,9 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
-from signalsage.digest.fetcher import fetch_topic, fetch_topic_items, parse_lookback
-from signalsage.digest.history import DigestHistory, _headline_hash
-from signalsage.digest.watch import WatchKeywords, WatchSeenItems, matches_keywords
+from signalsage.digest.pipeline import DigestPipeline
+from signalsage.digest.store import ArticleStore
+from signalsage.digest.watch import WatchKeywords
 
 logger = logging.getLogger(__name__)
 
@@ -152,481 +148,174 @@ def _within_active_hours(
     return start <= now.time() < end
 
 
-def _postprocess_summary(
-    summary: str,
-    topic: str,
-    history: DigestHistory,
-    session_hashes: set[str],
-) -> tuple[str, dict]:
-    """
-    Parse the LLM JSON, apply deduplication + trend classification, re-serialise.
-
-    Returns (processed_summary, extra_meta) where extra_meta contains:
-      - deduped_count: items removed by cross-topic session dedup
-      - coverage_confidence: extracted from LLM output
-    """
-    extra: dict = {"deduped_count": 0, "coverage_confidence": None}
-
-    try:
-        text = summary.strip()
-        text = re.sub(r"^```[a-z]*\n?", "", text)
-        text = re.sub(r"\n?```$", "", text).strip()
-        parsed = json.loads(text)
-    except (json.JSONDecodeError, ValueError):
-        return summary, extra
-
-    if not isinstance(parsed, dict) or "items" not in parsed:
-        return summary, extra
-
-    # Extract coverage_confidence
-    extra["coverage_confidence"] = parsed.get("coverage_confidence") or None
-
-    items: list[dict] = [i for i in parsed.get("items", []) if isinstance(i, dict)]
-
-    # ── Feature 5: cross-topic session deduplication ─────────────────────────
-    deduped: list[dict] = []
-    for item in items:
-        h = _headline_hash(item.get("headline", ""))
-        if h in session_hashes:
-            logger.info(
-                "Deduped cross-topic item in '%s': %s", topic, item.get("headline", "")[:60]
-            )
-            extra["deduped_count"] += 1
-        else:
-            deduped.append(item)
-    items = deduped
-
-    # Add all this topic's hashes to the session set
-    for item in items:
-        session_hashes.add(_headline_hash(item.get("headline", "")))
-
-    # ── Feature 2: trend classification ─────────────────────────────────────
-    trend_map = history.classify_items(topic, items)
-    for item in items:
-        h = _headline_hash(item.get("headline", ""))
-        item["trend"] = trend_map.get(h, "new")
-
-    # Persist items to history for future trend detection
-    history.record_items(topic, items)
-
-    # ── Icon fallback — ensure no item has an empty icon ─────────────────────
-    for item in items:
-        if not str(item.get("icon") or "").strip():
-            item["icon"] = "📰"
-
-    parsed["items"] = items
-    return json.dumps(parsed, ensure_ascii=False), extra
-
-
 class DigestScheduler:
-    """Schedules one independent cron job per digest topic."""
+    """Collect continuously; publish on explicit schedules; retry durable outbox messages."""
 
     def __init__(
         self,
         summarizer,
         watchlist: dict,
         notifiers: list[Callable],
-        default_schedule: str = "0 6 * * *",
+        default_schedule: str = "0 9,16 * * *",
         timezone: str = "UTC",
         whisper_base_url: str | None = None,
         data_dir: str = "data",
-        top_stories_count: int = 10,
-        lookback_buffer_hours: float = 2.0,
+        top_stories_count: int = 5,
+        lookback_buffer_hours: float = 2,
         watch_default_poll_minutes: int = 15,
         active_hours: dict | None = None,
-    ) -> None:
+        profile: dict | None = None,
+        processor=None,
+        pipeline_settings: dict | None = None,
+    ):
         self.summarizer = summarizer
         self.notifiers = notifiers
         self.timezone = timezone
         self.default_schedule = default_schedule
-        self.lookback_buffer_hours = float(lookback_buffer_hours)
-        self.whisper_base_url = whisper_base_url
+        self.lookback_buffer_hours = lookback_buffer_hours
         self.top_stories_count = top_stories_count
-        self.watch_default_poll_minutes = int(watch_default_poll_minutes)
-        # Quiet-hours gate for *scheduled* runs only (on-demand !digest commands
-        # always bypass it). None/{} disables the gate entirely.
-        self.active_hours = active_hours or None
+        self._top_override: int | None = None
+        self.active_hours = active_hours
         self._tzinfo = ZoneInfo(timezone)
         self._scheduler = AsyncIOScheduler(
             timezone=timezone,
             executors={"default": AsyncIOExecutor()},
+            job_defaults={"coalesce": True, "max_instances": 1, "misfire_grace_time": 3600},
         )
         self._scheduler.add_listener(self._on_job_executed, EVENT_JOB_EXECUTED | EVENT_JOB_ERROR)
-        self._history = DigestHistory(data_dir=data_dir)
         self._watch_keywords = WatchKeywords(data_dir=data_dir)
-        self._watch_seen = WatchSeenItems(data_dir=data_dir)
-        self._session_hashes: set[str] = set()
-        self._session_date: str = date.today().isoformat()
-
-        topics = watchlist.get("topics", [])
-        if not topics:
-            logger.warning("Watchlist has no topics — digest scheduler idle")
-            return
-
-        for topic in topics:
+        self.store = ArticleStore(data_dir)
+        self.pipeline = DigestPipeline(
+            summarizer,
+            notifiers,
+            self.store,
+            self._watch_keywords,
+            profile=profile,
+            processor=processor,
+            whisper_base_url=whisper_base_url,
+            settings=pipeline_settings,
+        )
+        self._topics = []
+        for topic in watchlist.get("topics", []):
             name = topic.get("name", "Unnamed")
-
-            if topic.get("watch_mode"):
-                self._watch_keywords.seed_defaults(
-                    name, topic.get("keywords") or [], topic.get("exclude_keywords") or []
-                )
-                poll_minutes = int(topic.get("poll_interval_minutes") or watch_default_poll_minutes)
-                job_id = "watch_" + name.lower().replace(" ", "_")
+            self._watch_keywords.seed_defaults(
+                name, topic.get("keywords") or [], topic.get("exclude_keywords") or []
+            )
+            try:
+                if topic.get("watch_mode"):
+                    trigger = IntervalTrigger(
+                        minutes=max(
+                            1, int(topic.get("poll_interval_minutes") or watch_default_poll_minutes)
+                        )
+                    )
+                    func, job_prefix = self._run_watch_topic_scheduled, "watch_"
+                else:
+                    trigger = _parse_cron(topic.get("schedule") or default_schedule, timezone)
+                    func, job_prefix = self._run_topic_scheduled, "digest_"
                 self._scheduler.add_job(
-                    self._run_watch_topic_scheduled,
-                    IntervalTrigger(minutes=poll_minutes),
+                    func,
+                    trigger,
                     args=[topic],
-                    id=job_id,
+                    id=job_prefix + name.lower().replace(" ", "_"),
                     replace_existing=True,
                 )
-                logger.info("Scheduled watch-mode topic '%s' — every %d min", name, poll_minutes)
-                continue
-
-            schedule = topic.get("schedule") or default_schedule
-            job_id = "digest_" + name.lower().replace(" ", "_")
-
-            try:
-                trigger = _parse_cron(schedule, timezone)
+                self._topics.append(topic)
             except ValueError as exc:
                 logger.error("Skipping topic '%s': %s", name, exc)
-                continue
-
+        if self._topics:
+            interval = max(1, int((pipeline_settings or {}).get("collection_minutes", 15)))
             self._scheduler.add_job(
-                self._run_topic_scheduled,
-                trigger,
-                args=[topic],
-                id=job_id,
-                replace_existing=True,
+                self._collect_all,
+                IntervalTrigger(minutes=interval),
+                id="collect_articles",
+                next_run_time=datetime.now(UTC),
             )
-            logger.info("Scheduled topic '%s' — cron '%s' (%s)", name, schedule, timezone)
+            self._scheduler.add_job(
+                self._retry_delivery, IntervalTrigger(minutes=1), id="retry_delivery"
+            )
 
-    def _on_job_executed(self, event) -> None:
+    def _on_job_executed(self, event):
         if event.exception:
-            logger.error(
-                "Scheduled digest job '%s' raised an exception: %s",
-                event.job_id,
-                event.exception,
-                exc_info=event.traceback,
-            )
-        else:
-            logger.debug("Scheduled digest job '%s' completed", event.job_id)
-
-    def _reset_session_if_new_day(self) -> None:
-        today = date.today().isoformat()
-        if today != self._session_date:
-            self._session_hashes.clear()
-            self._session_date = today
-            logger.info("New day — cross-topic dedup session reset")
+            logger.error("Digest job %s failed: %s", event.job_id, event.exception)
 
     def _in_active_hours(self) -> bool:
-        """True if scheduled runs are allowed right now (quiet-hours gate).
-
-        Only gates the scheduler's own cron/interval triggers — on-demand
-        ``!digest`` commands call ``_run_topic``/``_run_watch_topic`` directly
-        and always bypass it.
-        """
         if not self.active_hours:
             return True
-        now = datetime.now(self._tzinfo)
         return _within_active_hours(
-            now,
+            datetime.now(self._tzinfo),
             self.active_hours.get("weekday_start", "00:00"),
             self.active_hours.get("weekday_end", "23:59"),
             self.active_hours.get("weekend_start", "00:00"),
             self.active_hours.get("weekend_end", "23:59"),
         )
 
-    async def _run_topic_scheduled(self, topic: dict) -> None:
-        """APScheduler cron job entry point — skips the run during quiet hours."""
-        if not self._in_active_hours():
-            logger.debug(
-                "Skipping scheduled digest '%s' — outside active hours", topic.get("name", "?")
-            )
-            return
-        await self._run_topic(topic)
-
-    async def _run_watch_topic_scheduled(self, topic: dict) -> None:
-        """APScheduler interval job entry point — skips the poll during quiet hours."""
-        if not self._in_active_hours():
-            logger.debug(
-                "Skipping watch-mode poll '%s' — outside active hours", topic.get("name", "?")
-            )
-            return
-        await self._run_watch_topic(topic)
-
-    async def _run_topic(self, topic: dict, progress=None, override_channel=None) -> None:
-        """Fetch, summarize, and notify for a single topic.
-
-        Args:
-            progress: Optional async callable(str) for on-demand status updates.
-                      Not used for scheduled runs — only wired up by run_topic_now.
-            override_channel: Channel to fall back to when neither the topic nor
-                              the bot has a digest_channel configured.  Passed by
-                              on-demand ``!digest`` commands so the result always
-                              appears in the channel where the command was typed.
-        """
-        self._reset_session_if_new_day()
-        name = topic.get("name", "Unknown")
-        logger.info("Running digest for topic: %s", name)
-
-        lookback = topic.get("lookback") or None
-        if lookback is None:
-            # No explicit lookback — derive one from the topic's schedule so
-            # high-frequency topics (e.g. every 6h) don't reprocess a full 24h
-            # of overlapping content on each run.
-            schedule = topic.get("schedule") or self.default_schedule
+    async def _collect_all(self):
+        # Collection deliberately continues during quiet hours and while the LLM is busy.
+        for topic in self._topics:
             try:
-                lookback = _compute_auto_lookback(
-                    schedule, self.timezone, self.lookback_buffer_hours, self.active_hours
-                )
-                logger.info(
-                    "Topic '%s': auto-lookback %s (schedule '%s', buffer %sh)",
-                    name,
-                    lookback,
-                    schedule,
-                    self.lookback_buffer_hours,
-                )
-            except ValueError as exc:
-                logger.warning(
-                    "Topic '%s': could not compute auto-lookback (%s) — no time filter",
-                    name,
-                    exc,
-                )
-                lookback = None
-        lookback_seconds = parse_lookback(lookback)
-        sources = topic.get("sources", [])
+                await self.pipeline.collect(topic)
+            except Exception:
+                logger.exception("Collection failed for %s; checkpoint retained", topic["name"])
+        self.store.prune(int(self.pipeline.settings.get("retention_days", 90)))
 
-        try:
-            if progress:
-                await progress(f"📡 Fetching {len(sources)} source(s) for *{name}*…")
-            fetched = await fetch_topic(
-                sources,
-                self.summarizer.max_chars,
-                timeout=15,
-                lookback_seconds=lookback_seconds,
-                whisper_base_url=self.whisper_base_url,
-            )
-            sources_ok = sum(1 for s in fetched if s.get("content", "").strip())
-            total_chars = sum(len(s.get("content", "")) for s in fetched)
-            if progress:
-                size_hint = (
-                    f"~{total_chars // 1000}k chars"
-                    if total_chars >= 1000
-                    else f"{total_chars} chars"
-                )
-                eta = self._history.estimate_llm_seconds(total_chars)
-                if eta is not None:
-                    eta_str = f"~{max(1, round(eta))}s" if eta < 90 else f"~{round(eta / 60)}m"
-                    time_hint = f", ETA {eta_str}"
-                else:
-                    time_hint = " — this may take a minute"
-                await progress(
-                    f"🤖 Summarizing {sources_ok}/{len(fetched)} source(s)"
-                    f" ({size_hint}{time_hint})…"
-                )
-            t0 = time.monotonic()
-            # The LLM reads every source but only writes up the top_n stories
-            # that will actually be posted — generation is the slow part on
-            # small/CPU models, reading is cheap.
-            summary = await self.summarizer.summarize_topic(
-                name, fetched, lookback=lookback, max_items=self._top_n(topic)
-            )
-            self._history.record_llm_timing(total_chars, time.monotonic() - t0)
-        except Exception as exc:
-            logger.exception("Failed to generate digest for topic '%s': %s", name, exc)
-            return
+    async def _retry_delivery(self):
+        if self._in_active_hours():
+            await self.pipeline.flush(allowed=self._in_active_hours)
 
-        # ── Source metadata ──────────────────────────────────────────────────
-        empty_sources = [s["name"] for s in fetched if not s.get("content", "").strip()]
-        if empty_sources:
-            logger.warning(
-                "Topic '%s': %d source(s) returned no content: %s",
-                name,
-                len(empty_sources),
-                ", ".join(empty_sources),
-            )
+    async def _run_topic_scheduled(self, topic):
+        if self._in_active_hours():
+            await self._run_topic(topic, scheduled=True)
 
-        # ── Feature 6: record source health, check chronic failures ─────────
-        source_results = {s["name"]: bool(s.get("content", "").strip()) for s in fetched}
-        self._history.record_source_results(source_results)
-        chronically_failing = self._history.get_chronically_failing_sources(consecutive_days=3)
-        # Only report failures that belong to this topic's sources
-        topic_source_names = {s.get("name", "") for s in topic.get("sources", [])}
-        topic_chronic = [s for s in chronically_failing if s in topic_source_names]
-        if topic_chronic:
-            logger.warning(
-                "Topic '%s': sources failing for 3+ days: %s", name, ", ".join(topic_chronic)
-            )
+    async def _run_watch_topic_scheduled(self, topic):
+        if self._in_active_hours():
+            await self._run_watch_topic(topic, scheduled=True)
 
-        # ── Features 2 & 5: dedup + trend classification ─────────────────────
-        summary, extra_meta = _postprocess_summary(
-            summary, name, self._history, self._session_hashes
-        )
-        if extra_meta["deduped_count"]:
-            logger.info(
-                "Topic '%s': removed %d cross-topic duplicate(s)",
-                name,
-                extra_meta["deduped_count"],
-            )
-
-        # Collect image URLs configured on individual sources
-        images = [s["image_url"] for s in fetched if s.get("image_url")]
-
-        meta = {
-            "sources_total": len(fetched),
-            "sources_ok": len(fetched) - len(empty_sources),
-            "empty_sources": empty_sources,
-            "chronically_failing": topic_chronic,
-            "deduped_count": extra_meta["deduped_count"],
-            "coverage_confidence": extra_meta["coverage_confidence"],
-            "images": images,
-            "top_stories_count": self._top_n(topic),
-        }
-
-        # Per-topic channel override; fall back to the on-demand caller's channel
-        # when neither the topic nor the bot has a digest_channel configured.
-        topic_channel = topic.get("digest_channel") or override_channel or None
-
-        for notify in self.notifiers:
-            try:
-                await notify(name, summary, lookback=lookback, channel=topic_channel, meta=meta)
-            except Exception as exc:
-                logger.error(
-                    "Notifier %s failed for topic '%s': %s",
-                    getattr(notify, "__qualname__", repr(notify)),
-                    name,
-                    exc,
-                )
-
-    async def _run_watch_topic(self, topic: dict, progress=None, override_channel=None) -> bool:
-        """Poll a watch-mode topic's sources, filter by keywords, and post any new matches.
-
-        Unlike ``_run_topic``, this never re-processes an item: every fetched item
-        (matched or not) is marked seen so keyword changes only affect future items.
-
-        Returns True if any new (matching or not) items were found this poll.
-        """
-        name = topic.get("name", "Unknown")
-        logger.info("Polling watch-mode topic: %s", name)
-
+    async def _run_topic(self, topic, progress=None, override_channel=None, scheduled=False):
         if progress:
-            await progress(f"📡 Polling {len(topic.get('sources', []))} source(s) for *{name}*…")
-        items = await fetch_topic_items(
-            topic.get("sources", []),
-            timeout=15,
-            whisper_base_url=self.whisper_base_url,
-            skip_audio=lambda i: self._watch_seen.is_seen(name, i),
-        )
-        new_items = self._watch_seen.filter_new(name, items)
-        if not new_items:
-            logger.info("Watch topic '%s': no new items", name)
-            return False
-
-        # Mark seen immediately — before summarization — so a crash mid-summary
-        # can't cause the same item to be re-evaluated on the next poll.
-        self._watch_seen.mark_seen(name, new_items)
-
-        include, exclude = self._watch_keywords.get(name)
-        matched = [i for i in new_items if matches_keywords(i, include, exclude)]
-        if not matched:
-            logger.info(
-                "Watch topic '%s': %d new item(s), none matched keywords", name, len(new_items)
+            await progress(f"Fetching articles for {topic['name']}...")
+        try:
+            await self.pipeline.collect(topic)
+            if progress:
+                await progress("Selecting and summarizing relevant articles...")
+            await self.pipeline.publish(
+                topic,
+                self._top_n(topic),
+                override_channel,
+                progress,
+                delivery_allowed=self._in_active_hours if scheduled else None,
             )
-            return True
-
-        logger.info("Watch topic '%s': %d matched item(s) — summarizing", name, len(matched))
-
-        # Group matched items back into per-source content blocks so the existing
-        # summarizer/formatter pipeline (built for the scheduled-digest shape) can
-        # be reused unchanged.
-        by_source: dict[str, list[dict]] = {}
-        for i in matched:
-            by_source.setdefault(i["source_name"], []).append(i)
-        fetched = [
-            {
-                "name": source_name,
-                "url": source_items[0]["source_url"],
-                "content": "\n\n---\n\n".join(
-                    f"Title: {i['title']}\nURL: {i['link']}\n{i['summary']}" for i in source_items
-                ),
-                "image_url": None,
-            }
-            for source_name, source_items in by_source.items()
-        ]
-
-        try:
-            raw = await self.summarizer.summarize_watch_items(name, fetched, include, exclude)
-        except Exception as exc:
-            logger.exception("Failed to summarize watch matches for topic '%s': %s", name, exc)
-            return True
-
-        try:
-            parsed = json.loads(raw)
-        except (json.JSONDecodeError, ValueError):
-            parsed = None
-        candidate_items = [i for i in (parsed or {}).get("items", []) if isinstance(i, dict)]
-        # A missing "relevant" key defaults to keeping the item — the schema requires
-        # it, so this only guards against a malformed/partial LLM response.
-        relevant_items = [i for i in candidate_items if i.get("relevant", True)]
-        if not relevant_items:
-            logger.info(
-                "Watch topic '%s': LLM judged 0/%d matched item(s) relevant",
-                name,
-                len(candidate_items),
-            )
-            return True
-
-        watch_summary = json.dumps(
-            {
-                "overview": "",
-                "coverage_confidence": (parsed or {}).get("coverage_confidence"),
-                "items": relevant_items,
-            }
-        )
-        summary, extra_meta = _postprocess_summary(
-            watch_summary, name, self._history, self._session_hashes
-        )
-        try:
-            final_item_count = len(json.loads(summary).get("items", []))
-        except (json.JSONDecodeError, ValueError):
-            final_item_count = len(relevant_items)
-        if final_item_count == 0:
-            logger.info("Watch topic '%s': all matched items were cross-topic duplicates", name)
-            return True
-
-        meta = {
-            "sources_total": len(fetched),
-            "sources_ok": len(fetched),
-            "empty_sources": [],
-            "chronically_failing": [],
-            "deduped_count": extra_meta["deduped_count"],
-            "coverage_confidence": extra_meta["coverage_confidence"],
-            "images": [],
-            "top_stories_count": final_item_count,
-            "bare": True,
-        }
-        topic_channel = topic.get("digest_channel") or override_channel or None
-
-        for notify in self.notifiers:
-            try:
-                await notify(name, summary, lookback=None, channel=topic_channel, meta=meta)
-            except Exception as exc:
-                logger.error(
-                    "Notifier %s failed for watch topic '%s': %s",
-                    getattr(notify, "__qualname__", repr(notify)),
-                    name,
-                    exc,
+        except Exception:
+            logger.exception("Digest failed for %s; articles retained for retry", topic["name"])
+            if progress:
+                await progress(
+                    "Digest could not finish. Collected articles remain queued for retry."
                 )
-        return True
+
+    async def _run_watch_topic(self, topic, progress=None, override_channel=None, scheduled=False):
+        added = await self.pipeline.collect(topic)
+        await self.pipeline.publish(
+            topic,
+            self._top_n(topic),
+            override_channel,
+            progress,
+            urgent=True,
+            delivery_allowed=self._in_active_hours if scheduled else None,
+        )
+        return bool(added)
 
     def _top_n(self, topic: dict) -> int:
         """The topic's own top_stories_count, else the (runtime-adjustable) global one."""
+        if self._top_override is not None:
+            return self._top_override
         topic_top_n = topic.get("top_stories_count")
-        return int(topic_top_n) if topic_top_n is not None else self.top_stories_count
+        return max(
+            1, min(20, int(topic_top_n) if topic_top_n is not None else self.top_stories_count)
+        )
 
     def set_top_stories_count(self, n: int) -> None:
         """Update the number of top stories shown with full summaries (session only)."""
         self.top_stories_count = max(1, min(n, 20))
+        self._top_override = self.top_stories_count
         logger.info("Top stories count set to %d", self.top_stories_count)
 
     def get_topic_names(self) -> list[str]:
@@ -704,7 +393,7 @@ class DigestScheduler:
     def find_watch_topic(self, topic_query: str) -> dict | None:
         """Return the watch-mode topic dict matching *topic_query* by tag or name, or None."""
         query = topic_query.strip().lower()
-        jobs = [j for j in self._scheduler.get_jobs() if j.id.startswith("watch_")]
+        jobs = [j for j in self._scheduler.get_jobs() if j.id.startswith(("watch_", "digest_"))]
 
         for job in jobs:
             tags = [t.lower() for t in job.args[0].get("tags", [])]
@@ -719,25 +408,18 @@ class DigestScheduler:
     def get_watch_topic_names(self) -> list[str]:
         """Return names of all watch-mode topics."""
         return [
-            job.args[0]["name"] for job in self._scheduler.get_jobs() if job.id.startswith("watch_")
+            job.args[0]["name"]
+            for job in self._scheduler.get_jobs()
+            if job.id.startswith(("watch_", "digest_"))
         ]
 
     @property
     def watch_keywords(self) -> WatchKeywords:
         return self._watch_keywords
 
-    def start(self) -> None:
-        # Explicitly bind to the running event loop so APScheduler 3.x doesn't
-        # create a new loop and silently fail to fire jobs in an async context.
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = None
-        self._scheduler.start(paused=False)
-        if loop is not None:
-            self._scheduler._eventloop = loop  # type: ignore[attr-defined]
-        logger.info("Digest scheduler started (%d topic(s))", len(self._scheduler.get_jobs()))
+    def start(self):
+        self._scheduler.start()
+        logger.info("Digest scheduler started (%d topics)", len(self._topics))
 
-    def shutdown(self) -> None:
+    def shutdown(self):
         self._scheduler.shutdown(wait=False)
-        logger.info("Digest scheduler stopped")

@@ -1,7 +1,8 @@
 # One digest topic per file. See template.yaml.example for the full field reference.
 name: "General News"
 tags: [news, aus, australia]    # !digest news
-watch_mode: true                # polls continuously; manage keywords with `!digest keywords news ...`
+schedule: "0 9,16 * * *"         # compact morning and afternoon digests
+top_stories_count: 5
 keywords: ["australia", "breaking", "emergency"]
 exclude_keywords: []
 digest_channel: "#general"

@@ -41,7 +41,11 @@ class AnthropicLLM(BaseLLM):
                 system=system,
                 messages=[{"role": "user", "content": user}],
             )
-            return response.content[0].text
+            return "\n".join(
+                block.text
+                for block in response.content
+                if isinstance(block, anthropic.types.TextBlock)
+            )
         except anthropic.AuthenticationError:
             raise RuntimeError("Invalid Anthropic API key — check ANTHROPIC_API_KEY in .env")
         except anthropic.APIStatusError as exc:

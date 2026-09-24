@@ -24,11 +24,10 @@ class CIRCLPDNSProvider(BaseProvider):
         url = f"{_BASE}/{ioc.value}"
         # CIRCL PDNS returns newline-delimited JSON; pass auth + accept header per-request
         # so a shared httpx client (when set) doesn't carry our credentials elsewhere.
-        auth = (
-            tuple(self.api_key.split(":", 1))  # type: ignore[arg-type]
-            if ":" in (self.api_key or "")
-            else None
-        )
+        auth: tuple[str, str] | None = None
+        if ":" in self.api_key:
+            username, password = self.api_key.split(":", 1)
+            auth = (username, password)
         try:
             async with self._http() as client:
                 resp = await client.get(

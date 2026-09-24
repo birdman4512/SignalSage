@@ -2,6 +2,11 @@
 
 import logging
 import re
+import uuid
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from signalsage.scheduler import DigestScheduler
 
 from slack_bolt.adapter.socket_mode.aiohttp import AsyncSocketModeHandler
 from slack_bolt.async_app import AsyncApp
@@ -24,6 +29,8 @@ logger = logging.getLogger(__name__)
 class SlackBot:
     """Async Slack bot that monitors messages and enriches IOCs."""
 
+    platform_name = "slack"
+
     def __init__(
         self,
         config: dict,
@@ -37,7 +44,7 @@ class SlackBot:
         self.auth = auth or CommandAuth()
         self.app = AsyncApp(token=self.cfg["bot_token"])
         self._bot_user_id: str | None = None
-        self.scheduler = None  # set by main.py after scheduler creation
+        self.scheduler: DigestScheduler | None = None  # set by main.py
         self._register()
 
     def _register(self) -> None:
@@ -91,6 +98,7 @@ class SlackBot:
                         self.scheduler,
                         reply=lambda msg: say(text=msg),
                         reply_channel=channel,
+                        actor=user_id,
                     )
                 elif cmd_name == "osint":
                     await handle_osint_command(
@@ -161,6 +169,8 @@ class SlackBot:
                         cmd_args,
                         self.scheduler,
                         reply=lambda msg: say(text=msg),
+                        reply_channel=event.get("channel"),
+                        actor=user_id,
                     )
                     return
                 if cmd_name == "osint":
@@ -182,6 +192,17 @@ class SlackBot:
         async def on_error(error: Exception) -> None:
             logger.error("Slack bolt error: %s", error)
 
+    def digest_destination(self, channel=None):
+        ch = channel or self.cfg.get("digest_channel")
+        if not ch or str(ch).isdigit():
+            ch = self.cfg.get("digest_channel")
+        if not ch:
+            raise ValueError("No Slack digest channel configured")
+        return self.platform_name, str(ch)
+
+    def digest_payloads(self, topic, summary, meta):
+        return format_digest_slack_message(topic, summary, meta=meta)
+
     async def send_digest(
         self,
         topic_name: str,
@@ -191,17 +212,21 @@ class SlackBot:
         meta: dict | None = None,
     ) -> None:
         """Send a digest message to a channel using Block Kit formatting."""
-        ch = channel or self.cfg.get("digest_channel")
-        if not ch:
-            logger.warning("No digest_channel configured for Slack")
-            return
-        payloads = format_digest_slack_message(topic_name, summary, lookback, meta=meta)
-        for payload in payloads:
-            try:
-                await self.app.client.chat_postMessage(channel=ch, **payload)
-            except Exception as exc:
-                logger.error("Failed to send Slack digest message for '%s': %s", topic_name, exc)
-                break
+        _, ch = self.digest_destination(channel)
+        meta = meta or {}
+        payloads = meta.get("_payloads")
+        if payloads is None:
+            payloads = format_digest_slack_message(topic_name, summary, lookback, meta=meta)
+        for index, payload in enumerate(payloads):
+            if index < meta.get("_offset", 0):
+                continue
+            if meta.get("_delivery_id"):
+                payload["client_msg_id"] = str(
+                    uuid.uuid5(uuid.NAMESPACE_URL, f"{meta['_delivery_id']}:{index}")
+                )
+            await self.app.client.chat_postMessage(channel=ch, **payload)
+            if meta.get("_ack"):
+                meta["_ack"](index + 1)
 
     async def start(self) -> None:
         """Start the Socket Mode handler (blocks until stopped)."""

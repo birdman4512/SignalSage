@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import time
 
 import httpx
 
@@ -12,7 +13,6 @@ logger = logging.getLogger(__name__)
 # Rough chars-per-token for sizing the context window. English prose averages ~4;
 # 3 is deliberately pessimistic so the estimate errs toward a larger window.
 _CHARS_PER_TOKEN = 3
-_MAX_NUM_CTX = 32768
 
 
 class OllamaLLM(BaseLLM):
@@ -30,12 +30,17 @@ class OllamaLLM(BaseLLM):
         base_url: str = "http://localhost:11434",
         model: str = "llama3.2",
         timeout: int = 600,
-        num_ctx: int = 16384,
+        num_ctx: int = 4096,
+        temperature: float = 0,
+        think: bool | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.timeout = timeout
         self.num_ctx = num_ctx
+        self.temperature = temperature
+        self.think = think
+        self.last_metrics: dict = {}
         # One generation at a time. On CPU-only hosts Ollama processes requests
         # serially anyway; queueing here instead of inside Ollama means
         # `timeout` measures actual generation time rather than time spent
@@ -45,25 +50,13 @@ class OllamaLLM(BaseLLM):
         logger.info("Ollama LLM: model=%s base_url=%s num_ctx=%d", model, self.base_url, num_ctx)
 
     def _ctx_for(self, system: str, user: str, max_tokens: int) -> int:
-        """Return the configured num_ctx, or a larger one if this request won't fit.
-
-        Ollama silently truncates the *front* of an over-long prompt — i.e. the
-        system prompt and its JSON instructions — which turns the output into
-        garbage. Growing the window for the rare oversized request is better;
-        it's not done by default because a changed num_ctx forces a model reload.
-        """
+        """Reject oversized prompts rather than silently increasing memory use."""
         needed = (len(system) + len(user)) // _CHARS_PER_TOKEN + max_tokens
         if needed <= self.num_ctx:
             return self.num_ctx
-        ctx = min(_MAX_NUM_CTX, -(-needed // 2048) * 2048)
-        logger.warning(
-            "Prompt needs ~%d tokens, over num_ctx=%d — using %d for this request "
-            "(lower digest.max_total_chars_per_topic to avoid the reload)",
-            needed,
-            self.num_ctx,
-            ctx,
+        raise ValueError(
+            f"Prompt needs approximately {needed} tokens; fixed context budget is {self.num_ctx}. Shorten the article input."
         )
-        return ctx
 
     async def complete(
         self,
@@ -83,8 +76,11 @@ class OllamaLLM(BaseLLM):
             "options": {
                 "num_predict": max_tokens,
                 "num_ctx": self._ctx_for(system, user, max_tokens),
+                "temperature": self.temperature,
             },
         }
+        if self.think is not None:
+            payload["think"] = self.think
         if json_mode:
             # Constrains decoding to syntactically valid JSON so small local models
             # can't wrap the digest JSON in prose ("Here's your summary:\n\n{...}").
@@ -93,11 +89,31 @@ class OllamaLLM(BaseLLM):
             # force the "items" array to be emitted too.
             payload["format"] = json_schema or "json"
 
+        queued = time.monotonic()
         async with self._lock, httpx.AsyncClient(timeout=self.timeout) as client:
             try:
+                started = time.monotonic()
                 resp = await client.post(f"{self.base_url}/api/chat", json=payload)
                 resp.raise_for_status()
                 data = resp.json()
+                self.last_metrics = {
+                    key: data.get(key)
+                    for key in (
+                        "prompt_eval_count",
+                        "eval_count",
+                        "load_duration",
+                        "eval_duration",
+                        "total_duration",
+                    )
+                }
+                self.last_metrics.update(
+                    queue_seconds=started - queued, request_seconds=time.monotonic() - started
+                )
+                logger.info("Ollama generation metrics: %s", self.last_metrics)
+                if data.get("done_reason") == "length":
+                    raise ValueError(
+                        "Ollama output reached its token limit; response is incomplete"
+                    )
                 try:
                     return data["message"]["content"]
                 except (KeyError, TypeError):

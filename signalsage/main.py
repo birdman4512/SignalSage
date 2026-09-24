@@ -109,6 +109,9 @@ async def main() -> None:
     digest_cfg = cfg.get("digest", {})
     summarizer = None
     llm_provider = (digest_cfg.get("llm_provider") or "ollama").lower()
+    from signalsage.llm.base import BaseLLM
+
+    llm: BaseLLM | None = None
 
     try:
         if llm_provider == "anthropic":
@@ -139,8 +142,10 @@ async def main() -> None:
             llm = OllamaLLM(
                 base_url=digest_cfg.get("ollama_base_url") or "http://localhost:11434",
                 model=digest_cfg.get("ollama_model") or "gemma2:2b",
-                num_ctx=digest_cfg.get("ollama_num_ctx", 12288),
-                timeout=digest_cfg.get("ollama_timeout", 1800),
+                num_ctx=digest_cfg.get("ollama_num_ctx", 4096),
+                timeout=digest_cfg.get("ollama_timeout", 600),
+                temperature=float(digest_cfg.get("temperature", 0)),
+                think=digest_cfg.get("ollama_think"),
             )
     except Exception as exc:
         logger.error("Failed to initialize LLM (%s): %s", llm_provider, exc)
@@ -151,8 +156,8 @@ async def main() -> None:
 
         summarizer = DigestSummarizer(
             llm=llm,
-            max_chars=digest_cfg.get("max_chars_per_source", 3000),
-            max_total_chars=digest_cfg.get("max_total_chars_per_topic", 20000),
+            max_chars=digest_cfg.get("article_chars", 6000),
+            max_total_chars=digest_cfg.get("max_prompt_chars", 8000),
             interest_topics=digest_cfg.get("interest_topics") or [],
         )
         logger.info("Digest summarizer ready (provider: %s)", llm_provider)
@@ -235,6 +240,12 @@ async def main() -> None:
                 lookback_buffer_hours=float(digest_cfg.get("lookback_buffer_hours", 2)),
                 watch_default_poll_minutes=int(digest_cfg.get("watch_default_poll_minutes", 15)),
                 active_hours=digest_cfg.get("active_hours"),
+                profile={
+                    "topics": dict.fromkeys(digest_cfg.get("interest_topics") or [], 3),
+                    **(digest_cfg.get("profile") or {}),
+                },
+                processor=processor,
+                pipeline_settings=digest_cfg,
             )
             scheduler.start()
             # Give bots a scheduler reference so !digest commands work

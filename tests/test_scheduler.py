@@ -1,302 +1,130 @@
-"""Tests for the digest scheduler."""
+"""Scheduler orchestration and cron coverage regressions."""
 
-import json
-from datetime import UTC, date, datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock, patch
+from datetime import UTC, datetime
+from unittest.mock import AsyncMock, patch
 
 from signalsage.scheduler import DigestScheduler, _compute_auto_lookback, _within_active_hours
 
 
-def _make_watchlist(*schedules: str) -> dict:
-    topics = [
-        {"name": f"Topic {chr(65 + i)}", "schedule": s, "sources": []}
-        for i, s in enumerate(schedules)
-    ]
-    return {"topics": topics}
-
-
-def _default_watch_json(relevant: bool = True) -> str:
-    return json.dumps(
-        {
-            "overview": "",
-            "coverage_confidence": "high",
-            "items": [
-                {
-                    "art_id": "A1",
-                    "relevant": relevant,
-                    "icon": "🔴",
-                    "severity": "high",
-                    "headline": "Test headline",
-                    "summary": "Test summary.",
-                    "url": "https://example.com",
-                }
-            ],
-        }
-    )
-
-
-def _make_summarizer(summary: str = "summary text", watch_items: str | None = None) -> MagicMock:
-    summarizer = MagicMock()
-    summarizer.max_chars = 3000
-    summarizer.summarize_topic = AsyncMock(return_value=summary)
-    summarizer.summarize_watch_items = AsyncMock(return_value=watch_items or _default_watch_json())
-    return summarizer
-
-
-def _make_scheduler(watchlist, notifiers=None, summarizer=None, tmp_path=None) -> DigestScheduler:
+def make_scheduler(tmp_path, topics=None, **kwargs):
     return DigestScheduler(
-        summarizer=summarizer or _make_summarizer(),
-        watchlist=watchlist,
-        notifiers=notifiers or [],
-        data_dir=str(tmp_path) if tmp_path else "data",
+        AsyncMock(),
+        {"topics": topics or [{"name": "News", "tags": ["news"], "sources": []}]},
+        [],
+        data_dir=str(tmp_path),
+        **kwargs,
     )
 
 
-# ---------------------------------------------------------------------------
-# Job registration
-# ---------------------------------------------------------------------------
+def test_registers_publication_collection_and_retries(tmp_path):
+    scheduler = make_scheduler(tmp_path)
+    assert {j.id for j in scheduler._scheduler.get_jobs()} == {
+        "digest_news",
+        "collect_articles",
+        "retry_delivery",
+    }
+    assert scheduler.get_topic_names() == ["News"]
+    assert len(scheduler.get_topics()) == 1
 
 
-def test_one_job_per_topic(tmp_path):
-    scheduler = _make_scheduler(_make_watchlist("0 6 * * *", "0 8 * * 1"), tmp_path=tmp_path)
-    assert len(scheduler._scheduler.get_jobs()) == 2
-
-
-def test_job_ids_based_on_topic_name(tmp_path):
-    scheduler = _make_scheduler(_make_watchlist("0 6 * * *", "0 7 * * *"), tmp_path=tmp_path)
-    job_ids = {j.id for j in scheduler._scheduler.get_jobs()}
-    assert "digest_topic_a" in job_ids
-    assert "digest_topic_b" in job_ids
-
-
-def test_empty_watchlist_no_jobs(tmp_path):
-    scheduler = _make_scheduler({"topics": []}, tmp_path=tmp_path)
+def test_empty_watchlist_has_no_jobs(tmp_path):
+    scheduler = DigestScheduler(AsyncMock(), {"topics": []}, [], data_dir=str(tmp_path))
     assert scheduler._scheduler.get_jobs() == []
 
 
-def test_topic_without_schedule_uses_default(tmp_path):
-    watchlist = {"topics": [{"name": "No Schedule Topic", "sources": []}]}
-    scheduler = DigestScheduler(
-        summarizer=_make_summarizer(),
-        watchlist=watchlist,
-        notifiers=[],
-        default_schedule="0 9 * * *",
-        data_dir=str(tmp_path),
+def test_invalid_schedule_is_skipped(tmp_path):
+    scheduler = make_scheduler(tmp_path, [{"name": "Broken", "schedule": "invalid", "sources": []}])
+    assert scheduler.get_topics() == []
+
+
+def test_watch_mode_requires_separate_interval(tmp_path):
+    scheduler = make_scheduler(
+        tmp_path,
+        [
+            {
+                "name": "Urgent",
+                "watch_mode": True,
+                "alert_keywords": ["actively exploited"],
+                "sources": [],
+            }
+        ],
     )
-    assert len(scheduler._scheduler.get_jobs()) == 1
+    assert scheduler._scheduler.get_job("watch_urgent")
+    assert scheduler._scheduler.get_job("collect_articles")
 
 
-def test_invalid_cron_skips_topic(tmp_path, caplog):
-    import logging
-
-    with caplog.at_level(logging.ERROR):
-        scheduler = _make_scheduler(_make_watchlist("not a cron", "0 6 * * *"), tmp_path=tmp_path)
-    assert len(scheduler._scheduler.get_jobs()) == 1
-
-
-def test_get_topics_returns_name_tags_next_run(tmp_path):
-    watchlist = {"topics": [{"name": "My Topic", "tags": ["foo", "bar"], "sources": []}]}
-    scheduler = _make_scheduler(watchlist, tmp_path=tmp_path)
-    topics = scheduler.get_topics()
-    assert len(topics) == 1
-    name, tags, next_run = topics[0]
-    assert name == "My Topic"
-    assert tags == ["foo", "bar"]
+async def test_collection_continues_during_quiet_hours(tmp_path):
+    scheduler = make_scheduler(tmp_path)
+    scheduler.pipeline.collect = AsyncMock(return_value=1)
+    with patch.object(scheduler, "_in_active_hours", return_value=False):
+        await scheduler._collect_all()
+    scheduler.pipeline.collect.assert_awaited_once()
 
 
-def test_get_topic_names(tmp_path):
-    scheduler = _make_scheduler(_make_watchlist("0 6 * * *", "0 7 * * *"), tmp_path=tmp_path)
-    names = scheduler.get_topic_names()
-    assert "Topic A" in names
-    assert "Topic B" in names
+async def test_scheduled_posts_and_retries_respect_quiet_hours(tmp_path):
+    scheduler = make_scheduler(tmp_path)
+    scheduler._run_topic = AsyncMock()
+    scheduler.pipeline.flush = AsyncMock()
+    with patch.object(scheduler, "_in_active_hours", return_value=False):
+        await scheduler._run_topic_scheduled(scheduler._topics[0])
+        await scheduler._retry_delivery()
+    scheduler._run_topic.assert_not_awaited()
+    scheduler.pipeline.flush.assert_not_awaited()
 
 
-# ---------------------------------------------------------------------------
-# Notification
-# ---------------------------------------------------------------------------
-
-
-async def test_run_topic_calls_notifiers(tmp_path):
-    notifier = AsyncMock()
-    watchlist = _make_watchlist("0 6 * * *")
-    with patch("signalsage.scheduler.fetch_topic", new=AsyncMock(return_value=[])):
-        scheduler = _make_scheduler(watchlist, notifiers=[notifier], tmp_path=tmp_path)
-        await scheduler._run_topic(watchlist["topics"][0])
-    notifier.assert_called_once()
-    assert notifier.call_args[0][0] == "Topic A"
-
-
-async def test_run_topic_passes_meta_to_notifier(tmp_path):
-    notifier = AsyncMock()
-    watchlist = _make_watchlist("0 6 * * *")
-    with patch("signalsage.scheduler.fetch_topic", new=AsyncMock(return_value=[])):
-        scheduler = _make_scheduler(watchlist, notifiers=[notifier], tmp_path=tmp_path)
-        await scheduler._run_topic(watchlist["topics"][0])
-    meta = notifier.call_args[1]["meta"]
-    assert "sources_total" in meta
-    assert "sources_ok" in meta
-    assert "empty_sources" in meta
-
-
-async def test_run_topic_notifier_failure_does_not_crash(tmp_path):
-    bad_notifier = AsyncMock(side_effect=RuntimeError("slack down"))
-    watchlist = _make_watchlist("0 6 * * *")
-    with patch("signalsage.scheduler.fetch_topic", new=AsyncMock(return_value=[])):
-        scheduler = _make_scheduler(watchlist, notifiers=[bad_notifier], tmp_path=tmp_path)
-        await scheduler._run_topic(watchlist["topics"][0])  # must not raise
-
-
-async def test_run_all_now_triggers_all_topics(tmp_path):
-    notifier = AsyncMock()
-    watchlist = _make_watchlist("0 6 * * *", "0 8 * * *")
-    with patch("signalsage.scheduler.fetch_topic", new=AsyncMock(return_value=[])):
-        scheduler = _make_scheduler(watchlist, notifiers=[notifier], tmp_path=tmp_path)
-        await scheduler.run_all_now()
-    assert notifier.call_count == 2
-
-
-# ---------------------------------------------------------------------------
-# run_topic_now — tag/name matching
-# ---------------------------------------------------------------------------
-
-
-async def test_run_topic_now_matches_by_tag(tmp_path):
-    notifier = AsyncMock()
-    watchlist = {"topics": [{"name": "Cyber News", "tags": ["cyber"], "sources": []}]}
-    with patch("signalsage.scheduler.fetch_topic", new=AsyncMock(return_value=[])):
-        scheduler = _make_scheduler(watchlist, notifiers=[notifier], tmp_path=tmp_path)
-        found = await scheduler.run_topic_now("cyber")
-    assert found is True
-    notifier.assert_called_once()
-
-
-async def test_run_topic_now_matches_by_name(tmp_path):
-    notifier = AsyncMock()
-    watchlist = {"topics": [{"name": "Vuln Alerts", "tags": [], "sources": []}]}
-    with patch("signalsage.scheduler.fetch_topic", new=AsyncMock(return_value=[])):
-        scheduler = _make_scheduler(watchlist, notifiers=[notifier], tmp_path=tmp_path)
-        found = await scheduler.run_topic_now("vuln")
-    assert found is True
-
-
-async def test_run_topic_now_no_match_returns_false(tmp_path):
-    watchlist = {"topics": [{"name": "Cyber News", "tags": ["cyber"], "sources": []}]}
-    with patch("signalsage.scheduler.fetch_topic", new=AsyncMock(return_value=[])):
-        scheduler = _make_scheduler(watchlist, tmp_path=tmp_path)
-        found = await scheduler.run_topic_now("nonexistent")
-    assert found is False
-
-
-async def test_run_topic_now_progress_callback(tmp_path):
-    """progress callable is invoked with status messages during the run."""
+async def test_on_demand_bypasses_quiet_gate_and_reports_progress(tmp_path):
+    scheduler = make_scheduler(tmp_path)
+    scheduler.pipeline.collect = AsyncMock(return_value=1)
+    scheduler.pipeline.publish = AsyncMock()
     progress = AsyncMock()
-    watchlist = {"topics": [{"name": "Cyber News", "tags": ["cyber"], "sources": []}]}
-    with patch("signalsage.scheduler.fetch_topic", new=AsyncMock(return_value=[])):
-        scheduler = _make_scheduler(watchlist, tmp_path=tmp_path)
-        await scheduler.run_topic_now("cyber", progress=progress)
-    assert progress.call_count >= 2
-    messages = [c.args[0] for c in progress.call_args_list]
-    assert any("Fetch" in m or "fetch" in m for m in messages)
-    assert any("Summar" in m for m in messages)
+    with patch.object(scheduler, "_in_active_hours", return_value=False):
+        assert await scheduler.run_topic_now("news", progress=progress, override_channel="C123")
+    scheduler.pipeline.collect.assert_awaited_once()
+    assert scheduler.pipeline.publish.call_args.args[2] == "C123"
+    assert progress.await_count >= 2
 
 
-async def test_run_topic_now_tag_priority_over_name(tmp_path):
-    """Exact tag match must win over partial name match regardless of job order."""
-    notifier = AsyncMock()
-    # "AI & ML News" (alphabetically first) contains "news" in its name;
-    # "General News" has "news" as an explicit tag — it should be triggered.
-    watchlist = {
-        "topics": [
-            {"name": "AI & ML News", "tags": ["ai", "ml"], "sources": []},
-            {"name": "General News", "tags": ["news", "aus"], "sources": []},
-        ]
-    }
-    with patch("signalsage.scheduler.fetch_topic", new=AsyncMock(return_value=[])):
-        scheduler = _make_scheduler(watchlist, notifiers=[notifier], tmp_path=tmp_path)
-        found = await scheduler.run_topic_now("news")
-    assert found is True
-    # The notifier must have been called with "General News", not "AI & ML News"
-    called_name = notifier.call_args[0][0]
-    assert called_name == "General News"
-
-
-# ---------------------------------------------------------------------------
-# Cross-topic deduplication
-# ---------------------------------------------------------------------------
-
-
-async def test_cross_topic_dedup_removes_duplicate(tmp_path):
-    """An item seen in topic A should be removed from topic B's output."""
-    shared_headline = "Critical CVE exploited in the wild"
-    structured = json.dumps(
-        {
-            "tldr": [],
-            "coverage_confidence": "high",
-            "items": [
-                {
-                    "icon": "🔴",
-                    "severity": "critical",
-                    "headline": shared_headline,
-                    "blurb": "Bad.",
-                    "url": "https://example.com",
-                }
-            ],
-        }
+async def test_exact_tag_beats_partial_name(tmp_path):
+    scheduler = make_scheduler(
+        tmp_path,
+        [
+            {"name": "AI News", "tags": ["ai"], "sources": []},
+            {"name": "General", "tags": ["news"], "sources": []},
+        ],
     )
-    summarizer = _make_summarizer(summary=structured)
-
-    topics = [
-        {"name": "Topic A", "sources": [{"name": "S", "url": "https://a.com"}]},
-        {"name": "Topic B", "sources": [{"name": "S", "url": "https://b.com"}]},
-    ]
-    watchlist = {"topics": topics}
-
-    fetched_source = [{"name": "S", "url": "https://x.com", "content": "content"}]
-
-    calls: list[dict] = []
-
-    async def capture_notify(name, summary, **kwargs):
-        calls.append({"name": name, "summary": summary, "meta": kwargs.get("meta", {})})
-
-    with patch("signalsage.scheduler.fetch_topic", new=AsyncMock(return_value=fetched_source)):
-        scheduler = DigestScheduler(
-            summarizer=summarizer,
-            watchlist=watchlist,
-            notifiers=[capture_notify],
-            data_dir=str(tmp_path),
-        )
-        await scheduler._run_topic(topics[0])
-        await scheduler._run_topic(topics[1])
-
-    # Topic A: 0 deduped, Topic B: 1 deduped
-    assert calls[0]["meta"]["deduped_count"] == 0
-    assert calls[1]["meta"]["deduped_count"] == 1
+    scheduler._run_topic = AsyncMock()
+    assert await scheduler.run_topic_now("news")
+    assert scheduler._run_topic.call_args.args[0]["name"] == "General"
 
 
-# ---------------------------------------------------------------------------
-# Session reset on new day
-# ---------------------------------------------------------------------------
+async def test_unknown_topic_returns_false(tmp_path):
+    assert not await make_scheduler(tmp_path).run_topic_now("nonexistent")
 
 
-def test_session_resets_on_new_day(tmp_path):
-    scheduler = _make_scheduler(_make_watchlist("0 6 * * *"), tmp_path=tmp_path)
-    scheduler._session_hashes.add("abc123")
-    scheduler._session_date = (date.today() - timedelta(days=1)).isoformat()
-    scheduler._reset_session_if_new_day()
-    assert len(scheduler._session_hashes) == 0
-    assert scheduler._session_date == date.today().isoformat()
+async def test_all_command_ignores_maintenance_jobs(tmp_path):
+    scheduler = make_scheduler(tmp_path)
+    scheduler._run_topic = AsyncMock()
+    await scheduler.run_all_now()
+    scheduler._run_topic.assert_awaited_once()
 
 
-def test_session_not_reset_same_day(tmp_path):
-    scheduler = _make_scheduler(_make_watchlist("0 6 * * *"), tmp_path=tmp_path)
-    scheduler._session_hashes.add("abc123")
-    scheduler._reset_session_if_new_day()
-    assert "abc123" in scheduler._session_hashes
+def test_keywords_available_on_scheduled_topics(tmp_path):
+    scheduler = make_scheduler(tmp_path, [{"name": "News", "keywords": ["CVE"], "tags": ["news"]}])
+    assert scheduler.find_watch_topic("news")["name"] == "News"
+    assert scheduler.watch_keywords.get("News") == (["CVE"], [])
 
 
-# ---------------------------------------------------------------------------
-# Auto-lookback derived from schedule
-# ---------------------------------------------------------------------------
+def test_topic_story_limit_clamped(tmp_path):
+    scheduler = make_scheduler(tmp_path)
+    assert scheduler._top_n({"top_stories_count": 900}) == 20
+    scheduler.set_top_stories_count(3)
+    assert scheduler._top_n({}) == 3
+    assert scheduler._top_n({"top_stories_count": 5}) == 3
+
+
+def test_active_hours_weekend_and_exclusive_end():
+    assert _within_active_hours(datetime(2026, 9, 26, 9), "06:00", "18:00", "09:00", "17:00")
+    assert not _within_active_hours(datetime(2026, 9, 26, 17), "06:00", "18:00", "09:00", "17:00")
 
 
 # Fixed reference times so cron walks are deterministic. May 4 2026 is a Monday;
@@ -380,329 +208,3 @@ def test_auto_lookback_skips_quiet_hours_fires():
 def test_auto_lookback_unaffected_without_active_hours():
     """Sanity check: active_hours=None preserves the original un-filtered gap."""
     assert _compute_auto_lookback("0 5,11,17,23 * * *", "UTC", 2.0, _now=_MON_0900) == "8h"
-
-
-async def test_run_topic_auto_derives_lookback_when_omitted(tmp_path):
-    """A topic without `lookback` should have one derived from its schedule."""
-    notifier = AsyncMock()
-    summarizer = _make_summarizer()
-    # 6h gap → 8h with default buffer of 2h.
-    watchlist = {
-        "topics": [{"name": "Hourly Topic", "schedule": "0 0,6,12,18 * * *", "sources": []}]
-    }
-    with patch("signalsage.scheduler.fetch_topic", new=AsyncMock(return_value=[])):
-        scheduler = _make_scheduler(
-            watchlist, notifiers=[notifier], summarizer=summarizer, tmp_path=tmp_path
-        )
-        await scheduler._run_topic(watchlist["topics"][0])
-
-    # summarizer.summarize_topic must have been called with the derived lookback
-    assert summarizer.summarize_topic.await_args.kwargs["lookback"] == "8h"
-    # notifier should also receive it so the channel header shows the right window
-    assert notifier.call_args.kwargs["lookback"] == "8h"
-
-
-# ---------------------------------------------------------------------------
-# Active-hours quiet gate
-# ---------------------------------------------------------------------------
-
-_ACTIVE_HOURS = {
-    "weekday_start": "07:00",
-    "weekday_end": "18:00",
-    "weekend_start": "09:00",
-    "weekend_end": "17:00",
-}
-
-
-def test_within_active_hours_weekday_inside_window():
-    # Wed 2024-01-03 12:00
-    assert _within_active_hours(datetime(2024, 1, 3, 12, 0), **_ACTIVE_HOURS) is True
-
-
-def test_within_active_hours_weekday_before_window():
-    # Wed 2024-01-03 06:59
-    assert _within_active_hours(datetime(2024, 1, 3, 6, 59), **_ACTIVE_HOURS) is False
-
-
-def test_within_active_hours_weekday_end_is_exclusive():
-    # Wed 2024-01-03 18:00 — end boundary is exclusive
-    assert _within_active_hours(datetime(2024, 1, 3, 18, 0), **_ACTIVE_HOURS) is False
-
-
-def test_within_active_hours_weekend_uses_narrower_window():
-    # Sat 2024-01-06 08:00 — before the 9am weekend start, even though it's
-    # inside the weekday window
-    assert _within_active_hours(datetime(2024, 1, 6, 8, 0), **_ACTIVE_HOURS) is False
-    # Sat 2024-01-06 12:00 — inside
-    assert _within_active_hours(datetime(2024, 1, 6, 12, 0), **_ACTIVE_HOURS) is True
-
-
-def test_within_active_hours_disabled_when_no_config():
-    # No active_hours configured on the scheduler → gate always passes.
-    scheduler = _make_scheduler(_make_watchlist("0 6 * * *"))
-    assert scheduler._in_active_hours() is True
-
-
-async def test_scheduled_topic_skipped_outside_active_hours(tmp_path):
-    notifier = AsyncMock()
-    watchlist = _make_watchlist("0 6 * * *")
-    scheduler = DigestScheduler(
-        summarizer=_make_summarizer(),
-        watchlist=watchlist,
-        notifiers=[notifier],
-        data_dir=str(tmp_path),
-        active_hours=_ACTIVE_HOURS,
-    )
-    with patch.object(scheduler, "_in_active_hours", return_value=False):
-        await scheduler._run_topic_scheduled(watchlist["topics"][0])
-    notifier.assert_not_called()
-
-
-async def test_scheduled_watch_topic_skipped_outside_active_hours(tmp_path):
-    watchlist = {
-        "topics": [{"name": "Watch Topic", "watch_mode": True, "sources": []}],
-    }
-    scheduler = DigestScheduler(
-        summarizer=_make_summarizer(),
-        watchlist=watchlist,
-        notifiers=[],
-        data_dir=str(tmp_path),
-        active_hours=_ACTIVE_HOURS,
-    )
-    with (
-        patch.object(scheduler, "_in_active_hours", return_value=False),
-        patch("signalsage.scheduler.fetch_topic_items", new=AsyncMock(return_value=[])) as fetch,
-    ):
-        await scheduler._run_watch_topic_scheduled(watchlist["topics"][0])
-    fetch.assert_not_called()
-
-
-async def test_run_topic_now_bypasses_active_hours_gate(tmp_path):
-    """On-demand `!digest` commands must ignore the quiet-hours gate."""
-    notifier = AsyncMock()
-    watchlist = _make_watchlist("0 6 * * *")
-    with patch("signalsage.scheduler.fetch_topic", new=AsyncMock(return_value=[])):
-        scheduler = DigestScheduler(
-            summarizer=_make_summarizer(),
-            watchlist=watchlist,
-            notifiers=[notifier],
-            data_dir=str(tmp_path),
-            active_hours=_ACTIVE_HOURS,
-        )
-        with patch.object(scheduler, "_in_active_hours", return_value=False):
-            found = await scheduler.run_topic_now("Topic A")
-    assert found is True
-    notifier.assert_awaited_once()
-
-
-# ---------------------------------------------------------------------------
-# Watch-mode topics
-# ---------------------------------------------------------------------------
-
-
-def test_watch_mode_topic_gets_interval_job_not_cron(tmp_path):
-    watchlist = {"topics": [{"name": "Watched Topic", "watch_mode": True, "sources": []}]}
-    scheduler = _make_scheduler(watchlist, tmp_path=tmp_path)
-    jobs = scheduler._scheduler.get_jobs()
-    assert len(jobs) == 1
-    assert jobs[0].id == "watch_watched_topic"
-
-
-def test_watch_mode_topic_seeds_keywords_from_yaml(tmp_path):
-    watchlist = {
-        "topics": [
-            {
-                "name": "Watched Topic",
-                "watch_mode": True,
-                "keywords": ["ransomware"],
-                "exclude_keywords": ["sponsored"],
-                "sources": [],
-            }
-        ]
-    }
-    scheduler = _make_scheduler(watchlist, tmp_path=tmp_path)
-    include, exclude = scheduler.watch_keywords.get("Watched Topic")
-    assert include == ["ransomware"]
-    assert exclude == ["sponsored"]
-
-
-def test_get_topics_includes_watch_mode_topics(tmp_path):
-    watchlist = {
-        "topics": [
-            {"name": "Cron Topic", "schedule": "0 6 * * *", "sources": []},
-            {"name": "Watched Topic", "watch_mode": True, "sources": []},
-        ]
-    }
-    scheduler = _make_scheduler(watchlist, tmp_path=tmp_path)
-    names = [name for name, _tags, _next in scheduler.get_topics()]
-    assert "Cron Topic" in names
-    assert "Watched Topic" in names
-
-
-async def test_run_watch_topic_no_new_items_skips_notify(tmp_path):
-    notifier = AsyncMock()
-    watchlist = {"topics": [{"name": "Watched Topic", "watch_mode": True, "sources": []}]}
-    with patch("signalsage.scheduler.fetch_topic_items", new=AsyncMock(return_value=[])):
-        scheduler = _make_scheduler(watchlist, notifiers=[notifier], tmp_path=tmp_path)
-        result = await scheduler._run_watch_topic(watchlist["topics"][0])
-    assert result is False
-    notifier.assert_not_called()
-
-
-async def test_run_watch_topic_no_keyword_match_skips_notify(tmp_path):
-    notifier = AsyncMock()
-    topic = {
-        "name": "Watched Topic",
-        "watch_mode": True,
-        "sources": [{"name": "S", "url": "https://a.com"}],
-    }
-    watchlist = {"topics": [topic]}
-    items = [
-        {
-            "source_name": "S",
-            "source_url": "https://a.com",
-            "title": "Unrelated story",
-            "link": "https://a.com/1",
-            "summary": "nothing interesting",
-            "published_ts": None,
-        }
-    ]
-    with patch("signalsage.scheduler.fetch_topic_items", new=AsyncMock(return_value=items)):
-        scheduler = _make_scheduler(watchlist, notifiers=[notifier], tmp_path=tmp_path)
-        scheduler.watch_keywords.add("Watched Topic", "ransomware")
-        result = await scheduler._run_watch_topic(topic)
-    assert result is True  # new items were seen, just none matched
-    notifier.assert_not_called()
-
-
-async def test_run_watch_topic_matched_item_posts_immediately(tmp_path):
-    notifier = AsyncMock()
-    topic = {
-        "name": "Watched Topic",
-        "watch_mode": True,
-        "sources": [{"name": "S", "url": "https://a.com"}],
-    }
-    watchlist = {"topics": [topic]}
-    items = [
-        {
-            "source_name": "S",
-            "source_url": "https://a.com",
-            "title": "New ransomware strain found",
-            "link": "https://a.com/1",
-            "summary": "details here",
-            "published_ts": None,
-        }
-    ]
-    summarizer = _make_summarizer()
-    with patch("signalsage.scheduler.fetch_topic_items", new=AsyncMock(return_value=items)):
-        scheduler = _make_scheduler(
-            watchlist, notifiers=[notifier], summarizer=summarizer, tmp_path=tmp_path
-        )
-        scheduler.watch_keywords.add("Watched Topic", "ransomware")
-        result = await scheduler._run_watch_topic(topic)
-    assert result is True
-    notifier.assert_called_once()
-    assert notifier.call_args[0][0] == "Watched Topic"
-    assert notifier.call_args.kwargs["meta"]["top_stories_count"] == 1
-    assert notifier.call_args.kwargs["meta"]["bare"] is True
-
-
-async def test_run_watch_topic_llm_marks_item_irrelevant_skips_notify(tmp_path):
-    """A substring match the LLM judges as a coincidental/irrelevant hit must not post."""
-    notifier = AsyncMock()
-    topic = {
-        "name": "Watched Topic",
-        "watch_mode": True,
-        "sources": [{"name": "S", "url": "https://a.com"}],
-    }
-    watchlist = {"topics": [topic]}
-    items = [
-        {
-            "source_name": "S",
-            "source_url": "https://a.com",
-            "title": "The apt tenant renewed their lease",
-            "link": "https://a.com/1",
-            "summary": "unrelated real-estate story",
-            "published_ts": None,
-        }
-    ]
-    summarizer = _make_summarizer(watch_items=_default_watch_json(relevant=False))
-    with patch("signalsage.scheduler.fetch_topic_items", new=AsyncMock(return_value=items)):
-        scheduler = _make_scheduler(
-            watchlist, notifiers=[notifier], summarizer=summarizer, tmp_path=tmp_path
-        )
-        scheduler.watch_keywords.add("Watched Topic", "apt")
-        result = await scheduler._run_watch_topic(topic)
-    assert result is True  # new items were seen, just judged not relevant
-    notifier.assert_not_called()
-
-
-async def test_run_watch_topic_does_not_repost_same_item(tmp_path):
-    """An item already seen on a prior poll must not be re-evaluated."""
-    notifier = AsyncMock()
-    topic = {
-        "name": "Watched Topic",
-        "watch_mode": True,
-        "sources": [{"name": "S", "url": "https://a.com"}],
-    }
-    watchlist = {"topics": [topic]}
-    items = [
-        {
-            "source_name": "S",
-            "source_url": "https://a.com",
-            "title": "Ransomware alert",
-            "link": "https://a.com/1",
-            "summary": "details",
-            "published_ts": None,
-        }
-    ]
-    with patch("signalsage.scheduler.fetch_topic_items", new=AsyncMock(return_value=items)):
-        scheduler = _make_scheduler(watchlist, notifiers=[notifier], tmp_path=tmp_path)
-        scheduler.watch_keywords.add("Watched Topic", "ransomware")
-        await scheduler._run_watch_topic(topic)
-        result = await scheduler._run_watch_topic(topic)
-    assert result is False  # second poll sees nothing new
-    notifier.assert_called_once()
-
-
-async def test_run_topic_now_dispatches_to_watch_topic(tmp_path):
-    notifier = AsyncMock()
-    topic = {"name": "Watched Topic", "watch_mode": True, "tags": ["watched"], "sources": []}
-    watchlist = {"topics": [topic]}
-    with patch("signalsage.scheduler.fetch_topic_items", new=AsyncMock(return_value=[])):
-        scheduler = _make_scheduler(watchlist, notifiers=[notifier], tmp_path=tmp_path)
-        found = await scheduler.run_topic_now("watched")
-    assert found is True
-
-
-def test_find_watch_topic_by_tag(tmp_path):
-    topic = {"name": "Watched Topic", "watch_mode": True, "tags": ["watched"], "sources": []}
-    watchlist = {"topics": [topic]}
-    scheduler = _make_scheduler(watchlist, tmp_path=tmp_path)
-    assert scheduler.find_watch_topic("watched") == topic
-
-
-def test_find_watch_topic_excludes_cron_topics(tmp_path):
-    watchlist = {"topics": [{"name": "Cron Topic", "schedule": "0 6 * * *", "sources": []}]}
-    scheduler = _make_scheduler(watchlist, tmp_path=tmp_path)
-    assert scheduler.find_watch_topic("Cron Topic") is None
-
-
-async def test_run_topic_explicit_lookback_not_overridden(tmp_path):
-    """An explicit `lookback` on the topic must be preserved verbatim."""
-    summarizer = _make_summarizer()
-    watchlist = {
-        "topics": [
-            {
-                "name": "Pinned Topic",
-                "schedule": "0 0,6,12,18 * * *",
-                "lookback": "24h",
-                "sources": [],
-            }
-        ]
-    }
-    with patch("signalsage.scheduler.fetch_topic", new=AsyncMock(return_value=[])):
-        scheduler = _make_scheduler(watchlist, summarizer=summarizer, tmp_path=tmp_path)
-        await scheduler._run_topic(watchlist["topics"][0])
-
-    assert summarizer.summarize_topic.await_args.kwargs["lookback"] == "24h"

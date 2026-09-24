@@ -29,12 +29,12 @@ async def test_extract_feed_items_basic_fields():
     assert items[0]["summary"] == "Body one"  # HTML stripped
 
 
-async def test_extract_feed_items_caps_at_10():
+async def test_extract_feed_items_preserves_all_15_entries():
     feed_data = {
         "entries": [{"title": f"Story {i}", "link": f"https://a.com/{i}"} for i in range(15)]
     }
     items = await _extract_feed_items(feed_data, max_chars=3000)
-    assert len(items) == 10
+    assert len(items) == 15
 
 
 async def test_extract_feed_items_filters_old_entries():

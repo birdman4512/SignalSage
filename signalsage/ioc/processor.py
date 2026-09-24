@@ -66,12 +66,12 @@ class IOCProcessor:
         key = f"{ioc.type.value}:{ioc.value}"
         if key in self.cache:
             logger.debug("Cache hit for %s", key)
-            return self.cache[key]  # type: ignore[return-value]
+            return self.cache[key]
 
         # If another coroutine is already fetching this key, wait for it
         if key in self._inflight:
             await self._inflight[key].wait()
-            return self.cache.get(key)  # type: ignore[return-value]
+            return self.cache.get(key)
 
         applicable = [p for p in self.providers if p.enabled and p.supports(ioc.type)]
         if not applicable:

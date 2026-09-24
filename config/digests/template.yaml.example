@@ -1,64 +1,29 @@
-# Digest topic template — copy this to a new file to add a digest.
-#
-#   cp template.yaml.example my-topic.yaml          # committed to the repo
-#   cp template.yaml.example my-topic.local.yaml    # install-private, gitignored
-#
-# Every *.yaml file in this directory defines ONE digest topic and is picked up
-# automatically on the next start — no other file needs editing. Files ending in
-# .local.yaml are install-private (see .gitignore) so a deployment can carry its
-# own private digests next to the repo's core set. (.example files are ignored.)
-#
-# Fields per topic:
-#   name              — display name used in the digest header
-#   schedule          — 5-part cron expression (optional, falls back to digest.default_schedule)
-#   lookback          — how far back to include content: "24h", "48h", "7d", etc.
-#                       RSS entries older than this are filtered out before summarisation.
-#                       The LLM is also instructed to focus only on this window.
-#                       Omit (or leave blank) to AUTO-derive *per run*: elapsed time
-#                       between the two most recent scheduled fires + digest.lookback_buffer_hours.
-#                       e.g. "0 5,11,17,23 * * *" → 8h every run (6h gap + 2h buffer).
-#                       Weekday-only schedules widen automatically: "0 6 * * mon-fri" → 26h
-#                       Tue–Fri but 74h on Monday so the weekend is covered.
-#   digest_channel    — Slack: "#channel-name" or channel ID
-#                       Discord: channel ID (integer as string)
-#                       Omit to use the global platforms.slack/discord.digest_channel default
-#   top_stories_count — how many top stories get a full summary card; the rest appear as
-#                       headline+link only. Overrides digest.top_stories_count for this topic.
-#                       Omit to use the global digest.top_stories_count (default 10).
-#   tags              — list used by !digest <tag>. Tags must be UNIQUE across all topics
-#                       because !digest <tag> returns on the first match.
-#   sources           — list of {name, url} to fetch and summarize.
-#                       RSS/Atom feeds (.xml, .rss, .atom) are auto-detected.
-#                       HTML pages are scraped with BeautifulSoup.
-#                       A source may also carry an optional image_url.
-#
-#   watch_mode        — set to `true` to switch this topic from a scheduled digest to
-#                       continuous polling: sources are fetched every `poll_interval_minutes`
-#                       and any NEW item (never seen before) whose title/summary matches the
-#                       topic's keywords is summarized and posted immediately. `schedule` and
-#                       `lookback` are ignored when watch_mode is on. Note: plain HTML sources
-#                       (not RSS/Atom/JSON feeds) have no reliable per-article structure, so
-#                       the whole page is treated as one "item" and only re-checked when its
-#                       content changes.
-#   poll_interval_minutes — how often to poll in watch_mode (default: digest.watch_default_poll_minutes)
-#   keywords          — seed list of include keywords for watch_mode (plain, case-insensitive
-#                       substring match against title+summary). Only used to seed the runtime
-#                       keyword store on first startup — after that, manage keywords with
-#                       `!digest keywords <topic> add/remove <word>`. Omit/empty = match everything.
-#   exclude_keywords  — seed list of exclude keywords for watch_mode (any match vetoes a post).
-#                       Manage at runtime with `!digest keywords <topic> exclude/unexclude <word>`.
-
+# Copy to my-topic.yaml (committed) or my-topic.local.yaml (private).
+# Restart the bot after adding/editing topic files.
 name: "My Custom Topic"
-schedule: "0 8 * * *"
-lookback: "24h"
-digest_channel: "#my-channel"
-tags: [mytag]                 # must be unique across all topics
+tags: [mytag]                     # unique across topics
+schedule: "0 9,16 * * *"          # digest.timezone; use mon-fri for weekdays
+digest_channel: "#my-channel"    # Slack ID/name; Discord numeric channel ID
+top_stories_count: 5
+keywords: ["local LLM", "ransomware"]
+exclude_keywords: ["sponsored"]
+# lookback: "7d"                 # initial import only; default digest.bootstrap_days
+# profile:                       # optional override of digest.profile fields
+#   products: ["Linux"]
+#   minimum_score: 2.5
 sources:
   - name: "My Source"
     url: "https://example.com/feed.xml"
 
-# --- OR, for continuous keyword-triggered posting instead of a scheduled digest: ---
+# Collection is independent of the posting schedule and continues overnight.
+# Keywords use word boundaries. YAML lists seed initial values only; use
+# !digest keywords <topic> add/remove/exclude/unexclude to edit them later.
+# Full text is fetched after ranking; unavailable text is labelled as an excerpt.
+# Links and article IDs come from ingestion, never the model.
+#
+# Optional urgent alert topic instead of a regular digest:
 # watch_mode: true
 # poll_interval_minutes: 15
-# keywords: ["zero-day", "ransomware"]
-# exclude_keywords: ["sponsored"]
+# alert_keywords: ["actively exploited", "emergency patch"]
+# Both personal relevance and explicit alert_keywords must match.
+# Quiet hours apply to posting; collection continues in the background.

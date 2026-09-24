@@ -62,6 +62,29 @@ class CIRCLCVEProvider(BaseProvider):
         description: str = data.get("summary", "") or ""
         references: list = data.get("references", [])[:3]
         cwe: str = data.get("cwe", "") or ""
+        products = data.get("vulnerable_product", [])[:5]
+        metadata = data.get("cveMetadata") or {}
+        cna = (data.get("containers") or {}).get("cna") or {}
+        if cna:
+            descriptions = cna.get("descriptions") or []
+            description = next(
+                (d.get("value", "") for d in descriptions if d.get("lang", "").startswith("en")),
+                description,
+            )
+            references = [r["url"] for r in cna.get("references", []) if r.get("url")][:3]
+            products = [p.get("product", "") for p in cna.get("affected", []) if p.get("product")][
+                :5
+            ]
+            for metric in cna.get("metrics", []):
+                for key in ("cvssV4_0", "cvssV3_1", "cvssV3_0", "cvssV2_0"):
+                    entry = metric.get(key) or {}
+                    try:
+                        score = float(entry["baseScore"])
+                    except (KeyError, TypeError, ValueError):
+                        continue
+                    if 0 <= score <= 10 and (cvss_score is None or score > cvss_score):
+                        cvss_score = score
+                        cvss_str = f"CVSS {entry.get('version', key)} {score}"
 
         summary = ""
         if cvss_str:
@@ -70,7 +93,8 @@ class CIRCLCVEProvider(BaseProvider):
         if not summary:
             summary = "No description available"
 
-        is_malicious = cvss_score is not None and cvss_score >= 7.0
+        # An absent score is unknown, never evidence that a vulnerability is clean.
+        is_malicious = (cvss_score >= 7.0) if cvss_score is not None else None
 
         return IntelResult(
             provider=self.name,
@@ -83,9 +107,9 @@ class CIRCLCVEProvider(BaseProvider):
                 "cvss": cvss_score,
                 "cwe": cwe,
                 "references": references,
-                "published": data.get("Published", ""),
-                "modified": data.get("Modified", ""),
-                "vulnerable_products": data.get("vulnerable_product", [])[:5],
+                "published": metadata.get("datePublished") or data.get("Published", ""),
+                "modified": metadata.get("dateUpdated") or data.get("Modified", ""),
+                "vulnerable_products": products,
             },
             report_url=f"https://cve.circl.lu/cve/{ioc.value.upper()}",
         )

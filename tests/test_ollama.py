@@ -3,6 +3,7 @@
 import json
 
 import httpx
+import pytest
 import respx
 
 from signalsage.llm.ollama import OllamaLLM
@@ -50,7 +51,7 @@ async def test_no_format_key_when_json_mode_off():
 
 
 @respx.mock
-async def test_num_ctx_grows_only_for_oversized_prompt():
+async def test_fixed_context_rejects_oversized_prompt():
     route = respx.post("http://ollama.test/api/chat").mock(
         return_value=httpx.Response(200, json={"message": {"content": "{}"}})
     )
@@ -59,8 +60,33 @@ async def test_num_ctx_grows_only_for_oversized_prompt():
     await llm.complete(system="s", user="u" * 3000, max_tokens=1024)
     assert json.loads(route.calls.last.request.content)["options"]["num_ctx"] == 4096
 
-    await llm.complete(system="s", user="u" * 30000, max_tokens=1024)
-    assert json.loads(route.calls.last.request.content)["options"]["num_ctx"] == 12288
+    with pytest.raises(ValueError, match="fixed context"):
+        await llm.complete(system="s", user="u" * 30000, max_tokens=1024)
+    assert route.call_count == 1
+
+
+@respx.mock
+async def test_temperature_thinking_and_metrics():
+    route = respx.post("http://ollama.test/api/chat").mock(
+        return_value=httpx.Response(200, json={"message": {"content": "ok"}, "eval_count": 12})
+    )
+    llm = OllamaLLM(base_url="http://ollama.test", think=False)
+    await llm.complete(system="s", user="u")
+    sent = json.loads(route.calls.last.request.content)
+    assert sent["options"]["temperature"] == 0
+    assert sent["think"] is False
+    assert llm.last_metrics["eval_count"] == 12
+
+
+@respx.mock
+async def test_truncated_output_raises():
+    respx.post("http://ollama.test/api/chat").mock(
+        return_value=httpx.Response(
+            200, json={"message": {"content": "{}"}, "done_reason": "length"}
+        )
+    )
+    with pytest.raises(ValueError, match="incomplete"):
+        await OllamaLLM(base_url="http://ollama.test").complete(system="s", user="u")
 
 
 async def test_requests_are_serialised():
