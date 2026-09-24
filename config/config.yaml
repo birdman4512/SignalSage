@@ -83,6 +83,14 @@ digest:
   bootstrap_days: 7                # initial install only; checkpoints survive restarts
   max_article_age_days: 8          # never post stories collected/published longer ago than this
   transcript_wait_days: 4          # hold an episode this long for its published transcript (source transcript_url)
+  # Reddit Data API (optional). Needs an approved app: Reddit requires a request
+  # and explicit approval under its Responsible Builder Policy. With both
+  # client_id and client_secret set, subreddit sources use the API (~100 req/min);
+  # otherwise they fall back to RSS, spaced a minute apart and refreshed hourly.
+  reddit:
+    client_id: "${REDDIT_CLIENT_ID:-}"
+    client_secret: "${REDDIT_CLIENT_SECRET:-}"
+    username: "${REDDIT_USERNAME:-}"    # your Reddit username, for the required User-Agent
   retention_days: 90
   article_chars: 6000              # body budget for ONE shortlisted article
   max_prompt_chars: 8000

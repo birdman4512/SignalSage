@@ -8,6 +8,7 @@ import time
 
 from signalsage.ioc.models import IOC, IOCType
 
+from . import reddit
 from .collection import collect_source, fetch_article_text
 from .fetcher import _transcribe_audio, parse_lookback
 from .ranking import contains, fingerprint, score_article, similar_story
@@ -47,6 +48,7 @@ class DigestPipeline:
         self._fetch_limit = asyncio.Semaphore(4)
         self._source_cache: dict = {}
         self._generation_retry: dict[str, float] = {}
+        reddit.configure(self.settings.get("reddit"))
 
     async def collect(self, topic: dict) -> int:
         async with self._collection_lock:

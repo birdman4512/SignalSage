@@ -95,6 +95,18 @@ Resource needs, measured on a 4-core CPU-only host with `base.en`: a ~40-minute 
 
 A source can instead point at a show's published text transcript with `transcript_url` (with `{episode}` filled from `episode_pattern` matched against the item title). Security Now uses GRC's transcripts this way, so it is never sent to Whisper. Those transcripts appear a few days after an episode airs, so the episode is held for up to `digest.transcript_wait_days` (default 4) and then falls back to its show notes.
 
+## Optional Reddit API
+
+Subreddit sources work without credentials through RSS, but Reddit allows an unauthenticated IP about one request a minute. They are therefore fetched a minute apart and refreshed hourly. With an approved Reddit API app (about 100 requests a minute), set these in `.env` and restart:
+
+```dotenv
+REDDIT_CLIENT_ID=...
+REDDIT_CLIENT_SECRET=...
+REDDIT_USERNAME=your-reddit-username   # used in the required User-Agent
+```
+
+Reddit requires you to request access and receive explicit approval before using the API (see its Responsible Builder Policy). Create the app as type *script*; the bot uses application-only OAuth, so no redirect or user login is involved. The existing `/r/<name>/.rss` source URLs are mapped to API listings automatically, so the topic files don't change.
+
 ## Persistence and upgrades
 
 Back up `data/`. Stop the bot before copying its SQLite files, or use SQLite's backup API for a consistent live database backup. The directory must be writable by the bot's container user (UID 10001 for the Ollama profile).

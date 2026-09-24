@@ -8,6 +8,7 @@ from urllib.parse import urljoin, urlparse
 import feedparser
 import httpx
 
+from . import reddit
 from .fetcher import (
     _extract_feed_items,
     _extract_json_feed_items,
@@ -68,6 +69,10 @@ def _most_recent(items: list[dict]) -> list[dict]:
 
 async def collect_source(source: dict) -> tuple[list[dict], str | None]:
     url = source["url"]
+    if reddit.enabled() and reddit.is_reddit(url):
+        # Approved API client: ~100 requests/min, so no spacing or hourly reuse.
+        items, error = await reddit.collect(url)
+        return _most_recent(items), error
     refresh = _host_setting(url, _HOST_REFRESH_SECONDS)
     cached = _result_cache.get(url)
     if refresh and cached and time.monotonic() - cached[0] < refresh[1]:
