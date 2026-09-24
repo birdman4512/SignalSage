@@ -47,3 +47,38 @@ async def test_no_format_key_when_json_mode_off():
 
     sent = json.loads(route.calls.last.request.content)
     assert "format" not in sent
+
+
+@respx.mock
+async def test_num_ctx_grows_only_for_oversized_prompt():
+    route = respx.post("http://ollama.test/api/chat").mock(
+        return_value=httpx.Response(200, json={"message": {"content": "{}"}})
+    )
+    llm = OllamaLLM(base_url="http://ollama.test", num_ctx=4096)
+
+    await llm.complete(system="s", user="u" * 3000, max_tokens=1024)
+    assert json.loads(route.calls.last.request.content)["options"]["num_ctx"] == 4096
+
+    await llm.complete(system="s", user="u" * 30000, max_tokens=1024)
+    assert json.loads(route.calls.last.request.content)["options"]["num_ctx"] == 12288
+
+
+async def test_requests_are_serialised():
+    import asyncio
+
+    llm = OllamaLLM(base_url="http://ollama.test")
+    active = 0
+    peak = 0
+
+    async def slow_post(request):
+        nonlocal active, peak
+        active += 1
+        peak = max(peak, active)
+        await asyncio.sleep(0.01)
+        active -= 1
+        return httpx.Response(200, json={"message": {"content": "ok"}})
+
+    with respx.mock:
+        respx.post("http://ollama.test/api/chat").mock(side_effect=slow_post)
+        await asyncio.gather(*(llm.complete(system="s", user="u") for _ in range(4)))
+    assert peak == 1

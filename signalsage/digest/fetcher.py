@@ -10,12 +10,14 @@ import re
 import socket
 import tempfile
 import time
+from collections.abc import Callable
 from pathlib import Path
 from urllib.parse import urlparse
 
 import feedparser
 import httpx
 from bs4 import BeautifulSoup
+from cachetools import TTLCache
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +48,14 @@ _MAX_AUDIO_BYTES = 200 * 1024 * 1024  # 200 MB
 # can redirect from a benign-looking URL to internal infrastructure (Ollama on the
 # internal Docker network, cloud metadata services, etc.) — limit + revalidate.
 _MAX_AUDIO_REDIRECTS = 3
+
+# Transcripts keyed by audio URL. Podcast feeds list the same ~10 episodes on
+# every fetch, and a multi-day lookback re-sees the same episode on every run —
+# without this each run re-downloads and re-transcribes tens of MB per episode.
+# Failures are remembered for a shorter window so a flaky host (or a Whisper OOM)
+# is retried later rather than hammered on every poll.
+_TRANSCRIPT_CACHE: TTLCache = TTLCache(maxsize=256, ttl=14 * 86400)
+_TRANSCRIPT_FAILURES: TTLCache = TTLCache(maxsize=256, ttl=6 * 3600)
 
 
 async def _resolve_is_public_host(host: str) -> bool:
@@ -120,10 +130,29 @@ async def _transcribe_audio(
     timeout: int = 600,
 ) -> str | None:
     """
-    Download an audio file and transcribe it via the Whisper API.
+    Download an audio file and transcribe it via the Whisper API, with results
+    (and failures) cached by URL.
 
     Returns the transcript text, or None on failure.
     """
+    if audio_url in _TRANSCRIPT_CACHE:
+        return _TRANSCRIPT_CACHE[audio_url]
+    if audio_url in _TRANSCRIPT_FAILURES:
+        logger.debug("Skipping audio that recently failed to transcribe: %s", audio_url)
+        return None
+    transcript = await _download_and_transcribe(audio_url, whisper_base_url, timeout)
+    if transcript:
+        _TRANSCRIPT_CACHE[audio_url] = transcript
+    else:
+        _TRANSCRIPT_FAILURES[audio_url] = True
+    return transcript
+
+
+async def _download_and_transcribe(
+    audio_url: str,
+    whisper_base_url: str,
+    timeout: int,
+) -> str | None:
     logger.info("Downloading audio for transcription: %s", audio_url)
 
     # SSRF guard: only allow http(s) URLs whose host resolves to a public address.
@@ -215,11 +244,16 @@ async def _extract_feed_items(
     max_chars: int,
     lookback_seconds: int | None = None,
     whisper_base_url: str | None = None,
+    skip_audio: Callable[[dict], bool] | None = None,
 ) -> list[dict]:
     """Extract discrete items from a parsed feedparser feed, optionally filtered by age.
 
     Returns a list of {title, link, summary, published_ts} dicts, newest-feed-order
     preserved, capped at 10 entries (mirrors the digest text-blob cap).
+
+    *skip_audio* is called with ``{"title", "link"}`` for entries that carry an
+    audio enclosure; returning True skips transcription (watch mode uses it to
+    avoid transcribing episodes it has already evaluated and will discard).
     """
     cutoff = time.time() - lookback_seconds if lookback_seconds else None
     items: list[dict] = []
@@ -246,7 +280,9 @@ async def _extract_feed_items(
 
         # Try podcast transcription if Whisper is configured and entry has audio
         audio_url = _get_audio_enclosure(entry)
-        if audio_url:
+        if audio_url and skip_audio and skip_audio({"title": title, "link": link}):
+            logger.debug("Skipping transcription of already-seen entry: %r", title)
+        elif audio_url:
             if whisper_base_url:
                 transcript = await _transcribe_audio(audio_url, whisper_base_url)
                 if transcript:
@@ -520,7 +556,9 @@ async def fetch_source(
     if _is_feed_url(url, content_type) or "xml" in content_type.lower():
         try:
             # Use feedparser (it works on strings too)
-            feed_data = feedparser.parse(raw_content)
+            # feedparser and lxml are CPU-bound; run them off the event loop so a
+            # large feed can't stall the Slack/Discord heartbeats.
+            feed_data = await asyncio.to_thread(feedparser.parse, raw_content)
             if feed_data.get("entries"):
                 content = await _extract_feed_content(
                     feed_data, max_chars, lookback_seconds, whisper_base_url
@@ -537,7 +575,7 @@ async def fetch_source(
 
     # Fall back to HTML extraction — prefix with Title:/URL: so the summarizer
     # can stamp an [A<N>] label and inject URLs for items from this page.
-    content, page_title = _extract_web_content(raw_content, max_chars)
+    content, page_title = await asyncio.to_thread(_extract_web_content, raw_content, max_chars)
     if content:
         if page_title:
             content = f"Title: {page_title}\nURL: {final_url}\n{content}"
@@ -552,6 +590,7 @@ async def fetch_source_items(
     lookback_seconds: int | None = None,
     whisper_base_url: str | None = None,
     max_chars: int = 3000,
+    skip_audio: Callable[[dict], bool] | None = None,
 ) -> tuple[list[dict], str]:
     """
     Fetch a URL and return discrete items rather than a joined text blob.
@@ -571,10 +610,12 @@ async def fetch_source_items(
 
     if _is_feed_url(url, content_type) or "xml" in content_type.lower():
         try:
-            feed_data = feedparser.parse(raw_content)
+            # feedparser and lxml are CPU-bound; run them off the event loop so a
+            # large feed can't stall the Slack/Discord heartbeats.
+            feed_data = await asyncio.to_thread(feedparser.parse, raw_content)
             if feed_data.get("entries"):
                 items = await _extract_feed_items(
-                    feed_data, max_chars, lookback_seconds, whisper_base_url
+                    feed_data, max_chars, lookback_seconds, whisper_base_url, skip_audio
                 )
                 return items, final_url
         except Exception as exc:
@@ -585,7 +626,7 @@ async def fetch_source_items(
         if items:
             return items, final_url
 
-    content, page_title = _extract_web_content(raw_content, max_chars)
+    content, page_title = await asyncio.to_thread(_extract_web_content, raw_content, max_chars)
     if not content:
         return [], final_url
     return [
@@ -656,11 +697,12 @@ async def fetch_topic_items(
     lookback_seconds: int | None = None,
     whisper_base_url: str | None = None,
     max_chars: int = 3000,
+    skip_audio: Callable[[dict], bool] | None = None,
 ) -> list[dict]:
     """
     Fetch all sources for a topic concurrently, returning discrete items instead
     of joined text blobs. Used by watch-mode polling for per-item keyword
-    filtering and dedup.
+    filtering and dedup. *skip_audio* is forwarded to ``_extract_feed_items``.
 
     Returns:
         list of dicts: {source_name, source_url, title, link, summary, published_ts}
@@ -672,7 +714,7 @@ async def fetch_topic_items(
         if not url:
             return []
         items, canonical_url = await fetch_source_items(
-            url, timeout, lookback_seconds, whisper_base_url, max_chars
+            url, timeout, lookback_seconds, whisper_base_url, max_chars, skip_audio
         )
         return [
             {

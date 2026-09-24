@@ -108,3 +108,21 @@ async def test_summarize_watch_items_llm_error_returns_empty_items():
     import json
 
     assert json.loads(result)["items"] == []
+
+
+async def test_summarize_topic_caps_items_to_max_items():
+    """Only the stories that will be posted are requested from the LLM."""
+    from signalsage.digest.summarizer import _DIGEST_JSON_SCHEMA
+
+    llm = AsyncMock()
+    llm.complete = AsyncMock(return_value='{"overview": "x", "items": []}')
+    summarizer = DigestSummarizer(llm=llm, max_chars=3000, max_total_chars=20000)
+    sources = [{"name": "S", "url": "https://example.com", "content": "Title: Story\nBody."}]
+
+    await summarizer.summarize_topic("Test Topic", sources, max_items=4)
+
+    kwargs = llm.complete.await_args.kwargs
+    assert kwargs["json_schema"]["properties"]["items"]["maxItems"] == 4
+    assert "ONLY the 4 most important" in kwargs["system"]
+    assert kwargs["max_tokens"] < 4096
+    assert "maxItems" not in _DIGEST_JSON_SCHEMA["properties"]["items"]  # shared schema untouched

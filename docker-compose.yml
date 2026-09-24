@@ -134,6 +134,15 @@ services:
       - internal   # reachable by signalsage
       - external   # needed to download models from ollama.com
     entrypoint: ["/bin/bash", "/ollama-start.sh"]
+    # Memory-lean settings for small CPU-only hosts. One request and one model
+    # at a time (the bot serialises its calls anyway, and parallel slots each
+    # reserve a full-size KV cache). Flash attention enables a q8_0 KV cache,
+    # roughly halving the context-window memory versus the f16 default.
+    environment:
+      OLLAMA_NUM_PARALLEL: "1"
+      OLLAMA_MAX_LOADED_MODELS: "1"
+      OLLAMA_FLASH_ATTENTION: "1"
+      OLLAMA_KV_CACHE_TYPE: q8_0
     healthcheck:
       test: ["CMD-SHELL", "bash -c 'echo >/dev/tcp/localhost/11434' 2>/dev/null && echo ok"]
       interval: 5s

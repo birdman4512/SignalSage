@@ -41,6 +41,13 @@ _EMBED_COLOUR = {
 
 _DIGEST_COLOUR = 0x3B82F6  # blue
 
+_SEVERITY_COLOUR = {
+    "critical": 0xE01E5A,
+    "high": 0xF97316,
+    "medium": 0xEAB308,
+    "low": 0x2EB67D,
+}
+
 
 def _digest_embeds(
     topic_name: str,
@@ -48,14 +55,10 @@ def _digest_embeds(
     lookback: str | None = None,
     meta: dict | None = None,
 ) -> list[discord.Embed]:
-    """Build Discord Embeds for a single digest-run message.
+    """Build Discord Embeds for a digest topic.
 
-    One embed carries the topic header + overview, then one field per top
-    story — "<emoji> headline" as the field name, blurb + URL as the value —
-    followed by any remaining stories as a compact "More Stories" field.
-    Extra images (beyond the first, which rides on the main embed) come back
-    as additional embeds; the caller sends all of them together in one
-    ``channel.send(embeds=...)`` call so the whole digest is one message.
+    Header embed (overview + remaining-story links as fields) followed by one
+    embed per top story — 1 + top_n messages total.
     """
     from datetime import date
 
@@ -79,84 +82,73 @@ def _digest_embeds(
         key=lambda i: _SEVERITY_ORDER.get(str(i.get("severity") or "").lower(), 4),
     )
     valid_items = [i for i in sorted_items[:20] if str(i.get("headline", "")).strip()]
-    # Bare (watch-mode) items are already relevance-filtered by the LLM, so all
-    # of them get a full field rather than being split into a tail.
-    if bare:
-        top_items = valid_items
-        tail_items: list[dict] = []
-    else:
-        top_items = valid_items[:top_n]
-        tail_items = valid_items[top_n:]
+    top_items = valid_items[:top_n]
+    tail_items = valid_items[top_n:]
 
-    overview = _overview_text(parsed, valid_items) if not bare else None
-    embed = discord.Embed(
-        title=f"{icon}  {topic_name}",
-        description=overview[:4096] if overview else None,
-        color=_DIGEST_COLOUR,
-    )
+    embeds: list[discord.Embed] = []
 
-    extra_image_embeds: list[discord.Embed] = []
+    # ── Header embed: overview + metadata ────────────────────────────────────
+    # Skipped entirely in "bare" mode (watch-mode alerts) — just the story card(s).
     if not bare:
+        overview = _overview_text(parsed, valid_items)
+        header = discord.Embed(
+            title=f"{icon}  {topic_name}",
+            description=overview[:4096] if overview else None,
+            color=_DIGEST_COLOUR,
+        )
         footer_parts = _digest_footer_parts(parsed, meta)
-        embed.set_footer(
+        header.set_footer(
             text=f"Digest  ·  {window}"
             + (f"  ·  {'  ·  '.join(footer_parts)}" if footer_parts else "")
         )
 
+        extra_image_embeds: list[discord.Embed] = []
         header_image_set = False
         for img_url in (meta or {}).get("images", []):
             if not img_url or not str(img_url).startswith("http"):
                 continue
             if not header_image_set:
-                embed.set_image(url=img_url)
+                header.set_image(url=img_url)
                 header_image_set = True
             else:
                 img_embed = discord.Embed(color=_DIGEST_COLOUR)
                 img_embed.set_image(url=img_url)
                 extra_image_embeds.append(img_embed)
 
-    # Discord embeds don't support Slack-style divider blocks, so a field
-    # whose value is a row of dashes stands in for one. Embeds cap at 25
-    # fields total — a divider only goes in when there's room for it plus at
-    # least one more real field, so a long digest degrades to tight (no
-    # divider) fields instead of Discord rejecting the message.
-    def _add_spacer() -> None:
-        if len(embed.fields) < 24:
-            embed.add_field(name="​", value="─" * 40, inline=False)
+        embeds.append(header)
+        embeds.extend(extra_image_embeds)
 
-    # ── each story as a field: "<emoji> headline" / blurb / URL ───────────────
-    # Values are truncated well under Discord's per-field 1024-char cap since
-    # the embed's *total* character budget (6000) is shared across every field.
-    # A dashed divider field follows each story so Discord renders a visible
-    # break between story blocks instead of stacking them edge-to-edge.
-    for idx, item in enumerate(top_items):
-        if idx > 0:
-            _add_spacer()
-
+    # ── Story card embeds ─────────────────────────────────────────────────────
+    for item in top_items:
         headline = str(item.get("headline", "")).strip()
         item_summary = str(item.get("summary", "") or item.get("blurb", "")).strip()
         url = str(item.get("url") or "").strip()
         item_icon = _clean_icon(item.get("icon"))
+        severity = str(item.get("severity") or "").lower()
         trend = str(item.get("trend") or "").lower()
 
-        name = f"{item_icon}  {headline}"
+        title = f"{item_icon}  {headline}"
         if trend == "trending":
-            name += "  🔥"
-        name = name[:256] or "​"
+            title += "  🔥"
 
-        value_lines = []
-        if item_summary:
-            value_lines.append(item_summary[:400])
-        if url.startswith("http"):
-            value_lines.append(url)
-        value = "\n".join(value_lines).strip()[:500] or "​"
+        embed = discord.Embed(
+            title=title[:256],
+            url=url if url.startswith("http") else None,
+            description=item_summary[:4096] if item_summary else None,
+            color=_SEVERITY_COLOUR.get(severity, _DIGEST_COLOUR),
+        )
+        if bare:
+            embed.set_author(name=f"{icon}  {topic_name}")
+        source = _source_label(url)
+        if source:
+            embed.set_footer(text=source)
+        embeds.append(embed)
 
-        embed.add_field(name=name, value=value, inline=False)
-
-    # ── remaining stories — a compact field on the same embed ─────────────────
+    # ── Remaining stories — fields on the header embed ────────────────────────
+    # Riding along in the header (rather than a separate trailing embed) keeps
+    # the digest to 1 + top_n messages total. Not applicable in bare mode since
+    # there's no header embed and top_n already equals the full matched-item count.
     if tail_items and not bare:
-        if top_items:
-            _add_spacer()
         lines: list[str] = []
         for item in tail_items:
             headline = str(item.get("headline", "")).strip()
@@ -176,16 +168,16 @@ def _digest_embeds(
         chunk_len = 0
         for line in lines:
             if chunk_len + len(line) + 1 > 1024 and chunk:
-                embed.add_field(name=field_name, value="\n".join(chunk), inline=False)
+                header.add_field(name=field_name, value="\n".join(chunk), inline=False)
                 field_name = "​"  # zero-width name for continuation fields
                 chunk = []
                 chunk_len = 0
             chunk.append(line[:1024])
             chunk_len += len(line) + 1
         if chunk:
-            embed.add_field(name=field_name, value="\n".join(chunk), inline=False)
+            header.add_field(name=field_name, value="\n".join(chunk), inline=False)
 
-    return [embed] + extra_image_embeds
+    return embeds
 
 
 def _ioc_embed(ioc: IOC, results: list[IntelResult]) -> discord.Embed:
@@ -238,7 +230,10 @@ class DiscordBot(discord.Client):
     ) -> None:
         intents = discord.Intents.default()
         intents.message_content = True
-        super().__init__(intents=intents)
+        # Nothing the bot posts should ever ping anyone. Digest text comes from
+        # RSS feeds + LLM output and OSINT replies echo third-party data, so an
+        # "@everyone" smuggled into either must render inert.
+        super().__init__(intents=intents, allowed_mentions=discord.AllowedMentions.none())
         self.cfg = config["platforms"]["discord"]
         self.ioc_processor = ioc_processor
         self.summarizer = summarizer  # optional DigestSummarizer for IOC assessment
@@ -372,13 +367,12 @@ class DiscordBot(discord.Client):
         if not ch:
             logger.warning("Discord channel %s not found or not accessible", ch_id_int)
             return
-        embeds = _digest_embeds(topic_name, summary, lookback, meta=meta)
-        try:
-            # All embeds for the run go out in a single message (Discord allows
-            # up to 10 embeds per message).
-            await ch.send(embeds=embeds)  # type: ignore[attr-defined]
-        except discord.HTTPException as exc:
-            logger.error("Failed to send Discord digest message for '%s': %s", topic_name, exc)
+        for embed in _digest_embeds(topic_name, summary, lookback, meta=meta):
+            try:
+                await ch.send(embed=embed)  # type: ignore[attr-defined]
+            except discord.HTTPException as exc:
+                logger.error("Failed to send Discord digest embed: %s", exc)
+                break
 
     async def start_bot(self) -> None:
         """Start the Discord bot (blocks until stopped)."""

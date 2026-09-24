@@ -79,7 +79,7 @@ digest:
   default_schedule: "0 9 * * *"
   timezone: "Australia/Brisbane"
   max_chars_per_source: 3000
-  max_total_chars_per_topic: 20000   # cap total content sent to LLM per topic (~5k tokens)
+  max_total_chars_per_topic: 20000   # cap total content sent to LLM per topic (~5k tokens). Reading is cheap; writing is what's slow on CPU
   data_dir: "data"                   # persistent storage for history, trend detection, source health
 
   top_stories_count: 10             # global default; each digest file sets its own top_stories_count
@@ -121,7 +121,7 @@ digest:
   # Use http://localhost:11434 when running Ollama separately
   ollama_base_url: "${OLLAMA_BASE_URL:-http://localhost:11434}"
   ollama_model: "${OLLAMA_MODEL:-gemma2:2b}"
-  ollama_num_ctx: 16384   # total context window (input + output); must exceed prompt size + max_tokens
+  ollama_num_ctx: 12288   # total context window (input + output); must fit max_total_chars_per_topic/3 + ~3k. KV-cache memory scales with this
   ollama_timeout: 1800    # seconds to wait for Ollama response; increase for slow/CPU-only hardware
 
   # Anthropic Claude — paid API. Only used when llm_provider = "anthropic"

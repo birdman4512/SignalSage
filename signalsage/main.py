@@ -139,7 +139,7 @@ async def main() -> None:
             llm = OllamaLLM(
                 base_url=digest_cfg.get("ollama_base_url") or "http://localhost:11434",
                 model=digest_cfg.get("ollama_model") or "gemma2:2b",
-                num_ctx=digest_cfg.get("ollama_num_ctx", 16384),
+                num_ctx=digest_cfg.get("ollama_num_ctx", 12288),
                 timeout=digest_cfg.get("ollama_timeout", 1800),
             )
     except Exception as exc:

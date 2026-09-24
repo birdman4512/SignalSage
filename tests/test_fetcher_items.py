@@ -106,3 +106,59 @@ def test_extract_json_feed_matches_items_joined():
     text = _extract_json_feed(raw, max_chars=3000)
     assert items[0]["title"] in text
     assert items[0]["link"] in text
+
+
+# ---------------------------------------------------------------------------
+# Audio transcription: caching + skipping already-seen entries
+# ---------------------------------------------------------------------------
+
+
+def _audio_feed(n: int = 2) -> dict:
+    return {
+        "entries": [
+            {
+                "title": f"Episode {i}",
+                "link": f"https://pod.example/{i}",
+                "enclosures": [{"type": "audio/mpeg", "href": f"https://pod.example/{i}.mp3"}],
+            }
+            for i in range(n)
+        ]
+    }
+
+
+async def test_skip_audio_predicate_skips_transcription(monkeypatch):
+    from signalsage.digest import fetcher
+
+    calls: list[str] = []
+
+    async def fake_transcribe(url, base, timeout=600):
+        calls.append(url)
+        return "transcript"
+
+    monkeypatch.setattr(fetcher, "_transcribe_audio", fake_transcribe)
+    items = await _extract_feed_items(
+        _audio_feed(),
+        max_chars=3000,
+        whisper_base_url="http://whisper",
+        skip_audio=lambda i: i["link"] == "https://pod.example/0",
+    )
+    assert calls == ["https://pod.example/1.mp3"]
+    assert len(items) == 2  # skipped entries are still returned for seen-filtering
+
+
+async def test_transcripts_and_failures_are_cached(monkeypatch):
+    from signalsage.digest import fetcher
+
+    fetcher._TRANSCRIPT_CACHE.clear()
+    fetcher._TRANSCRIPT_FAILURES.clear()
+    calls: list[str] = []
+
+    async def fake_download(url, base, timeout):
+        calls.append(url)
+        return None if "bad" in url else "hello"
+
+    monkeypatch.setattr(fetcher, "_download_and_transcribe", fake_download)
+    for _ in range(3):
+        assert await fetcher._transcribe_audio("https://x/good.mp3", "http://w") == "hello"
+        assert await fetcher._transcribe_audio("https://x/bad.mp3", "http://w") is None
+    assert calls == ["https://x/good.mp3", "https://x/bad.mp3"]

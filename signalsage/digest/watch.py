@@ -112,6 +112,10 @@ class WatchSeenItems:
             self._data[topic] = {k: v for k, v in self._data[topic].items() if v >= cutoff}
         self._last_prune_day = today
 
+    def is_seen(self, topic: str, item: dict) -> bool:
+        """True if *item* has already been evaluated for *topic*."""
+        return item_id(item) in self._data.get(topic, {})
+
     def filter_new(self, topic: str, items: list[dict]) -> list[dict]:
         """Return only the items in *items* that haven't been seen before for *topic*."""
         seen = self._data.get(topic, {})

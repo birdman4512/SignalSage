@@ -173,7 +173,7 @@ def _inject_urls(
     return json.dumps(data)
 
 
-def _build_system_prompt(interest_topics: list[str]) -> str:
+def _build_system_prompt(interest_topics: list[str], max_items: int = 20) -> str:
     """Build the LLM system prompt, optionally injecting interest topic hints."""
     interest_section = ""
     if interest_topics:
@@ -199,7 +199,9 @@ REQUIRED and must never be null, empty, or a single sentence.
 STEP 2 — Set "coverage_confidence": "high" (many rich sources), "medium" (some sources, patchy), \
 or "low" (few or sparse sources).
 
-STEP 3 — Build "items": an array of up to 20 story objects, most important first. \
+STEP 3 — Build "items": pick ONLY the {max_items} most important and interesting stories \
+across all sources (fewer if there aren't that many worth reporting), most important first. \
+Skip minor, routine, or duplicate stories — the audience only wants what matters. \
 Each object MUST have all of these fields:
   "art_id": the [A<N>] label for this article (e.g. "A3"). REQUIRED.
   "icon": exactly ONE emoji. Choose the closest: \
@@ -467,8 +469,28 @@ class DigestSummarizer:
         return source_blocks, url_map, title_url_pairs
 
     async def summarize_topic(
-        self, topic_name: str, sources: list[dict], lookback: str | None = None
+        self,
+        topic_name: str,
+        sources: list[dict],
+        lookback: str | None = None,
+        max_items: int = 20,
     ) -> str:
+        """Summarize a topic's fetched sources into digest JSON.
+
+        *max_items* caps how many stories the LLM writes. Each item costs a 3-5
+        sentence summary of generation, so asking for no more than the digest
+        will actually show is the single biggest speed-up on small/CPU models.
+        """
+        max_items = max(1, min(20, max_items))
+        schema = {
+            **_DIGEST_JSON_SCHEMA,
+            "properties": {
+                **_DIGEST_JSON_SCHEMA["properties"],
+                "items": {**_DIGEST_JSON_SCHEMA["properties"]["items"], "maxItems": max_items},
+            },
+        }
+        # ~200 tokens per item summary plus the overview, with headroom.
+        max_tokens = min(4096, 400 + 250 * max_items)
         today = date.today().strftime("%B %d, %Y")
 
         source_blocks, url_map, title_url_pairs = self._build_source_blocks(topic_name, sources)
@@ -495,11 +517,11 @@ class DigestSummarizer:
         for attempt in range(1 + _LLM_RETRIES):
             try:
                 raw = await self.llm.complete(
-                    system=_build_system_prompt(self.interest_topics),
+                    system=_build_system_prompt(self.interest_topics, max_items),
                     user=user_prompt,
-                    max_tokens=4096,
+                    max_tokens=max_tokens,
                     json_mode=True,
-                    json_schema=_DIGEST_JSON_SCHEMA,
+                    json_schema=schema,
                 )
                 logger.debug("LLM raw output for topic %r: %s", topic_name, raw[:500])
                 if _lacks_story_items(raw):

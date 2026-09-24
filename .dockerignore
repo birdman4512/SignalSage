@@ -1,0 +1,13 @@
+# Keep secrets, runtime state, and dev caches out of the build context.
+.env
+.env.*
+data/
+.git/
+.venv/
+.claude/
+**/__pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+tests/
+docs/

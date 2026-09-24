@@ -425,7 +425,12 @@ class DigestScheduler:
                     f" ({size_hint}{time_hint})…"
                 )
             t0 = time.monotonic()
-            summary = await self.summarizer.summarize_topic(name, fetched, lookback=lookback)
+            # The LLM reads every source but only writes up the top_n stories
+            # that will actually be posted — generation is the slow part on
+            # small/CPU models, reading is cheap.
+            summary = await self.summarizer.summarize_topic(
+                name, fetched, lookback=lookback, max_items=self._top_n(topic)
+            )
             self._history.record_llm_timing(total_chars, time.monotonic() - t0)
         except Exception as exc:
             logger.exception("Failed to generate digest for topic '%s': %s", name, exc)
@@ -467,7 +472,6 @@ class DigestScheduler:
         # Collect image URLs configured on individual sources
         images = [s["image_url"] for s in fetched if s.get("image_url")]
 
-        topic_top_n = topic.get("top_stories_count")
         meta = {
             "sources_total": len(fetched),
             "sources_ok": len(fetched) - len(empty_sources),
@@ -476,9 +480,7 @@ class DigestScheduler:
             "deduped_count": extra_meta["deduped_count"],
             "coverage_confidence": extra_meta["coverage_confidence"],
             "images": images,
-            "top_stories_count": int(topic_top_n)
-            if topic_top_n is not None
-            else self.top_stories_count,
+            "top_stories_count": self._top_n(topic),
         }
 
         # Per-topic channel override; fall back to the on-demand caller's channel
@@ -510,7 +512,10 @@ class DigestScheduler:
         if progress:
             await progress(f"📡 Polling {len(topic.get('sources', []))} source(s) for *{name}*…")
         items = await fetch_topic_items(
-            topic.get("sources", []), timeout=15, whisper_base_url=self.whisper_base_url
+            topic.get("sources", []),
+            timeout=15,
+            whisper_base_url=self.whisper_base_url,
+            skip_audio=lambda i: self._watch_seen.is_seen(name, i),
         )
         new_items = self._watch_seen.filter_new(name, items)
         if not new_items:
@@ -613,6 +618,11 @@ class DigestScheduler:
                     exc,
                 )
         return True
+
+    def _top_n(self, topic: dict) -> int:
+        """The topic's own top_stories_count, else the (runtime-adjustable) global one."""
+        topic_top_n = topic.get("top_stories_count")
+        return int(topic_top_n) if topic_top_n is not None else self.top_stories_count
 
     def set_top_stories_count(self, n: int) -> None:
         """Update the number of top stories shown with full summaries (session only)."""

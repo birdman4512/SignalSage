@@ -131,7 +131,7 @@ Main configuration file. Uses `${ENV_VAR}` syntax for environment variable subst
 - `digest.anthropic_api_key` — Anthropic API key (or use `${ANTHROPIC_API_KEY}`)
 - `digest.ollama_base_url` — Ollama endpoint (default: `"http://localhost:11434"`)
 - `digest.ollama_model` — Ollama model to use (default: `"gemma2:2b"`)
-- `digest.ollama_num_ctx` — Ollama context window tokens (default: 16384)
+- `digest.ollama_num_ctx` — Ollama context window tokens (default: 12288). Requests whose estimated prompt + output would overflow it get a larger window for that call only (forces a model reload, logged as a warning)
 - `digest.ollama_timeout` — seconds to wait for an Ollama response (default: 1800; raise for slow CPU-only hardware)
 - `digest.max_chars_per_source` — max characters fetched per source before summarization (default: 3000)
 - `digest.max_total_chars_per_topic` — total prompt budget per topic across all sources (default: 20000)
@@ -275,10 +275,10 @@ APScheduler registers one cron job per topic (using each topic's own schedule)
             → fetch_source() per URL
                 → feedparser for RSS/Atom feeds
                 → BeautifulSoup for HTML pages
-        → BaseLLM.complete() — via OllamaLLM, AnthropicLLM, or CliLLM
+        → BaseLLM.complete() — via OllamaLLM (calls serialised, one at a time), AnthropicLLM, or CliLLM
             LLM returns JSON with:
               "overview"  — 3-5 sentence narrative paragraph across all sources
-              "items"     — up to 20 stories sorted by importance, each with
+              "items"     — the topic's top_stories_count most relevant stories (max 20) — it reads every source but only writes up what gets posted — each with
                             headline, 3-5 sentence summary, severity, icon, url
         → _postprocess_summary(): cross-topic dedup + trend classification
     → post to notifiers (slack_bot.send_digest, discord_bot.send_digest)
