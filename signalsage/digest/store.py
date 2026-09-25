@@ -46,6 +46,10 @@ class ArticleStore:
                     destination TEXT NOT NULL, article TEXT NOT NULL, outbox TEXT NOT NULL,
                     PRIMARY KEY(destination, article)
                 );
+                CREATE TABLE IF NOT EXISTS message_articles (
+                    platform TEXT NOT NULL, message TEXT NOT NULL, article TEXT NOT NULL,
+                    PRIMARY KEY(platform, message)
+                );
                 CREATE TABLE IF NOT EXISTS feedback (
                     article TEXT NOT NULL, actor TEXT NOT NULL, useful INTEGER NOT NULL,
                     PRIMARY KEY(article, actor)
@@ -327,6 +331,44 @@ class ArticleStore:
             )
         return True
 
+    def record_message(self, platform: str, message: str, article: str) -> None:
+        """Remember which article a posted story message carries, for reaction feedback."""
+        with self.connect() as db:
+            db.execute(
+                "INSERT OR REPLACE INTO message_articles(platform,message,article) VALUES(?,?,?)",
+                (platform, message, article),
+            )
+
+    def react_feedback(
+        self, platform: str, message: str, actor: str, useful: bool, removed: bool = False
+    ) -> bool:
+        """Apply a thumbs reaction on a story message as feedback.
+
+        Adding a reaction sets the actor's vote (last one wins); removing it
+        clears the vote only if it is still the one that reaction set.
+        """
+        with self.connect() as db:
+            row = db.execute(
+                "SELECT article FROM message_articles WHERE platform=? AND message=?",
+                (platform, message),
+            ).fetchone()
+            if (
+                row is None
+                or not db.execute("SELECT 1 FROM articles WHERE id=?", (row[0],)).fetchone()
+            ):
+                return False
+            if removed:
+                db.execute(
+                    "DELETE FROM feedback WHERE article=? AND actor=? AND useful=?",
+                    (row[0], actor, int(useful)),
+                )
+            else:
+                db.execute(
+                    "INSERT OR REPLACE INTO feedback(article,actor,useful) VALUES(?,?,?)",
+                    (row[0], actor, int(useful)),
+                )
+        return True
+
     def feedback_weights(self) -> dict[str, float]:
         from urllib.parse import urlsplit
 
@@ -377,6 +419,7 @@ class ArticleStore:
                     (article,),
                 )
                 db.execute("DELETE FROM deliveries WHERE article=?", (article,))
+                db.execute("DELETE FROM message_articles WHERE article=?", (article,))
                 db.execute("DELETE FROM topic_articles WHERE article=?", (article,))
                 db.execute("DELETE FROM articles WHERE id=?", (article,))
             db.execute(

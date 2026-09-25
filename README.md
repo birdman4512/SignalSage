@@ -23,7 +23,7 @@ Collect feeds every 15 minutes, including overnight
   → deliver on schedule, acknowledge each message, retry failures
 ```
 
-The four general news/watch topics now publish at **09:00 and 16:00 Australia/Brisbane**. Specialist topics retain their own schedules. Collection continues during quiet hours. Each story is posted as its own message (Slack and Discord), with its source link, selection reason, content basis (article text, feed excerpt, source page or transcript), and feedback commands.
+The four general news/watch topics now publish at **09:00 and 16:00 Australia/Brisbane**. Specialist topics retain their own schedules. Collection continues during quiet hours. Each story is posted as its own message (Slack and Discord), with its source link, selection reason, content basis (article text, feed excerpt, source page or transcript), and 👍/👎 reactions: react 👍 (useful) or 👎 (less) to adjust source rankings. Slack needs the `reactions:read`/`reactions:write` scopes and the `reaction_added`/`reaction_removed` events; Discord needs the Add Reactions permission.
 
 ## Start
 
@@ -71,7 +71,7 @@ Keyword commands work for both scheduled and urgent topics. YAML keywords seed t
 !digest keywords news add "local LLM"
 !digest keywords news exclude sponsored
 !digest feedback <article-id> useful
-!digest feedback <article-id> less
+!digest feedback <article-id> less   (or just react 👍 / 👎 on the story)
 !osint ip 8.8.8.8
 !osint domain example.com
 !osint email user@example.com

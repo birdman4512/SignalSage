@@ -294,6 +294,23 @@ def test_feedback_upsert_is_idempotent_and_persistent(tmp_path):
     assert pipeline.store.feedback_weights() == {"source.test": -0.25}
 
 
+def test_reaction_feedback_follows_story_message(tmp_path):
+    pipeline, _ = make_pipeline(tmp_path)
+    ingest(pipeline)
+    article = pipeline.store.candidates(TOPIC["name"], "x")[0]
+    pipeline.store.record_message("slack", "C1:1.2", article["id"])
+    assert not pipeline.store.react_feedback("slack", "C1:9.9", "user", True)
+    assert pipeline.store.react_feedback("slack", "C1:1.2", "user", True)
+    assert pipeline.store.feedback_weights() == {"source.test": 0.25}
+    assert pipeline.store.react_feedback("slack", "C1:1.2", "user", False)
+    assert pipeline.store.feedback_weights() == {"source.test": -0.25}
+    # Removing the stale 👍 keeps the current 👎; removing the 👎 clears the vote.
+    pipeline.store.react_feedback("slack", "C1:1.2", "user", True, removed=True)
+    assert pipeline.store.feedback_weights() == {"source.test": -0.25}
+    pipeline.store.react_feedback("slack", "C1:1.2", "user", False, removed=True)
+    assert pipeline.store.feedback_weights() == {}
+
+
 def test_pruning_preserves_pending_articles(tmp_path):
     pipeline, _ = make_pipeline(tmp_path)
     ingest(pipeline)

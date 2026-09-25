@@ -50,6 +50,20 @@ async def test_partial_slack_delivery_acknowledges_only_success_and_resumes():
     assert offsets == [1, 2, 3, 4, 5, 6]
 
 
+async def test_slack_story_messages_are_mapped_and_seeded_with_votes():
+    slack = bot()
+    slack.app.client.chat_postMessage.side_effect = [
+        {"channel": "C9", "ts": str(i)} for i in range(2)
+    ]
+    slack.app.client.reactions_add = AsyncMock(side_effect=[None, RuntimeError("no scope")] * 2)
+    sent = []
+    meta = {"compact": True, "articles": ["a0", "a1"], "_sent": lambda i, m: sent.append((i, m))}
+    await slack.send_digest("News", summary(2), meta=meta)
+    assert sent == [(0, "C9:0"), (1, "C9:1")]  # a reaction failure doesn't fail delivery
+    names = [c.kwargs["name"] for c in slack.app.client.reactions_add.await_args_list]
+    assert names == ["+1", "-1", "+1", "-1"]
+
+
 async def test_missing_slack_channel_is_failure():
     slack = bot()
     slack.cfg = {}

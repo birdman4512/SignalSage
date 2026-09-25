@@ -197,8 +197,9 @@ loader accepts that too, but one-topic-per-file is the convention.)
    - `groups:history` — read private channel messages
    - `im:history` — read DM messages
    - `mpim:history` — read group DM messages
+   - `reactions:read` / `reactions:write` — 👍/👎 story feedback (the bot pre-adds both to each story)
 4. Install the app to your workspace and copy the **Bot User OAuth Token** as `SLACK_BOT_TOKEN`.
-5. Under **Event Subscriptions**, enable events and subscribe to **Bot Events**: `message.channels`, `message.groups`, `message.im`, `message.mpim`.
+5. Under **Event Subscriptions**, enable events and subscribe to **Bot Events**: `message.channels`, `message.groups`, `message.im`, `message.mpim`, `reaction_added`, `reaction_removed`.
 6. Invite the bot to channels: `/invite @SignalSage`
 
 ---
@@ -208,7 +209,7 @@ loader accepts that too, but one-topic-per-file is the convention.)
 1. Go to [discord.com/developers/applications](https://discord.com/developers/applications) and create a new application.
 2. Under **Bot**, click **Add Bot**.
 3. Enable **Message Content Intent** under **Privileged Gateway Intents** (required to read message content).
-4. Under **OAuth2 > URL Generator**, select scopes: `bot`, and permissions: `Read Messages/View Channels`, `Send Messages`, `Read Message History`.
+4. Under **OAuth2 > URL Generator**, select scopes: `bot`, and permissions: `Read Messages/View Channels`, `Send Messages`, `Read Message History`, `Add Reactions`.
 5. Copy the generated URL, open in browser, and invite the bot to your server.
 6. Copy the **Bot Token** as `DISCORD_BOT_TOKEN`.
 7. Set `platforms.discord.enabled: true` in `config/config.yaml`.

@@ -342,6 +342,8 @@ class DigestPipeline:
                         "compact": True,
                         "bare": urgent,
                         "preserve_order": True,
+                        # One story message per article, in this order.
+                        "articles": [a["id"] for a in articles],
                         "images": list(
                             dict.fromkeys(
                                 a["source_image_url"] for a in articles if a.get("source_image_url")
@@ -360,6 +362,14 @@ class DigestPipeline:
             self.store.record_run(topic["name"], started, metrics)
             logger.info("Digest run %s: %s", topic["name"], metrics)
         await self.flush(allowed=delivery_allowed)
+
+    def _record_message(self, platform: str, message: str, meta: dict, index: int) -> None:
+        articles = meta.get("articles") or []
+        if index < len(articles):
+            try:
+                self.store.record_message(platform, message, articles[index])
+            except Exception as exc:  # never fail (and so re-post) a delivered message
+                logger.warning("Could not record story message %s: %s", message, exc)
 
     async def flush(self, force=False, allowed=None):
         async with self._delivery_lock:
@@ -384,6 +394,9 @@ class DigestPipeline:
                     "_delivery_id": row["id"],
                     "_offset": row["offset"],
                     "_ack": lambda offset, key=row["id"]: self.store.acknowledge(key, offset),
+                    "_sent": lambda index, message, platform=platform, meta=body["meta"]: (
+                        self._record_message(platform, message, meta, index)
+                    ),
                 }
                 if "payloads" in body:
                     meta["_payloads"] = body["payloads"]

@@ -51,6 +51,8 @@ cp .env.example .env
    | `groups:history` | Read messages in private channels |
    | `im:history` | Read direct messages |
    | `mpim:history` | Read group direct messages |
+   | `reactions:read` | Receive 👍/👎 story feedback |
+   | `reactions:write` | Pre-add 👍/👎 to each digest story |
 
 ### 2.4 Install to your workspace
 
@@ -63,11 +65,12 @@ cp .env.example .env
 ### 2.5 Subscribe to message events
 
 1. Left sidebar → **Event Subscriptions** → toggle **Enable Events** ON
-2. Under **Subscribe to bot events** → **Add Bot User Event**, add all four:
+2. Under **Subscribe to bot events** → **Add Bot User Event**, add:
    - `message.channels`
    - `message.groups`
    - `message.im`
    - `message.mpim`
+   - `reaction_added` and `reaction_removed` (👍/👎 story feedback)
 3. **Save Changes**
 
 ### 2.6 Create channels and invite the bot
@@ -110,7 +113,7 @@ Leave `monitor_channels` empty (`[]`) to monitor every channel the bot is invite
 
 1. Left sidebar → **OAuth2** → **URL Generator**
 2. Scopes: tick `bot`
-3. Bot Permissions: tick `Read Messages/View Channels`, `Send Messages`, `Read Message History`
+3. Bot Permissions: tick `Read Messages/View Channels`, `Send Messages`, `Read Message History`, `Add Reactions`
 4. Copy the generated URL, open in browser, select your server → **Authorise**
 
 ### 3.3 Get channel IDs
@@ -292,7 +295,7 @@ sources:
     url: "https://www.cisa.gov/cybersecurity-advisories/all.xml"
 ```
 
-Each story is posted as its own Slack/Discord message: a short summary with its source link, reason for selection, content-basis label and feedback commands. Failed generations remain eligible; failed posts are queued and retried from the last acknowledged message. Empty digests are not posted.
+Each story is posted as its own Slack/Discord message: a short summary with its source link, reason for selection and content-basis label. React 👍 (useful) or 👎 (less) on a story to feed source rankings; removing the reaction withdraws the vote. Failed generations remain eligible; failed posts are queued and retried from the last acknowledged message. Empty digests are not posted.
 
 Use `!digest status` for collection/delivery counts and `!digest feedback <article-id> useful|less` to adjust future source rankings. Keyword commands apply to all topics. `!digest top <N>` overrides per-topic counts for the current session.
 

@@ -93,7 +93,7 @@ def _digest_embeds(
                 + f"\n\nWhy selected: {str(item.get('relevance_reason', ''))[:160]}"
                 + f"\nBased on {item.get('content_kind', 'feed excerpt')}"
                 + (f" · [Read source]({source})" if source else "")
-                + f"\nFeedback: !digest feedback {str(item.get('art_id', ''))[:12]} useful / less"
+                + f"\nReact 👍 / 👎 to tune rankings · id {str(item.get('art_id', ''))[:12]}"
             )
             embed = discord.Embed(
                 title=str(item.get("headline", ""))[:256] or None,
@@ -393,9 +393,49 @@ class DiscordBot(discord.Client):
         for index, embed in enumerate(embeds):
             if index < meta.get("_offset", 0):
                 continue
-            await ch.send(embed=embed)
+            sent = await ch.send(embed=embed)
+            if index < len(meta.get("articles") or []):
+                await self._seed_votes(sent, meta, index)
             if meta.get("_ack"):
                 meta["_ack"](index + 1)
+
+    async def _seed_votes(self, message: discord.Message, meta: dict, index: int) -> None:
+        """Map a story message to its article and pre-add 👍/👎 so rating is one click.
+
+        Best effort: the message is already posted, so a failure here must not
+        fail the delivery (which would re-post it).
+        """
+        if meta.get("_sent"):
+            meta["_sent"](index, str(message.id))
+        for emoji in ("👍", "👎"):
+            try:
+                await message.add_reaction(emoji)
+            except Exception as exc:
+                logger.debug("Could not add %s to digest story: %s", emoji, exc)
+
+    async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent) -> None:
+        await self._on_vote(payload, removed=False)
+
+    async def on_raw_reaction_remove(self, payload: discord.RawReactionActionEvent) -> None:
+        await self._on_vote(payload, removed=True)
+
+    async def _on_vote(self, payload: discord.RawReactionActionEvent, removed: bool) -> None:
+        name = payload.emoji.name or ""
+        # startswith() also accepts skin-tone variants.
+        useful = True if name.startswith("👍") else False if name.startswith("👎") else None
+        if (
+            useful is None
+            or (self.user is not None and payload.user_id == self.user.id)
+            or self.scheduler is None
+            or not self.auth.authorized_discord(payload.user_id)
+        ):
+            return
+        if self.scheduler.store.react_feedback(
+            self.platform_name, str(payload.message_id), str(payload.user_id), useful, removed
+        ):
+            logger.info(
+                "Discord feedback from %s on %s: %s", payload.user_id, payload.message_id, useful
+            )
 
     async def start_bot(self) -> None:
         """Start the Discord bot (blocks until stopped)."""

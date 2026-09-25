@@ -526,7 +526,7 @@ def _compact_digest_slack(topic_name: str, parsed: dict, meta: dict) -> list[dic
                 "elements": [
                     {
                         "type": "mrkdwn",
-                        "text": f"Feedback: `!digest feedback {article_id} useful` or `!digest feedback {article_id} less`",
+                        "text": f"React :+1: / :-1: to tune rankings · id `{article_id}`",
                     }
                 ],
             },

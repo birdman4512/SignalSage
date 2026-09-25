@@ -25,6 +25,9 @@ from .formatter import format_digest_slack_message, format_slack_message
 
 logger = logging.getLogger(__name__)
 
+# Reaction names (skin-tone suffix stripped) that rate a digest story.
+_VOTES = {"+1": True, "thumbsup": True, "-1": False, "thumbsdown": False}
+
 
 class SlackBot:
     """Async Slack bot that monitors messages and enriches IOCs."""
@@ -183,6 +186,33 @@ class SlackBot:
                     return
             await say(text=HELP_TEXT)
 
+        async def on_reaction(event: dict, context, removed: bool) -> None:
+            item = event.get("item") or {}
+            user = event.get("user", "")
+            useful = _VOTES.get(str(event.get("reaction", "")).split("::")[0])
+            if (
+                useful is None
+                or item.get("type") != "message"
+                or not user
+                or user == context.get("bot_user_id")
+                or self.scheduler is None
+                or not self.auth.authorized_slack(user)
+            ):
+                return
+            message = f"{item.get('channel')}:{item.get('ts')}"
+            if self.scheduler.store.react_feedback(
+                self.platform_name, message, user, useful, removed=removed
+            ):
+                logger.info("Slack feedback from %s on %s: %s", user, message, useful)
+
+        @self.app.event("reaction_added")
+        async def on_reaction_added(event: dict, context) -> None:
+            await on_reaction(event, context, removed=False)
+
+        @self.app.event("reaction_removed")
+        async def on_reaction_removed(event: dict, context) -> None:
+            await on_reaction(event, context, removed=True)
+
         @self.app.action(re.compile(".*"))
         async def on_any_action(ack) -> None:
             """Acknowledge all block_actions (e.g. URL buttons) to suppress 404 warnings."""
@@ -224,9 +254,28 @@ class SlackBot:
                 payload["client_msg_id"] = str(
                     uuid.uuid5(uuid.NAMESPACE_URL, f"{meta['_delivery_id']}:{index}")
                 )
-            await self.app.client.chat_postMessage(channel=ch, **payload)
+            response = await self.app.client.chat_postMessage(channel=ch, **payload)
+            if index < len(meta.get("articles") or []):
+                await self._seed_votes(response, meta, index)
             if meta.get("_ack"):
                 meta["_ack"](index + 1)
+
+    async def _seed_votes(self, response, meta: dict, index: int) -> None:
+        """Map a story message to its article and pre-add 👍/👎 so rating is one click.
+
+        Best effort: the message is already posted, so a failure here must not
+        fail the delivery (which would re-post it).
+        """
+        channel, ts = response.get("channel"), response.get("ts")
+        if not channel or not ts:
+            return
+        if meta.get("_sent"):
+            meta["_sent"](index, f"{channel}:{ts}")
+        for name in ("+1", "-1"):
+            try:
+                await self.app.client.reactions_add(channel=channel, timestamp=ts, name=name)
+            except Exception as exc:
+                logger.debug("Could not add %s to digest story: %s", name, exc)
 
     async def start(self) -> None:
         """Start the Socket Mode handler (blocks until stopped)."""
