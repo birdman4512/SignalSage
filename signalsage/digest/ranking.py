@@ -56,11 +56,21 @@ def article_identity(item: dict) -> tuple[str, str]:
     return fingerprint(identity), fingerprint(content)
 
 
+_EDITS_ARE_NOT_UPDATES = ("reddit.com", "lobste.rs")
+
+
 def similar_story(a: dict, b: dict) -> bool:
     """Only collapse close headlines AND content; changed facts remain eligible."""
     title_a, title_b = str(a.get("title", "")).lower(), str(b.get("title", "")).lower()
-    # Different versions of the same URL are updates, not syndication duplicates.
-    if canonical_url(a.get("link", "")) == canonical_url(b.get("link", "")):
+    # Different versions of the same URL are updates, not syndication duplicates —
+    # except on forum hosts, where a changed post is an edit rather than news
+    # (measured: ~8% of Reddit posts change within a day), so re-posting it
+    # would just repeat a story already sent.
+    link = canonical_url(a.get("link", ""))
+    if link == canonical_url(b.get("link", "")):
+        host = urlsplit(link).hostname or ""
+        if any(host == h or host.endswith("." + h) for h in _EDITS_ARE_NOT_UPDATES):
+            return True
         return a.get("version") == b.get("version")
     if set(re.findall(r"\d+", title_a)) != set(re.findall(r"\d+", title_b)):
         return False

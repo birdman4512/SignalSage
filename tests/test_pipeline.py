@@ -475,3 +475,13 @@ def test_store_commits_without_fsync(tmp_path):
     store = ArticleStore(str(tmp_path))
     with store.connect() as db:
         assert db.execute("PRAGMA synchronous").fetchone()[0] == 1  # NORMAL
+
+
+async def test_edited_reddit_post_is_not_reposted(tmp_path):
+    pipeline, dest = make_pipeline(tmp_path)
+    post = {**ARTICLE, "link": "https://www.reddit.com/r/netsec/comments/abc/cve_2026_1234/"}
+    ingest(pipeline, post)
+    await pipeline.publish(TOPIC, 5)
+    ingest(pipeline, {**post, "summary": post["summary"] + " EDIT: typo fixed."})
+    await pipeline.publish(TOPIC, 5)
+    assert len(dest.messages) == 1  # an edit is not news; a news-site update still is
