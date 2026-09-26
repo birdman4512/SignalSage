@@ -344,6 +344,7 @@ class DigestPipeline:
                         "preserve_order": True,
                         # One story message per article, in this order.
                         "articles": [a["id"] for a in articles],
+                        "seed_votes": bool(self.settings.get("seed_vote_reactions", True)),
                         "images": list(
                             dict.fromkeys(
                                 a["source_image_url"] for a in articles if a.get("source_image_url")

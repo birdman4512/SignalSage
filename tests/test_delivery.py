@@ -64,6 +64,22 @@ async def test_slack_story_messages_are_mapped_and_seeded_with_votes():
     assert names == ["+1", "-1", "+1", "-1"]
 
 
+async def test_vote_seeding_can_be_disabled_but_story_is_still_mapped():
+    slack = bot()
+    slack.app.client.chat_postMessage.return_value = {"channel": "C9", "ts": "0"}
+    slack.app.client.reactions_add = AsyncMock()
+    sent = []
+    meta = {
+        "compact": True,
+        "articles": ["a0"],
+        "seed_votes": False,
+        "_sent": lambda i, m: sent.append((i, m)),
+    }
+    await slack.send_digest("News", summary(1), meta=meta)
+    assert sent == [(0, "C9:0")]
+    slack.app.client.reactions_add.assert_not_awaited()
+
+
 async def test_missing_slack_channel_is_failure():
     slack = bot()
     slack.cfg = {}

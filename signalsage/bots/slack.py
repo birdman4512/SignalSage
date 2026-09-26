@@ -263,6 +263,9 @@ class SlackBot:
     async def _seed_votes(self, response, meta: dict, index: int) -> None:
         """Map a story message to its article and pre-add 👍/👎 so rating is one click.
 
+        Pre-adding is skipped when ``digest.seed_vote_reactions`` is off; users'
+        own reactions still count because the message is mapped either way.
+
         Best effort: the message is already posted, so a failure here must not
         fail the delivery (which would re-post it).
         """
@@ -271,6 +274,8 @@ class SlackBot:
             return
         if meta.get("_sent"):
             meta["_sent"](index, f"{channel}:{ts}")
+        if not meta.get("seed_votes", True):
+            return
         for name in ("+1", "-1"):
             try:
                 await self.app.client.reactions_add(channel=channel, timestamp=ts, name=name)
