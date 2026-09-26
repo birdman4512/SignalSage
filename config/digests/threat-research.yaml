@@ -2,7 +2,7 @@
 name: "Threat Research"
 tags: [research, vendors]        # !digest research
 schedule: "30 7 * * mon,wed,fri" # 7:30am Mon/Wed/Fri — these blogs don't update daily
-digest_channel: "#general"
+digest_channel: "#news"
 top_stories_count: 4
 sources:
   - name: "CrowdStrike Blog"

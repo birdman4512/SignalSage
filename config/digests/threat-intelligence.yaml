@@ -3,7 +3,7 @@ name: "Threat Intelligence"
 tags: [ti, intel, threatintel]  # !digest ti
 schedule: "0 8 * * wed"         # 8:00am every Wednesday — inside the 6am-6pm weekday window
 lookback: "7d"
-digest_channel: "#general"
+digest_channel: "#news"
 top_stories_count: 4
 sources:
   - name: "The DFIR Report"

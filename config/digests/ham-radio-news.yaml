@@ -3,7 +3,7 @@ name: "Ham Radio News"
 tags: [ham, dx, hamradio]       # !digest ham
 schedule: "30 17 * * 3"         # 5:30pm Thursdays (APScheduler: Mon=0, Thu=3) — inside the 6am-6pm weekday window
 lookback: "7d"
-digest_channel: "#general"
+digest_channel: "#radio"
 top_stories_count: 4
 sources:
   - name: "ARRL News"

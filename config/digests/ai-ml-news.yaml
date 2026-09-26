@@ -5,7 +5,7 @@ schedule: "0 9 * * *"            # one compact morning digest
 top_stories_count: 3
 keywords: ["gpt", "claude", "gemini", "llm", "model release"]
 exclude_keywords: []
-digest_channel: "#general"
+digest_channel: "#news"
 sources:
   - name: "The Verge AI"
     url: "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml"

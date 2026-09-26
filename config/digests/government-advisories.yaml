@@ -2,7 +2,7 @@
 name: "Government Advisories"
 tags: [advisories, gov, cisa]   # !digest advisories
 schedule: "0 9 * * tue-sat"     # 9:00am Tue–Sat (Sat run needs to clear the 9am weekend start)
-digest_channel: "#general"
+digest_channel: "#news"
 top_stories_count: 4
 sources:
   - name: "CISA Advisories"

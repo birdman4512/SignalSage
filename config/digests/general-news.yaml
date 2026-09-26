@@ -5,7 +5,7 @@ schedule: "0 9 * * *"            # one compact morning digest
 top_stories_count: 3
 keywords: ["australia", "breaking", "emergency"]
 exclude_keywords: []
-digest_channel: "#general"
+digest_channel: "#news"
 sources:
   - name: "ABC News"
     url: "https://www.abc.net.au/news/feed/51120/rss.xml"
