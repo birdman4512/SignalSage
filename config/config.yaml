@@ -97,7 +97,7 @@ digest:
   fetch_article_text: true
   enrich_cves: true                # reuse existing IOC providers for article CVEs
   top_stories_count: 5
-  seed_vote_reactions: true        # bot pre-adds 👍/👎 to each story; false = users add their own
+  seed_vote_reactions: ${SEED_VOTE_REACTIONS:-true}  # bot pre-adds 👍/👎 to each story; false = users add their own
   interest_topics: []              # legacy shorthand; profile.topics is preferred
   profile:
     minimum_score: 2.5

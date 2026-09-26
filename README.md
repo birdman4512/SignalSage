@@ -23,7 +23,7 @@ Collect feeds every 15 minutes, including overnight
   → deliver on schedule, acknowledge each message, retry failures
 ```
 
-The four general news/watch topics now publish once a day at **09:00 Australia/Brisbane**, three stories each. Specialist topics retain their own schedules. Collection continues during quiet hours. Each story is posted as its own message (Slack and Discord), with its source link, selection reason, content basis (article text, feed excerpt, source page or transcript), and 👍/👎 reactions: react 👍 (useful) or 👎 (less) to adjust source rankings. Slack needs the `reactions:read`/`reactions:write` scopes and the `reaction_added`/`reaction_removed` events; Discord needs the Add Reactions permission. Set `digest.seed_vote_reactions: false` to stop the bot pre-adding the two reactions; users' own 👍/👎 still count.
+The four general news/watch topics now publish once a day at **09:00 Australia/Brisbane**, three stories each. Specialist topics retain their own schedules. Collection continues during quiet hours. Each story is posted as its own message (Slack and Discord), with its source link, selection reason, content basis (article text, feed excerpt, source page or transcript), and 👍/👎 reactions: react 👍 (useful) or 👎 (less) to adjust source rankings. Slack needs the `reactions:read`/`reactions:write` scopes and the `reaction_added`/`reaction_removed` events; Discord needs the Add Reactions permission. Set `SEED_VOTE_REACTIONS=false` in `.env` (or `digest.seed_vote_reactions: false`) to stop the bot pre-adding the two reactions; users' own 👍/👎 still count.
 
 ## Start
 
