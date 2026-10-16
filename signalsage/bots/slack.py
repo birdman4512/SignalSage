@@ -47,7 +47,8 @@ class SlackBot:
         self.ioc_processor = ioc_processor
         self.summarizer = summarizer  # optional DigestSummarizer for IOC assessment
         self.auth = auth or CommandAuth()
-        self.app = AsyncApp(token=self.cfg["bot_token"])
+        # Socket Mode has no inbound HTTP requests to verify, so no signing secret.
+        self.app = AsyncApp(token=self.cfg["bot_token"], request_verification_enabled=False)
         self._bot_user_id: str | None = None
         self.scheduler: DigestScheduler | None = None  # set by main.py
         self._register()
