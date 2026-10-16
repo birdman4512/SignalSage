@@ -46,11 +46,31 @@ def _expand_env(value: Any) -> Any:
     return value
 
 
+def _deep_merge(base: Any, override: Any) -> Any:
+    """Merge *override* into *base*: mappings merge key by key, anything else replaces."""
+    if isinstance(base, dict) and isinstance(override, dict):
+        merged = dict(base)
+        for key, value in override.items():
+            merged[key] = _deep_merge(base.get(key), value) if key in base else value
+        return merged
+    return override
+
+
 def load_config(path: str = "config/config.yaml") -> dict:
-    """Load and expand the main configuration file."""
+    """Load and expand the main configuration file.
+
+    A sibling ``*.local.yaml`` (e.g. ``config/config.local.yaml``) is gitignored
+    and merged over it, so an install keeps private settings such as its
+    interest profile without editing the tracked file that ``git pull`` updates.
+    """
     try:
         with open(path, encoding="utf-8") as fh:
-            raw = yaml.safe_load(fh)
+            raw = yaml.safe_load(fh) or {}
+        local = Path(path).with_suffix(".local.yaml")
+        if local.is_file():
+            with open(local, encoding="utf-8") as fh:
+                raw = _deep_merge(raw, yaml.safe_load(fh) or {})
+            logger.info("Merged local config overrides from %s", local)
         return _expand_env(raw) or {}
     except FileNotFoundError:
         logger.error("Config file not found: %s", path)

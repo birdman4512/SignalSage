@@ -58,3 +58,6 @@ data/
 
 # Install-private digest topics (core set in config/digests/ is committed)
 config/digests/*.local.yaml
+
+# Install-private settings merged over config/config.yaml (e.g. interest profile)
+config/*.local.yaml

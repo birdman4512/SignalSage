@@ -23,6 +23,7 @@ from .commands import (
 from .formatter import (
     _SEVERITY_ORDER,
     IOC_TYPE_LABEL,
+    NUMBER_EMOJI,
     _clean_icon,
     _digest_footer_parts,
     _overall_verdict,
@@ -32,6 +33,8 @@ from .formatter import (
     _risk_emoji,
     _source_label,
     _topic_icon,
+    combined_digest_parts,
+    vote_hint,
 )
 
 logger = logging.getLogger(__name__)
@@ -51,6 +54,45 @@ _SEVERITY_COLOUR = {
     "medium": 0xEAB308,
     "low": 0x2EB67D,
 }
+
+
+def _combined_embed(topic_name: str, summary: str, meta: dict) -> discord.Embed:
+    """Every story in ONE embed, numbered to match the 1️⃣–🔟 rating reactions."""
+    from signalsage.digest.ranking import canonical_url
+
+    items, more = combined_digest_parts(summary)
+    icon = "🚨" if meta.get("bare") else _topic_icon(topic_name)
+    parts = []
+    for index, item in enumerate(items[:20]):
+        url = canonical_url(str(item.get("url", "")))
+        title = str(item.get("headline", ""))[:160]
+        number = NUMBER_EMOJI[index] if index < len(NUMBER_EMOJI) else f"{index + 1}."
+        heading = f"[{title}]({url})" if url else title
+        source = _source_label(url)
+        parts.append(
+            f"{number} **{heading}**"
+            + (f" · {source}" if source else "")
+            + f"\n{str(item.get('summary', ''))[:400]}"
+        )
+    embed = discord.Embed(
+        title=f"{icon}  {topic_name}"[:256],
+        description="\n\n".join(parts)[:4096],
+        color=_DIGEST_COLOUR,
+    )
+    lines = []
+    for item in more[:15]:
+        url = canonical_url(str(item.get("url", "")))
+        title = str(item.get("headline", ""))[:120]
+        if title:
+            lines.append(f"• [{title}]({url})" if url else f"• {title}")
+    if lines:
+        embed.add_field(name="Also", value="\n".join(lines)[:1024], inline=False)
+    if hint := vote_hint(len(items), NUMBER_EMOJI):
+        embed.set_footer(text=hint)
+    for image_url in meta.get("images", [])[:1]:
+        if safe_image := canonical_url(str(image_url)):
+            embed.set_image(url=safe_image)
+    return embed
 
 
 def _digest_embeds(
@@ -80,6 +122,9 @@ def _digest_embeds(
         )
         embed.set_footer(text=window)
         return [embed]
+
+    if (meta or {}).get("combined"):
+        return [_combined_embed(topic_name, summary, meta or {})]
 
     if (meta or {}).get("compact"):
         # One embed per story; send_digest posts each embed as its own message.
@@ -394,13 +439,25 @@ class DiscordBot(discord.Client):
             if index < meta.get("_offset", 0):
                 continue
             sent = await ch.send(embed=embed)
-            if index < len(meta.get("articles") or []):
+            articles = meta.get("articles") or []
+            if meta.get("combined"):
+                if index == 0:
+                    await self._seed_votes(sent, meta, index, NUMBER_EMOJI[: len(articles)])
+            elif index < len(articles):
                 await self._seed_votes(sent, meta, index)
             if meta.get("_ack"):
                 meta["_ack"](index + 1)
 
-    async def _seed_votes(self, message: discord.Message, meta: dict, index: int) -> None:
-        """Map a story message to its article and pre-add 👍/👎 so rating is one click.
+    async def _seed_votes(
+        self,
+        message: discord.Message,
+        meta: dict,
+        index: int,
+        emojis: list[str] | tuple[str, ...] = ("👍", "👎"),
+    ) -> None:
+        """Map a story message to its article(s) and pre-add the rating reactions.
+
+        A per-story message gets 👍/👎; a combined post gets one number per story.
 
         Pre-adding is skipped when ``digest.seed_vote_reactions`` is off; users'
         own reactions still count because the message is mapped either way.
@@ -412,7 +469,7 @@ class DiscordBot(discord.Client):
             meta["_sent"](index, str(message.id))
         if not meta.get("seed_votes", True):
             return
-        for emoji in ("👍", "👎"):
+        for emoji in emojis:
             try:
                 await message.add_reaction(emoji)
             except Exception as exc:
@@ -427,7 +484,10 @@ class DiscordBot(discord.Client):
     async def _on_vote(self, payload: discord.RawReactionActionEvent, removed: bool) -> None:
         name = payload.emoji.name or ""
         # startswith() also accepts skin-tone variants.
-        useful = True if name.startswith("👍") else False if name.startswith("👎") else None
+        position = NUMBER_EMOJI.index(name) + 1 if name in NUMBER_EMOJI else None
+        useful = (
+            True if position or name.startswith("👍") else False if name.startswith("👎") else None
+        )
         if (
             useful is None
             or (self.user is not None and payload.user_id == self.user.id)
@@ -436,7 +496,12 @@ class DiscordBot(discord.Client):
         ):
             return
         if self.scheduler.store.react_feedback(
-            self.platform_name, str(payload.message_id), str(payload.user_id), useful, removed
+            self.platform_name,
+            str(payload.message_id),
+            str(payload.user_id),
+            useful,
+            removed,
+            position=position,
         ):
             logger.info(
                 "Discord feedback from %s on %s: %s", payload.user_id, payload.message_id, useful

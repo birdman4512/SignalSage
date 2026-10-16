@@ -1,0 +1,30 @@
+# One digest topic per file. See template.yaml.example for the full field reference.
+# Posts straight away (within active hours) when a story matches BOTH your
+# interest profile and one of the alert_keywords, instead of waiting for the
+# next scheduled digest. Anything posted here isn't repeated by those digests.
+name: "Urgent Alerts"
+tags: [alerts, urgent]          # !digest alerts
+watch_mode: true
+poll_interval_minutes: 30
+keywords: ["actively exploited", "zero-day", "exploited in the wild", "emergency patch"]
+alert_keywords:
+  - "actively exploited"
+  - "exploited in the wild"
+  - "zero-day"
+  - "emergency patch"
+  - "emergency directive"
+  - "out-of-band"
+exclude_keywords: []
+digest_channel: "#news"
+top_stories_count: 3
+sources:
+  - name: "CISA Known Exploited Vulnerabilities"
+    url: "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
+  - name: "ASD's ACSC Alerts"
+    url: "https://www.cyber.gov.au/rss/alerts"
+  - name: "BleepingComputer"
+    url: "https://www.bleepingcomputer.com/feed/"
+  - name: "The Hacker News"
+    url: "https://feeds.feedburner.com/TheHackersNews"
+  - name: "The Record"
+    url: "https://therecord.media/feed"

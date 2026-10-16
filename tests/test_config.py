@@ -166,3 +166,18 @@ def test_digest_missing_directory_is_non_fatal(tmp_path):
 def test_config_file_not_found():
     with pytest.raises(FileNotFoundError):
         load_config("/nonexistent/path/config.yaml")
+
+
+def test_local_config_is_merged_over_tracked_config(tmp_path):
+    from signalsage.config import load_config
+
+    (tmp_path / "config.yaml").write_text(
+        "digest:\n  timezone: UTC\n  profile:\n    minimum_score: 2.5\n    topics: {}\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "config.local.yaml").write_text(
+        "digest:\n  profile:\n    topics: {ransomware: 3}\n", encoding="utf-8"
+    )
+    cfg = load_config(str(tmp_path / "config.yaml"))
+    assert cfg["digest"]["timezone"] == "UTC"
+    assert cfg["digest"]["profile"] == {"minimum_score": 2.5, "topics": {"ransomware": 3}}

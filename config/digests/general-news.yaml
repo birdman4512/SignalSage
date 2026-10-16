@@ -1,8 +1,8 @@
 # One digest topic per file. See template.yaml.example for the full field reference.
 name: "General News"
 tags: [news, aus, australia]    # !digest news
-schedule: "0 9 * * *"            # one compact morning digest
-top_stories_count: 3
+schedule: "0 8,12,16 * * *"      # 8am, noon, 4pm (weekends skip 8am: quiet hours)
+top_stories_count: 5
 keywords: ["australia", "breaking", "emergency"]
 exclude_keywords: []
 digest_channel: "#news"

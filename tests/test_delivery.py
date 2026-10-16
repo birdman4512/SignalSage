@@ -109,3 +109,58 @@ def test_digest_urls_are_validated_again_at_rendering():
     data["items"][0]["url"] = "https://example.com/|<@everyone>"
     payload = format_digest_slack_message("News", json.dumps(data), meta={"compact": True})
     assert "https://" not in payload[0]["blocks"][1]["text"]["text"]
+
+
+def combined_meta(count, **extra):
+    return {"combined": True, "articles": [f"a{i}" for i in range(count)], **extra}
+
+
+def test_combined_payload_is_one_numbered_message_with_also_list():
+    data = json.loads(summary(3))
+    data["more"] = [{"headline": "Extra <@everyone>", "url": "https://example.com/x"}]
+    payloads = format_digest_slack_message("News", json.dumps(data), meta=combined_meta(3))
+    assert len(payloads) == 1
+    blocks = payloads[0]["blocks"]
+    stories = [b["text"]["text"] for b in blocks if b["type"] == "section"][1:]
+    assert [s.split()[0] for s in stories] == [":one:", ":two:", ":three:"]
+    assert "<https://example.com/0|Story 0>" in stories[0]
+    assert "Why selected" not in stories[0]  # less text per story than the old cards
+    context = " ".join(b["elements"][0]["text"] for b in blocks if b["type"] == "context")
+    assert "*Also:*" in context and "<@everyone>" not in context
+    assert ":one:–:three:" in context
+    assert len(blocks) < 50
+
+
+async def test_combined_post_maps_every_story_and_seeds_numbers():
+    slack = bot()
+    slack.app.client.chat_postMessage.return_value = {"channel": "C9", "ts": "5"}
+    slack.app.client.reactions_add = AsyncMock()
+    sent = []
+    meta = combined_meta(3, _sent=lambda i, m: sent.append((i, m)))
+    await slack.send_digest("News", summary(3), meta=meta)
+    slack.app.client.chat_postMessage.assert_awaited_once()
+    assert sent == [(0, "C9:5")]
+    names = [c.kwargs["name"] for c in slack.app.client.reactions_add.await_args_list]
+    assert names == ["one", "two", "three"]
+
+
+async def test_number_reaction_on_slack_is_story_feedback():
+    slack = bot()
+    store = SimpleNamespace(react_feedback=lambda *a, **k: calls.append((a, k)) or True)
+    calls: list = []
+    slack.scheduler = SimpleNamespace(store=store)
+    slack.auth = SimpleNamespace(authorized_slack=lambda user: True)
+    handlers = {}
+    slack.app = SimpleNamespace(
+        event=lambda name: lambda fn: handlers.setdefault(name, fn),
+        action=lambda pattern: lambda fn: fn,
+        error=lambda fn: fn,
+    )
+    slack._register()
+    event = {
+        "reaction": "two",
+        "user": "U1",
+        "item": {"type": "message", "channel": "C9", "ts": "5"},
+    }
+    await handlers["reaction_added"](event, {"bot_user_id": "B1"})
+    assert calls == [(("slack", "C9:5", "U1", True), {"removed": False, "position": 2})]

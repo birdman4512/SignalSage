@@ -21,12 +21,14 @@ from .commands import (
     handle_osint_command,
     parse_command,
 )
-from .formatter import format_digest_slack_message, format_slack_message
+from .formatter import NUMBER_SHORTCODES, format_digest_slack_message, format_slack_message
 
 logger = logging.getLogger(__name__)
 
 # Reaction names (skin-tone suffix stripped) that rate a digest story.
 _VOTES = {"+1": True, "thumbsup": True, "-1": False, "thumbsdown": False}
+# Number reactions on a combined digest post: "more like story N".
+_STORY_NUMBERS = {name: position for position, name in enumerate(NUMBER_SHORTCODES, 1)}
 
 
 class SlackBot:
@@ -189,7 +191,9 @@ class SlackBot:
         async def on_reaction(event: dict, context, removed: bool) -> None:
             item = event.get("item") or {}
             user = event.get("user", "")
-            useful = _VOTES.get(str(event.get("reaction", "")).split("::")[0])
+            reaction = str(event.get("reaction", "")).split("::")[0]
+            position = _STORY_NUMBERS.get(reaction)
+            useful = True if position else _VOTES.get(reaction)
             if (
                 useful is None
                 or item.get("type") != "message"
@@ -201,7 +205,7 @@ class SlackBot:
                 return
             message = f"{item.get('channel')}:{item.get('ts')}"
             if self.scheduler.store.react_feedback(
-                self.platform_name, message, user, useful, removed=removed
+                self.platform_name, message, user, useful, removed=removed, position=position
             ):
                 logger.info("Slack feedback from %s on %s: %s", user, message, useful)
 
@@ -255,13 +259,22 @@ class SlackBot:
                     uuid.uuid5(uuid.NAMESPACE_URL, f"{meta['_delivery_id']}:{index}")
                 )
             response = await self.app.client.chat_postMessage(channel=ch, **payload)
-            if index < len(meta.get("articles") or []):
+            articles = meta.get("articles") or []
+            if meta.get("combined"):
+                if index == 0:
+                    names = NUMBER_SHORTCODES[: len(articles)]
+                    await self._seed_votes(response, meta, index, names)
+            elif index < len(articles):
                 await self._seed_votes(response, meta, index)
             if meta.get("_ack"):
                 meta["_ack"](index + 1)
 
-    async def _seed_votes(self, response, meta: dict, index: int) -> None:
-        """Map a story message to its article and pre-add 👍/👎 so rating is one click.
+    async def _seed_votes(
+        self, response, meta: dict, index: int, names: list[str] | tuple[str, ...] = ("+1", "-1")
+    ) -> None:
+        """Map a story message to its article(s) and pre-add the rating reactions.
+
+        A per-story message gets 👍/👎; a combined post gets one number per story.
 
         Pre-adding is skipped when ``digest.seed_vote_reactions`` is off; users'
         own reactions still count because the message is mapped either way.
@@ -276,7 +289,7 @@ class SlackBot:
             meta["_sent"](index, f"{channel}:{ts}")
         if not meta.get("seed_votes", True):
             return
-        for name in ("+1", "-1"):
+        for name in names:
             try:
                 await self.app.client.reactions_add(channel=channel, timestamp=ts, name=name)
             except Exception as exc:

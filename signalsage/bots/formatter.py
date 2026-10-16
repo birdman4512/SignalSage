@@ -552,6 +552,107 @@ def _compact_digest_slack(topic_name: str, parsed: dict, meta: dict) -> list[dic
     return messages
 
 
+# Story numbers on a combined digest post; reacting with one rates that story.
+NUMBER_SHORTCODES = [
+    "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "keycap_ten",
+]  # fmt: skip
+NUMBER_EMOJI = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
+
+
+def combined_digest_parts(summary: str) -> tuple[list[dict], list[dict]]:
+    """Return (stories, headline-only extras) from a pipeline digest payload."""
+    try:
+        data = json.loads(summary)
+    except (TypeError, ValueError):
+        data = _parse_digest_json(summary) or {}
+    if not isinstance(data, dict):
+        return [], []
+    items = [i for i in data.get("items") or [] if isinstance(i, dict)]
+    more = [i for i in data.get("more") or [] if isinstance(i, dict)]
+    return items, more
+
+
+def vote_hint(count: int, emoji: list[str]) -> str:
+    """Footer telling readers which reactions rate a numbered story."""
+    count = min(count, len(emoji))
+    if count <= 0:
+        return ""
+    numbers = emoji[0] if count == 1 else f"{emoji[0]}–{emoji[count - 1]}"
+    return f"React {numbers} for more stories like that one"
+
+
+def _combined_digest_slack(topic_name: str, summary: str, meta: dict) -> list[dict]:
+    """Every story in ONE message: numbered headline links, one short summary each.
+
+    Numbers match the 1️⃣–🔟 reactions that rate a story, so the post stays
+    a single scannable message instead of a card (and Read More) per story.
+    """
+    from signalsage.digest.ranking import canonical_url
+
+    items, more = combined_digest_parts(summary)
+    icon = "🚨" if meta.get("bare") else _topic_icon(topic_name)
+    blocks: list[dict] = [
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": f"*{_escape_mrkdwn(f'{icon}  {topic_name}'[:150])}*",
+            },
+        }
+    ]
+    for index, item in enumerate(items[:20]):
+        title = _escape_mrkdwn(str(item.get("headline", ""))[:160])
+        url = canonical_url(str(item.get("url", "")))
+        heading = f"<{url}|{title}>" if url else title
+        number = (
+            f":{NUMBER_SHORTCODES[index]}:" if index < len(NUMBER_SHORTCODES) else f"{index + 1}."
+        )
+        source = _source_label(url)
+        line = f"{number} *{heading}*" + (f"  ·  _{_escape_mrkdwn(source)}_" if source else "")
+        story = _escape_mrkdwn(str(item.get("summary", ""))[:400])
+        blocks.append(
+            {"type": "section", "text": {"type": "mrkdwn", "text": f"{line}\n{story}"[:2900]}}
+        )
+    lines = []
+    for item in more[:15]:
+        title = _escape_mrkdwn(str(item.get("headline", ""))[:160])
+        url = canonical_url(str(item.get("url", "")))
+        if not title:
+            continue
+        source = _source_label(url)
+        lines.append(
+            ("• " + (f"<{url}|{title}>" if url else title)) + (f" · {source}" if source else "")
+        )
+    if lines:
+        blocks.append(
+            {
+                "type": "context",
+                "elements": [{"type": "mrkdwn", "text": ("*Also:*\n" + "\n".join(lines))[:2900]}],
+            }
+        )
+    hint = vote_hint(len(items), [f":{name}:" for name in NUMBER_SHORTCODES])
+    if hint:
+        blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": hint}]})
+    for image_url in meta.get("images", [])[:3]:
+        if safe_image := canonical_url(str(image_url)):
+            blocks.append(
+                {
+                    "type": "image",
+                    "image_url": safe_image,
+                    "alt_text": f"{topic_name} source image"[:200],
+                }
+            )
+    count = len(items)
+    return [
+        {
+            "text": f"{topic_name}: {count} stor{'y' if count == 1 else 'ies'}",
+            "blocks": blocks,
+            "unfurl_links": False,
+            "unfurl_media": False,
+        }
+    ]
+
+
 def format_digest_slack_message(
     topic_name: str,
     summary: str,
@@ -572,6 +673,9 @@ def format_digest_slack_message(
     window = f"last {lookback}" if lookback else today
     top_n = int((meta or {}).get("top_stories_count", 10))
     bare = bool((meta or {}).get("bare"))
+
+    if (meta or {}).get("combined"):
+        return _combined_digest_slack(topic_name, summary, meta or {})
 
     parsed = _parse_digest_json(summary)
 

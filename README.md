@@ -23,7 +23,7 @@ Collect feeds every 15 minutes, including overnight
   → deliver on schedule, acknowledge each message, retry failures
 ```
 
-The four general news/watch topics now publish once a day at **09:00 Australia/Brisbane**, three stories each. Specialist topics retain their own schedules. Collection continues during quiet hours. Each story is posted as its own message (Slack and Discord), with its source link, selection reason, content basis (article text, feed excerpt, source page or transcript), and 👍/👎 reactions: react 👍 (useful) or 👎 (less) to adjust source rankings. Slack needs the `reactions:read`/`reactions:write` scopes and the `reaction_added`/`reaction_removed` events; Discord needs the Add Reactions permission. Set `SEED_VOTE_REACTIONS=false` in `.env` (or `digest.seed_vote_reactions: false`) to stop the bot pre-adding the two reactions; users' own 👍/👎 still count.
+The four general news topics publish at **08:00, 12:00 and 16:00 Australia/Brisbane** (weekends skip 08:00 because of quiet hours), five stories each. Specialist topics keep their own schedules, and `urgent-alerts.yaml` posts exploited-vulnerability news as soon as it appears. Collection continues during quiet hours. Each run is **one message** per topic: numbered stories with a headline link, source and a one-to-two sentence summary, then an *Also* list of the next `headline_count` (default 5) confident matches as headline-only links. Those cost no model time, and once shown they count as delivered. React with a story's number (1️⃣–🔟) to rate it as useful; that adjusts source rankings. Slack needs the `reactions:read`/`reactions:write` scopes and the `reaction_added`/`reaction_removed` events; Discord needs the Add Reactions permission. Set `SEED_VOTE_REACTIONS=false` in `.env` (or `digest.seed_vote_reactions: false`) to stop the bot pre-adding the number reactions; users' own reactions still count.
 
 ## Start
 
@@ -41,6 +41,8 @@ The default remains `gemma2:2b`. Ollama uses a fixed 4,096-token context, explic
 Anthropic and CLI backends remain available through the existing configuration. Ollama is the default for lean unattended operation. Model changes should be tested against saved articles on the actual deployment hardware.
 
 ## Personalize
+
+Put install-private settings, such as your interest profile, in `config/config.local.yaml`. It is gitignored and merged over `config/config.yaml`, so `git pull` and [auto-deploy](deploy/README.md) never conflict with it.
 
 ```yaml
 digest:

@@ -50,6 +50,10 @@ class ArticleStore:
                     platform TEXT NOT NULL, message TEXT NOT NULL, article TEXT NOT NULL,
                     PRIMARY KEY(platform, message)
                 );
+                CREATE TABLE IF NOT EXISTS message_stories (
+                    platform TEXT NOT NULL, message TEXT NOT NULL, position INTEGER NOT NULL,
+                    article TEXT NOT NULL, PRIMARY KEY(platform, message, position)
+                );
                 CREATE TABLE IF NOT EXISTS feedback (
                     article TEXT NOT NULL, actor TEXT NOT NULL, useful INTEGER NOT NULL,
                     PRIMARY KEY(article, actor)
@@ -339,19 +343,41 @@ class ArticleStore:
                 (platform, message, article),
             )
 
-    def react_feedback(
-        self, platform: str, message: str, actor: str, useful: bool, removed: bool = False
-    ) -> bool:
-        """Apply a thumbs reaction on a story message as feedback.
+    def record_story(self, platform: str, message: str, position: int, article: str) -> None:
+        """Remember that story number *position* of a combined digest post is *article*."""
+        with self.connect() as db:
+            db.execute(
+                "INSERT OR REPLACE INTO message_stories(platform,message,position,article) VALUES(?,?,?,?)",
+                (platform, message, position, article),
+            )
 
-        Adding a reaction sets the actor's vote (last one wins); removing it
-        clears the vote only if it is still the one that reaction set.
+    def react_feedback(
+        self,
+        platform: str,
+        message: str,
+        actor: str,
+        useful: bool,
+        removed: bool = False,
+        position: int | None = None,
+    ) -> bool:
+        """Apply a reaction on a story message as feedback.
+
+        With *position*, the reaction is a number on a combined digest post and
+        rates that numbered story. Adding a reaction sets the actor's vote (last
+        one wins); removing it clears the vote only if it is still the one that
+        reaction set.
         """
         with self.connect() as db:
-            row = db.execute(
-                "SELECT article FROM message_articles WHERE platform=? AND message=?",
-                (platform, message),
-            ).fetchone()
+            if position is None:
+                row = db.execute(
+                    "SELECT article FROM message_articles WHERE platform=? AND message=?",
+                    (platform, message),
+                ).fetchone()
+            else:
+                row = db.execute(
+                    "SELECT article FROM message_stories WHERE platform=? AND message=? AND position=?",
+                    (platform, message, position),
+                ).fetchone()
             if (
                 row is None
                 or not db.execute("SELECT 1 FROM articles WHERE id=?", (row[0],)).fetchone()
@@ -420,6 +446,7 @@ class ArticleStore:
                 )
                 db.execute("DELETE FROM deliveries WHERE article=?", (article,))
                 db.execute("DELETE FROM message_articles WHERE article=?", (article,))
+                db.execute("DELETE FROM message_stories WHERE article=?", (article,))
                 db.execute("DELETE FROM topic_articles WHERE article=?", (article,))
                 db.execute("DELETE FROM articles WHERE id=?", (article,))
             db.execute(

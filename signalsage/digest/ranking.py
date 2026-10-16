@@ -91,12 +91,18 @@ def score_article(
     keywords: list[str],
     excludes: list[str],
     feedback: dict[str, float] | None = None,
+    open_topic: bool = False,
 ) -> tuple[float, list[str], bool]:
     text = f"{item.get('title', '')} {item.get('summary', '')}"
     if any(contains(text, term) for term in [*excludes, *profile.get("exclude", [])]):
         return -100, ["Excluded subject"], True
     score = 0.0
     reasons = []
+    if open_topic:
+        # A topic without its own keywords takes every story from its sources;
+        # the shared profile only ranks them, it must not empty the topic.
+        score = 3.0
+        reasons.append("Selected topic source")
     weights = dict(profile.get("topics") or {})
     for term in keywords:
         weights[term] = max(float(weights.get(term, 0)), 3.0)
@@ -109,7 +115,7 @@ def score_article(
             in_title = contains(str(item.get("title", "")), term)
             score += float(weight) * (1 if in_title else 0.5)
             reasons.append(f"{'Matches' if in_title else 'Mentions'} {term}")
-    if not weights:
+    if not weights and not open_topic:
         score = 3.0
         reasons.append("Selected topic source")
     # Source trust cannot make an unrelated story relevant on its own.

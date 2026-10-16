@@ -189,6 +189,7 @@ async def test_restart_collects_delayed_publication_without_short_lookback(tmp_p
 
 async def test_summary_budget_does_not_discard_remaining_articles(tmp_path):
     pipeline, dest = make_pipeline(tmp_path)
+    pipeline.settings["headline_count"] = 0
     for i in range(8):
         ingest(
             pipeline,
@@ -308,6 +309,52 @@ def test_reaction_feedback_follows_story_message(tmp_path):
     pipeline.store.react_feedback("slack", "C1:1.2", "user", True, removed=True)
     assert pipeline.store.feedback_weights() == {"source.test": -0.25}
     pipeline.store.react_feedback("slack", "C1:1.2", "user", False, removed=True)
+    assert pipeline.store.feedback_weights() == {}
+
+
+async def test_one_combined_post_with_headline_only_extras(tmp_path):
+    pipeline, dest = make_pipeline(tmp_path)
+    for i in range(6):
+        ingest(
+            pipeline,
+            {**ARTICLE, "title": f"CVE-2026-{1000 + i} patch", "link": f"https://source.test/{i}"},
+        )
+    await pipeline.publish(TOPIC, 2)
+    assert len(dest.messages) == 1  # every story rides in one post
+    _, summary, _, meta = dest.messages[0]
+    assert meta["combined"] and len(meta["articles"]) == 2
+    assert len(summary["items"]) == 2
+    assert len(summary["more"]) == 4  # headline-only, no model call
+    assert pipeline.summarizer.summarize_article.await_count == 2
+    # Headlines shown count as delivered, so the next run has nothing new.
+    await pipeline.publish(TOPIC, 2)
+    assert len(dest.messages) == 1
+
+
+async def test_urgent_alert_has_no_headline_extras(tmp_path):
+    pipeline, dest = make_pipeline(tmp_path)
+    topic = {**TOPIC, "alert_keywords": ["patch"]}
+    for i in range(3):
+        ingest(
+            pipeline,
+            {**ARTICLE, "title": f"CVE-2026-{1000 + i} patch", "link": f"https://source.test/{i}"},
+        )
+    await pipeline.publish(topic, 1, urgent=True)
+    assert dest.messages[0][1]["more"] == []
+
+
+def test_number_reaction_rates_that_story_in_a_combined_post(tmp_path):
+    pipeline, _ = make_pipeline(tmp_path)
+    ingest(pipeline)
+    ingest(pipeline, {**ARTICLE, "title": "Other", "link": "https://other.test/x"})
+    first, second = sorted(pipeline.store.candidates(TOPIC["name"], "x"), key=lambda a: a["link"])
+    meta = {"combined": True, "articles": [first["id"], second["id"]]}
+    pipeline._record_message("slack", "C1:1.2", meta, 0)
+    assert not pipeline.store.react_feedback("slack", "C1:1.2", "user", True, position=3)
+    assert pipeline.store.react_feedback("slack", "C1:1.2", "user", True, position=2)
+    host = "source.test" if second["link"].startswith("https://source") else "other.test"
+    assert pipeline.store.feedback_weights() == {host: 0.25}
+    pipeline.store.react_feedback("slack", "C1:1.2", "user", True, removed=True, position=2)
     assert pipeline.store.feedback_weights() == {}
 
 
@@ -502,3 +549,15 @@ async def test_edited_reddit_post_is_not_reposted(tmp_path):
     ingest(pipeline, {**post, "summary": post["summary"] + " EDIT: typo fixed."})
     await pipeline.publish(TOPIC, 5)
     assert len(dest.messages) == 1  # an edit is not news; a news-site update still is
+
+
+def test_profile_ranks_but_never_empties_a_keywordless_topic():
+    from signalsage.digest.ranking import score_article
+
+    profile = {"topics": {"local LLM": 3}, "products": ["Linux"]}
+    plain = {"title": "Solar flux 150, K-index 2", "summary": "Bands open on 10m."}
+    match = {"title": "Linux kernel patch", "summary": ""}
+    assert score_article(plain, profile, [], [], open_topic=True)[0] == 3.0
+    assert score_article(match, profile, [], [], open_topic=True)[0] > 3.0
+    # A topic with its own keywords still requires a match.
+    assert score_article(plain, profile, ["CVE"], [])[0] == 0

@@ -220,7 +220,9 @@ class DigestPipeline:
                 if all(self.store.reserved(reservations[dest], article) for dest in reservations):
                     metrics["deduplicated"] += 1
                     continue
-                score, reasons, veto = score_article(article, profile, include, exclude, feedback)
+                score, reasons, veto = score_article(
+                    article, profile, include, exclude, feedback, open_topic=not include
+                )
                 if veto or score <= 0:
                     self.store.decision(
                         topic["name"], article["id"], profile_key, "rejected", score, reasons
@@ -238,6 +240,7 @@ class DigestPipeline:
                 key=lambda a: (a["relevance_score"], a.get("published_ts") or 0), reverse=True
             )
             selected: list[dict] = []
+            tried: set[str] = set()
             # Bound model work even when a feed or first-install backlog is large.
             attempted = 0
             for article in ranked:
@@ -249,6 +252,7 @@ class DigestPipeline:
                 if time.monotonic() < self._generation_retry.get(article["id"], 0):
                     continue
                 attempted += 1
+                tried.add(article["id"])
                 try:
                     if article["relevance_score"] < threshold:
                         relevant, reason = await self.summarizer.judge_relevance(
@@ -322,12 +326,33 @@ class DigestPipeline:
                     logger.warning("Article %s remains pending: %s", article["id"][:12], exc)
                     if not isinstance(exc, ValueError):
                         break  # unavailable model: don't pay another timeout per article
+            # The next-best confident matches ride along as headline-only links:
+            # no model work, and once shown they count as delivered.
+            headline_count = (
+                0
+                if urgent
+                else int(topic.get("headline_count", self.settings.get("headline_count", 5)))
+            )
+            headlines: list[dict] = []
+            for article in ranked:
+                if len(headlines) >= headline_count:
+                    break
+                if (
+                    article["id"] in tried
+                    or article["relevance_score"] < threshold
+                    or any(similar_story(article, other) for other in selected + headlines)
+                ):
+                    continue
+                headlines.append(article)
             for destination, notify, channel in destinations:
                 articles = [
                     a for a in selected if not self.store.reserved(reservations[destination], a)
                 ]
                 if not articles:
                     continue
+                extras = [
+                    a for a in headlines if not self.store.reserved(reservations[destination], a)
+                ]
                 cards = [a["card"] for a in articles]
                 body = {
                     "channel": channel,
@@ -335,14 +360,18 @@ class DigestPipeline:
                         {
                             "overview": f"{len(cards)} stories selected for your interests.",
                             "items": cards,
+                            "more": [
+                                {"headline": a["title"][:160], "url": a["link"]} for a in extras
+                            ],
                         }
                     ),
                     "meta": {
                         "top_stories_count": len(cards),
                         "compact": True,
+                        # Every story in ONE message, numbered in this order.
+                        "combined": True,
                         "bare": urgent,
                         "preserve_order": True,
-                        # One story message per article, in this order.
                         "articles": [a["id"] for a in articles],
                         "seed_votes": bool(self.settings.get("seed_vote_reactions", True)),
                         "images": list(
@@ -357,8 +386,9 @@ class DigestPipeline:
                     body["payloads"] = owner.digest_payloads(
                         topic["name"], body["summary"], body["meta"]
                     )
-                self.store.enqueue(destination, topic["name"], body, articles)
+                self.store.enqueue(destination, topic["name"], body, articles + extras)
                 metrics["queued"] += len(articles)
+                metrics["headlines"] = len(extras)
             metrics["seconds"] = round(time.time() - started, 3)
             self.store.record_run(topic["name"], started, metrics)
             logger.info("Digest run %s: %s", topic["name"], metrics)
@@ -366,11 +396,15 @@ class DigestPipeline:
 
     def _record_message(self, platform: str, message: str, meta: dict, index: int) -> None:
         articles = meta.get("articles") or []
-        if index < len(articles):
-            try:
+        try:
+            if meta.get("combined"):
+                if index == 0:
+                    for position, article in enumerate(articles, 1):
+                        self.store.record_story(platform, message, position, article)
+            elif index < len(articles):
                 self.store.record_message(platform, message, articles[index])
-            except Exception as exc:  # never fail (and so re-post) a delivered message
-                logger.warning("Could not record story message %s: %s", message, exc)
+        except Exception as exc:  # never fail (and so re-post) a delivered message
+            logger.warning("Could not record story message %s: %s", message, exc)
 
     async def flush(self, force=False, allowed=None):
         async with self._delivery_lock:
