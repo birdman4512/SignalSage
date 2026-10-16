@@ -7,8 +7,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements.txt requirements.lock ./
+RUN pip install --no-cache-dir --require-hashes -r requirements.lock
 
 COPY signalsage/ ./signalsage/
 COPY config/ ./config/
@@ -38,5 +38,9 @@ RUN useradd --uid 10001 --create-home --shell /usr/sbin/nologin signalsage \
     && mkdir -p /app/data \
     && chown -R signalsage:signalsage /app/data
 USER signalsage
+
+EXPOSE 8080
+HEALTHCHECK --interval=30s --timeout=3s --start-period=20s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health/ready', timeout=2)" || exit 1
 
 CMD ["python", "-m", "signalsage.main"]

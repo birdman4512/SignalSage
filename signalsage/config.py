@@ -5,13 +5,116 @@ import os
 import re
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import yaml
+from apscheduler.triggers.cron import CronTrigger
 from dotenv import load_dotenv
 
 load_dotenv()
 
 logger = logging.getLogger(__name__)
+
+
+class ConfigError(ValueError):
+    """Raised when configuration is syntactically valid but unsafe or incomplete."""
+
+
+def _positive_number(value: Any, path: str, *, allow_zero: bool = False) -> None:
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        raise ConfigError(f"{path} must be a number")
+    if value < 0 or (value == 0 and not allow_zero):
+        qualifier = "non-negative" if allow_zero else "positive"
+        raise ConfigError(f"{path} must be {qualifier}")
+
+
+def validate_config(config: dict) -> dict:
+    """Validate application settings and return them unchanged."""
+    if not isinstance(config, dict):
+        raise ConfigError("configuration root must be a mapping")
+    platforms = config.get("platforms", {}) or {}
+    if not isinstance(platforms, dict):
+        raise ConfigError("platforms must be a mapping")
+    enabled = 0
+    for name in ("slack", "discord"):
+        platform = platforms.get(name, {}) or {}
+        if not isinstance(platform, dict):
+            raise ConfigError(f"platforms.{name} must be a mapping")
+        if platform.get("enabled"):
+            enabled += 1
+            if not platform.get("bot_token"):
+                raise ConfigError(f"platforms.{name}.bot_token is required when enabled")
+            if name == "slack" and not platform.get("app_token"):
+                raise ConfigError("platforms.slack.app_token is required when enabled")
+    if platforms and not enabled:
+        raise ConfigError("at least one platform must be enabled")
+
+    intel = config.get("intel", {}) or {}
+    for key in ("timeout", "cache_ttl", "max_iocs_per_message"):
+        if key in intel:
+            _positive_number(intel[key], f"intel.{key}")
+
+    digest = config.get("digest", {}) or {}
+    if digest:
+        provider = str(digest.get("llm_provider", "ollama")).lower()
+        if provider not in {"ollama", "anthropic", "cli"}:
+            raise ConfigError("digest.llm_provider must be ollama, anthropic, or cli")
+        if provider == "anthropic" and not digest.get("anthropic_api_key"):
+            raise ConfigError("digest.anthropic_api_key is required for the anthropic backend")
+        timezone = str(digest.get("timezone", "UTC"))
+        try:
+            ZoneInfo(timezone)
+        except Exception as exc:
+            raise ConfigError(f"digest.timezone is invalid: {timezone}") from exc
+        schedule = digest.get("default_schedule")
+        if schedule:
+            try:
+                CronTrigger.from_crontab(str(schedule), timezone=timezone)
+            except (TypeError, ValueError) as exc:
+                raise ConfigError(f"digest.default_schedule is invalid: {schedule}") from exc
+        for key in (
+            "collection_minutes",
+            "retention_days",
+            "article_chars",
+            "max_prompt_chars",
+            "top_stories_count",
+        ):
+            if key in digest:
+                _positive_number(digest[key], f"digest.{key}")
+    return config
+
+
+def validate_digests(watchlist: dict, timezone: str = "UTC") -> dict:
+    """Validate topic definitions, including source URLs and cron expressions."""
+    topics = watchlist.get("topics", [])
+    if not isinstance(topics, list):
+        raise ConfigError("digest topics must be a list")
+    names: set[str] = set()
+    for index, topic in enumerate(topics):
+        path = f"topics[{index}]"
+        if not isinstance(topic, dict):
+            raise ConfigError(f"{path} must be a mapping")
+        name = str(topic.get("name", "")).strip()
+        if not name:
+            raise ConfigError(f"{path}.name is required")
+        if name.casefold() in names:
+            raise ConfigError(f"duplicate digest topic name: {name}")
+        names.add(name.casefold())
+        sources = topic.get("sources", [])
+        if not isinstance(sources, list):
+            raise ConfigError(f"{path}.sources must be a list")
+        for source_index, source in enumerate(sources):
+            url = source.get("url", "") if isinstance(source, dict) else ""
+            if not str(url).startswith(("http://", "https://")):
+                raise ConfigError(f"{path}.sources[{source_index}].url must be HTTP(S)")
+        schedule = topic.get("schedule")
+        if schedule and not topic.get("watch_mode"):
+            try:
+                CronTrigger.from_crontab(str(schedule), timezone=timezone)
+            except (TypeError, ValueError) as exc:
+                raise ConfigError(f"{path}.schedule is invalid: {schedule}") from exc
+    return watchlist
+
 
 # Supports ${VAR} and ${VAR:-default} syntax
 _ENV_VAR_RE = re.compile(r"\$\{([^}:-]+)(?::-([^}]*))?\}")

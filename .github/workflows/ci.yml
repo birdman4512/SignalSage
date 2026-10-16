@@ -9,18 +9,23 @@ on:
 jobs:
   test:
     name: Lint & Test
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ["3.12", "3.14"]
+    runs-on: ${{ matrix.os }}
 
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python }}
           cache: pip
 
       - name: Install dependencies
-        run: pip install -r requirements.txt -r requirements-dev.txt
+        run: pip install --require-hashes -r requirements.lock && pip install -r requirements-dev.txt
 
       - name: Lint (ruff)
         run: ruff check signalsage/ tests/
@@ -32,4 +37,29 @@ jobs:
         run: mypy signalsage/ --ignore-missing-imports
 
       - name: Run tests
-        run: pytest tests/ --tb=short
+        run: pytest tests/ --tb=short --cov=signalsage --cov-report=term-missing --cov-report=xml
+
+      - name: Validate shipped configuration
+        env:
+          SLACK_BOT_TOKEN: test-token
+          SLACK_APP_TOKEN: test-app-token
+        run: python -c "from signalsage.config import *; c=validate_config(load_config()); validate_digests(load_digests(), c['digest']['timezone'])"
+
+      - name: Upload coverage
+        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.xml
+
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install pip-audit
+      - run: pip-audit -r requirements.lock

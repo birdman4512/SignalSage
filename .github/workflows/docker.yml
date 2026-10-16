@@ -26,6 +26,14 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Scan source filesystem
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+
       # -----------------------------------------------------------------------
       # To push to GitHub Container Registry on every merge to main, uncomment:
       #

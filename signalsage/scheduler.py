@@ -256,7 +256,7 @@ class DigestScheduler:
                 await self.pipeline.collect(topic)
             except Exception:
                 logger.exception("Collection failed for %s; checkpoint retained", topic["name"])
-        self.store.prune(int(self.pipeline.settings.get("retention_days", 90)))
+        await self.store.acall("prune", int(self.pipeline.settings.get("retention_days", 90)))
 
     async def _retry_delivery(self):
         if self._in_active_hours():

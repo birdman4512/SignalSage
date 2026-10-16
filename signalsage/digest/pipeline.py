@@ -72,14 +72,14 @@ class DigestPipeline:
                 cutoff = None
                 # A lookback is only a first-install bootstrap bound. Thereafter examine
                 # every available feed entry, including delayed/out-of-order publications.
-                if self.store.checkpoint(topic["name"], source["url"]) is None:
+                if await self.store.acall("checkpoint", topic["name"], source["url"]) is None:
                     seconds = (
                         parse_lookback(topic.get("lookback"))
                         or int(self.settings.get("bootstrap_days", 7)) * 86400
                     )
                     cutoff = time.time() - seconds
-                added += self.store.ingest(
-                    topic["name"], source, items, error, bootstrap_cutoff=cutoff
+                added += await self.store.acall(
+                    "ingest", topic["name"], source, items, error, bootstrap_cutoff=cutoff
                 )
                 if error:
                     logger.warning("Source %s failed: %s", source.get("name"), error)
@@ -174,7 +174,7 @@ class DigestPipeline:
                 except Exception:
                     logger.exception("Article CVE enrichment failed for %s", cve)
         body = body[: int(self.settings.get("article_chars", 6000))]
-        self.store.cache_content(article["id"], body, kind, enrichment)
+        await self.store.acall("cache_content", article["id"], body, kind, enrichment)
         article.update(body=body, body_kind=kind, enrichment=enrichment)
         return article
 
@@ -205,16 +205,19 @@ class DigestPipeline:
             sources_by_url = {s["url"]: s for s in topic.get("sources", []) if s.get("url")}
             profile = {**self.profile, **topic.get("profile", {})}
             threshold = float(profile.get("minimum_score", 2.5))
-            feedback = self.store.feedback_weights()
+            feedback = await self.store.acall("feedback_weights")
             profile_key = fingerprint([profile, include, exclude, feedback])
-            candidates = self.store.candidates(
+            candidates = await self.store.acall(
+                "candidates",
                 topic["name"],
                 profile_key,
                 max_age_days=float(self.settings.get("max_article_age_days", 8)),
             )
             metrics["candidates"] = len(candidates)
             # Safe to snapshot: _publish_lock serialises every enqueue.
-            reservations = {dest: self.store.reservations(dest) for dest, _, _ in destinations}
+            reservations = {
+                dest: await self.store.acall("reservations", dest) for dest, _, _ in destinations
+            }
             ranked = []
             for article in candidates:
                 if all(self.store.reserved(reservations[dest], article) for dest in reservations):
@@ -224,8 +227,14 @@ class DigestPipeline:
                     article, profile, include, exclude, feedback, open_topic=not include
                 )
                 if veto or score <= 0:
-                    self.store.decision(
-                        topic["name"], article["id"], profile_key, "rejected", score, reasons
+                    await self.store.acall(
+                        "decision",
+                        topic["name"],
+                        article["id"],
+                        profile_key,
+                        "rejected",
+                        score,
+                        reasons,
                     )
                     metrics["rejected"] += 1
                     continue
@@ -259,7 +268,8 @@ class DigestPipeline:
                             article, {**profile, "keywords": include}
                         )
                         if not relevant:
-                            self.store.decision(
+                            await self.store.acall(
+                                "decision",
                                 topic["name"],
                                 article["id"],
                                 profile_key,
@@ -270,7 +280,8 @@ class DigestPipeline:
                             metrics["rejected"] += 1
                             continue
                         article["reasons"].append(reason)
-                    self.store.decision(
+                    await self.store.acall(
+                        "decision",
                         topic["name"],
                         article["id"],
                         profile_key,
@@ -298,7 +309,9 @@ class DigestPipeline:
                             logger.info("Article %s: %s; quoting it", article["id"][:12], exc)
                             summary = excerpt_summary(article)
                             metrics["quoted"] = metrics.get("quoted", 0) + 1
-                        self.store.cache_summary(article["id"], cache_key, json.dumps(summary))
+                        await self.store.acall(
+                            "cache_summary", article["id"], cache_key, json.dumps(summary)
+                        )
                     # Source identity and relevance are never taken from model output.
                     article["card"] = {
                         "art_id": article["id"],
@@ -386,11 +399,13 @@ class DigestPipeline:
                     body["payloads"] = owner.digest_payloads(
                         topic["name"], body["summary"], body["meta"]
                     )
-                self.store.enqueue(destination, topic["name"], body, articles + extras)
+                await self.store.acall(
+                    "enqueue", destination, topic["name"], body, articles + extras
+                )
                 metrics["queued"] += len(articles)
                 metrics["headlines"] = len(extras)
             metrics["seconds"] = round(time.time() - started, 3)
-            self.store.record_run(topic["name"], started, metrics)
+            await self.store.acall("record_run", topic["name"], started, metrics)
             logger.info("Digest run %s: %s", topic["name"], metrics)
         await self.flush(allowed=delivery_allowed)
 
@@ -409,7 +424,7 @@ class DigestPipeline:
     async def flush(self, force=False, allowed=None):
         async with self._delivery_lock:
             failed_destinations: set[str] = set()
-            for row in self.store.pending(force=force):
+            for row in await self.store.acall("pending", force=force):
                 if allowed is not None and not allowed():
                     break
                 if row["destination"] in failed_destinations:
@@ -437,9 +452,9 @@ class DigestPipeline:
                     meta["_payloads"] = body["payloads"]
                 try:
                     await notify(row["topic"], body["summary"], channel=body["channel"], meta=meta)
-                    self.store.delivered(row["id"])
+                    await self.store.acall("delivered", row["id"])
                 except Exception as exc:
-                    self.store.failed(row["id"], exc)
+                    await self.store.acall("failed", row["id"], exc)
                     failed_destinations.add(row["destination"])
                     logger.warning(
                         "Delivery %s remains queued: %s: %s", row["id"], type(exc).__name__, exc

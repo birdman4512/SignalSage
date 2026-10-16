@@ -2,14 +2,13 @@
 
 import asyncio
 import logging
+import os
 import sys
 from collections.abc import Callable
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s %(name)s %(levelname)s %(message)s",
-    stream=sys.stdout,
-)
+from signalsage.observability import HealthServer, configure_logging, supervise
+
+configure_logging()
 logger = logging.getLogger(__name__)
 
 
@@ -17,43 +16,32 @@ async def main() -> None:
     # ------------------------------------------------------------------ #
     # Config                                                               #
     # ------------------------------------------------------------------ #
-    from signalsage.config import load_config, load_digests
+    from signalsage.config import (
+        ConfigError,
+        load_config,
+        load_digests,
+        validate_config,
+        validate_digests,
+    )
 
     try:
-        cfg = load_config()
-        watchlist = load_digests()
-    except FileNotFoundError as exc:
-        logger.error("Configuration file missing: %s", exc)
+        cfg = validate_config(load_config())
+        watchlist = validate_digests(
+            load_digests(), (cfg.get("digest", {}) or {}).get("timezone", "UTC")
+        )
+    except (FileNotFoundError, ConfigError) as exc:
+        logger.error("Configuration error: %s", exc)
         sys.exit(1)
 
     intel_cfg = cfg.get("intel", {})
     timeout: int = intel_cfg.get("timeout", 10)
-    providers_cfg = intel_cfg.get("providers", {})
 
     # ------------------------------------------------------------------ #
     # Intel providers                                                      #
     # ------------------------------------------------------------------ #
     import httpx
 
-    from signalsage.intel.abuseipdb import AbuseIPDBProvider
-    from signalsage.intel.base import BaseProvider
-    from signalsage.intel.bgpview import BGPViewProvider
-    from signalsage.intel.circl_cve import CIRCLCVEProvider
-    from signalsage.intel.circl_pdns import CIRCLPDNSProvider
-    from signalsage.intel.crtsh import CRTShProvider
-    from signalsage.intel.greynoise import GreyNoiseProvider
-    from signalsage.intel.hibp import HIBPProvider
-    from signalsage.intel.ipinfo import IPInfoProvider
-    from signalsage.intel.malwarebazaar import MalwareBazaarProvider
-    from signalsage.intel.otx import OTXProvider
-    from signalsage.intel.shodan import ShodanProvider
-    from signalsage.intel.threatfox import ThreatFoxProvider
-    from signalsage.intel.urlhaus import URLhausProvider
-    from signalsage.intel.urlscan import URLScanProvider
-    from signalsage.intel.virustotal import VirusTotalProvider
-    from signalsage.intel.whois_age import WHOISAgeProvider
-
-    providers: list[BaseProvider] = []
+    from signalsage.bootstrap import build_llm, build_providers
 
     # One shared httpx.AsyncClient is reused by every provider so consecutive IOC
     # lookups skip the TCP/TLS handshake. Limits chosen for the typical workload:
@@ -63,34 +51,7 @@ async def main() -> None:
         limits=httpx.Limits(max_keepalive_connections=20, max_connections=50),
     )
 
-    def add_provider(cls, key: str) -> None:
-        pcfg = providers_cfg.get(key, {})
-        if pcfg.get("enabled", True):
-            provider = cls(
-                api_key=pcfg.get("api_key"),
-                timeout=timeout,
-                http_client=shared_http_client,
-            )
-            providers.append(provider)
-            status = "enabled" if provider.enabled else "disabled (missing API key)"
-            logger.info("Provider %s: %s", provider.name, status)
-
-    add_provider(VirusTotalProvider, "virustotal")
-    add_provider(ShodanProvider, "shodan")
-    add_provider(GreyNoiseProvider, "greynoise")
-    add_provider(AbuseIPDBProvider, "abuseipdb")
-    add_provider(OTXProvider, "otx")
-    add_provider(URLhausProvider, "urlhaus")
-    add_provider(ThreatFoxProvider, "threatfox")
-    add_provider(MalwareBazaarProvider, "malwarebazaar")
-    add_provider(IPInfoProvider, "ipinfo")
-    add_provider(CIRCLCVEProvider, "circl_cve")
-    add_provider(URLScanProvider, "urlscan")
-    add_provider(CRTShProvider, "crtsh")
-    add_provider(WHOISAgeProvider, "whois_age")
-    add_provider(CIRCLPDNSProvider, "circl_pdns")
-    add_provider(HIBPProvider, "hibp")
-    add_provider(BGPViewProvider, "bgpview")
+    providers = build_providers(cfg, shared_http_client)
 
     # ------------------------------------------------------------------ #
     # IOC Processor                                                        #
@@ -109,44 +70,8 @@ async def main() -> None:
     digest_cfg = cfg.get("digest", {})
     summarizer = None
     llm_provider = (digest_cfg.get("llm_provider") or "ollama").lower()
-    from signalsage.llm.base import BaseLLM
-
-    llm: BaseLLM | None = None
-
     try:
-        if llm_provider == "anthropic":
-            from signalsage.llm.anthropic_llm import AnthropicLLM
-
-            api_key = digest_cfg.get("anthropic_api_key", "")
-            if not api_key:
-                logger.warning(
-                    "llm_provider=anthropic but ANTHROPIC_API_KEY not set — digest disabled"
-                )
-                llm = None
-            else:
-                llm = AnthropicLLM(
-                    api_key=api_key,
-                    model=digest_cfg.get("anthropic_model", "claude-haiku-4-5-20251001"),
-                )
-        elif llm_provider == "cli":
-            from signalsage.llm.cli_llm import CliLLM
-
-            llm = CliLLM(
-                command=digest_cfg.get("cli_command") or "claude",
-                extra_args=digest_cfg.get("cli_extra_args") or [],
-                timeout=digest_cfg.get("cli_timeout", 600),
-            )
-        else:
-            from signalsage.llm.ollama import OllamaLLM
-
-            llm = OllamaLLM(
-                base_url=digest_cfg.get("ollama_base_url") or "http://localhost:11434",
-                model=digest_cfg.get("ollama_model") or "gemma2:2b",
-                num_ctx=digest_cfg.get("ollama_num_ctx", 4096),
-                timeout=digest_cfg.get("ollama_timeout", 600),
-                temperature=float(digest_cfg.get("temperature", 0)),
-                think=digest_cfg.get("ollama_think"),
-            )
+        llm = build_llm(digest_cfg)
     except Exception as exc:
         logger.error("Failed to initialize LLM (%s): %s", llm_provider, exc)
         llm = None
@@ -192,7 +117,7 @@ async def main() -> None:
 
             slack_bot = SlackBot(cfg, processor, summarizer=summarizer, auth=command_auth)
             notifiers.append(slack_bot.send_digest)
-            tasks.append(asyncio.create_task(slack_bot.start(), name="slack"))
+            tasks.append(asyncio.create_task(supervise("slack", slack_bot.start), name="slack"))
             logger.info("Slack bot task created")
         except Exception as exc:
             logger.error("Failed to initialize Slack bot: %s", exc)
@@ -204,7 +129,9 @@ async def main() -> None:
 
             discord_bot = DiscordBot(cfg, processor, summarizer=summarizer, auth=command_auth)
             notifiers.append(discord_bot.send_digest)
-            tasks.append(asyncio.create_task(discord_bot.start_bot(), name="discord"))
+            tasks.append(
+                asyncio.create_task(supervise("discord", discord_bot.start_bot), name="discord")
+            )
             logger.info("Discord bot task created")
         except Exception as exc:
             logger.error("Failed to initialize Discord bot: %s", exc)
@@ -263,7 +190,17 @@ async def main() -> None:
     # ------------------------------------------------------------------ #
     # Run                                                                  #
     # ------------------------------------------------------------------ #
-    logger.info("SignalSage started. Running %d bot(s)...", len(tasks))
+    health = HealthServer(
+        lambda: (
+            scheduler.pipeline.store.status()
+            if scheduler is not None and hasattr(scheduler, "pipeline")
+            else {"components": len(tasks)}
+        )
+    )
+    health_port = int(os.getenv("HEALTH_PORT", "8080"))
+    await health.start(port=health_port)
+    health.ready = True
+    logger.info("SignalSage started. Running %d bot(s); health port=%d", len(tasks), health_port)
     try:
         await asyncio.gather(*tasks)
     except asyncio.CancelledError:
@@ -271,14 +208,21 @@ async def main() -> None:
     except Exception as exc:
         logger.exception("Unexpected error: %s", exc)
     finally:
+        health.ready = False
+        await health.close()
         if scheduler:
             scheduler.shutdown()
         await shared_http_client.aclose()
         logger.info("SignalSage shutting down")
 
 
-if __name__ == "__main__":
+def run() -> None:
+    """Console-script entry point."""
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
         logger.info("Received keyboard interrupt, exiting")
+
+
+if __name__ == "__main__":
+    run()

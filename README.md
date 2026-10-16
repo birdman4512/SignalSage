@@ -140,3 +140,34 @@ python -m signalsage.digest.evaluate --models gemma2:2b qwen3.5:4b --output data
 Replace or extend `tests/fixtures/news_eval.json` with articles you have labelled. The shipped dataset is synthetic and includes difficult examples to expose false positives and missed interests. Reports include precision/recall, response latency, validation failures, generation token metrics and samples for human factuality review. Optional memory sampling uses Ollama's reported model allocation, **not peak system RAM**. Use a host profiler to measure total memory.
 
 Verbatim evidence validation helps catch malformed or ungrounded responses, but does not prove every generated claim. Review the saved summaries and expected/forbidden-term checks before selecting a model. The evaluation command never downloads models or sends messages.
+
+## Operations and health
+
+SignalSage exposes a private HTTP operations endpoint on port `8080` inside the
+container. It is not published to the host by the supplied Compose file.
+
+```text
+GET /health/live   process liveness and uptime
+GET /health/ready  readiness after configuration and components start
+GET /metrics       article, outbox, source-error, and latest-run metrics as JSON
+```
+
+Set `LOG_FORMAT=json` for structured logs and `LOG_LEVEL` to control verbosity.
+Platform connections are supervised independently and restart with bounded
+exponential backoff.
+
+Configuration is validated before network connections are opened. Invalid time
+zones, cron expressions, numeric limits, source URLs, duplicate topic names,
+missing platform credentials, and unsupported LLM backends stop startup with a
+clear error.
+
+SQLite migrations are transactional and recorded in `schema_version`. Back up
+`data/` before upgrading. An older binary refuses to open a newer database.
+
+Production dependencies are hash-locked in `requirements.lock`. Regenerate it
+after intentionally changing `requirements.txt`:
+
+```bash
+uv pip compile requirements.txt --universal --python-version 3.12 \
+  --generate-hashes --output-file requirements.lock
+```
