@@ -12,6 +12,7 @@ The production host is Alpine (busybox crond, no systemd or bash):
 ```sh
 chmod +x /opt/SignalSage/deploy/autodeploy.sh
 echo '*/5 * * * * /opt/SignalSage/deploy/autodeploy.sh >> /var/log/signalsage-autodeploy.log 2>&1' >> /etc/crontabs/root
+rc-service crond restart   # busybox crond doesn't notice a hand-edited crontab
 ```
 
 ## Use
