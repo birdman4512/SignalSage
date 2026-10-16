@@ -53,9 +53,11 @@ async def _throttle(url: str) -> None:
         return
     domain, interval = setting
     async with _host_locks.setdefault(domain, asyncio.Lock()):
-        wait = _host_last.get(domain, 0.0) + interval - time.monotonic()
-        if wait > 0:
-            await asyncio.sleep(wait)
+        last = _host_last.get(domain)
+        if last is not None:
+            wait = last + interval - time.monotonic()
+            if wait > 0:
+                await asyncio.sleep(wait)
         _host_last[domain] = time.monotonic()
 
 

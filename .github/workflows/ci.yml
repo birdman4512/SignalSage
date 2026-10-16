@@ -8,7 +8,7 @@ on:
 
 jobs:
   test:
-    name: Lint & Test
+    name: Test (${{ matrix.os }}, ${{ matrix.python }})
     strategy:
       fail-fast: false
       matrix:
@@ -51,6 +51,16 @@ jobs:
         with:
           name: coverage
           path: coverage.xml
+
+  # Single stable check name: deploy/autodeploy.sh only deploys commits whose
+  # "Lint & Test" check-run succeeded, and matrix jobs get suffixed names.
+  gate:
+    name: Lint & Test
+    needs: [test]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - run: test "${{ needs.test.result }}" = success
 
   audit:
     name: Dependency audit
