@@ -1,0 +1,17 @@
+# One digest topic per file. See template.yaml.example for the full field reference.
+# No keywords on purpose: every story from these feeds is eligible and the
+# interest profile only ranks them (General News keeps its Australia filter).
+name: "World News"
+tags: [world, breaking]         # !digest world
+schedule: "30 8,12,16 * * *"     # half past, so it doesn't queue behind the on-the-hour topics
+top_stories_count: 3
+digest_channel: "#news"
+sources:
+  - name: "BBC World"
+    url: "https://feeds.bbci.co.uk/news/world/rss.xml"
+  - name: "Guardian World"
+    url: "https://www.theguardian.com/world/rss"
+  - name: "ABC Top Stories"
+    url: "https://www.abc.net.au/news/feed/45910/rss.xml"
+  - name: "BoM Queensland Warnings"
+    url: "http://www.bom.gov.au/fwo/IDZ00056.warnings_qld.xml"

@@ -1,0 +1,19 @@
+# One digest topic per file. See template.yaml.example for the full field reference.
+name: "Technology"
+tags: [tech, technology]        # !digest tech
+schedule: "30 8,12,16 * * *"     # half past, so it doesn't queue behind the on-the-hour topics
+top_stories_count: 3
+digest_channel: "#news"
+sources:
+  - name: "Ars Technica"
+    url: "https://feeds.arstechnica.com/arstechnica/index"
+  - name: "Hacker News (200+ points)"
+    url: "https://hnrss.org/frontpage?points=200"
+  - name: "Techmeme"
+    url: "https://www.techmeme.com/feed.xml"
+  - name: "The Register"
+    url: "https://www.theregister.com/headlines.atom"
+  - name: "iTnews"  # Australian
+    url: "https://www.itnews.com.au/RSS/rss.ashx"
+  - name: "404 Media"
+    url: "https://www.404media.co/rss/"

@@ -23,3 +23,9 @@ sources:
     url: "https://www.theregister.com/security/headlines.atom"
   - name: "iTnews Security"  # Australian
     url: "https://www.itnews.com.au/RSS/rss.ashx?type=Category&ID=37"
+  - name: "Risky Bulletin"
+    url: "https://news.risky.biz/rss/"
+  - name: "Help Net Security"
+    url: "https://www.helpnetsecurity.com/feed/"
+  - name: "Troy Hunt"
+    url: "https://www.troyhunt.com/rss/"
