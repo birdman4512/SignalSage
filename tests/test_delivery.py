@@ -121,12 +121,14 @@ def test_combined_payload_is_one_numbered_message_with_also_list():
     payloads = format_digest_slack_message("News", json.dumps(data), meta=combined_meta(3))
     assert len(payloads) == 1
     blocks = payloads[0]["blocks"]
-    stories = [b["text"]["text"] for b in blocks if b["type"] == "section"][1:]
+    sections = [b["text"]["text"] for b in blocks if b["type"] == "section"]
+    stories, also = sections[1:-1], sections[-1]
     assert [s.split()[0] for s in stories] == [":one:", ":two:", ":three:"]
     assert "<https://example.com/0|Story 0>" in stories[0]
     assert "Why selected" not in stories[0]  # less text per story than the old cards
+    assert also.startswith("*Also:*") and "<@everyone>" not in also
+    assert "_example.com_" in also  # host is plain italic, not a second link
     context = " ".join(b["elements"][0]["text"] for b in blocks if b["type"] == "context")
-    assert "*Also:*" in context and "<@everyone>" not in context
     assert ":one:–:three:" in context
     assert len(blocks) < 50
 

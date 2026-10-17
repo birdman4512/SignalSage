@@ -620,14 +620,19 @@ def _combined_digest_slack(topic_name: str, summary: str, meta: dict) -> list[di
         if not title:
             continue
         source = _source_label(url)
+        # Italic host like the numbered stories: a bare domain would be auto-linked
+        # right next to the headline link, making both hard to tap on mobile.
         lines.append(
-            ("• " + (f"<{url}|{title}>" if url else title)) + (f" · {source}" if source else "")
+            ("• " + (f"<{url}|{title}>" if url else title))
+            + (f"  ·  _{_escape_mrkdwn(source)}_" if source else "")
         )
     if lines:
+        # A section (not context) block keeps the list at full text size, and a
+        # blank line between items gives each link its own tap target.
         blocks.append(
             {
-                "type": "context",
-                "elements": [{"type": "mrkdwn", "text": ("*Also:*\n" + "\n".join(lines))[:2900]}],
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": ("*Also:*\n" + "\n\n".join(lines))[:2900]},
             }
         )
     hint = vote_hint(len(items), [f":{name}:" for name in NUMBER_SHORTCODES])
