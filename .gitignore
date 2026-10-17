@@ -61,3 +61,4 @@ config/digests/*.local.yaml
 
 # Install-private settings merged over config/config.yaml (e.g. interest profile)
 config/*.local.yaml
+signalsage/BUILD_COMMIT

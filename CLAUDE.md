@@ -234,6 +234,7 @@ Both Slack and Discord support the `!` command prefix (or `@SignalSage` mention 
 | `!digest keywords <topic> add/remove <word>` | Add/remove an include keyword for a watch-mode topic |
 | `!digest keywords <topic> exclude/unexclude <word>` | Add/remove an exclude keyword for a watch-mode topic |
 | `!help` | Show the command reference (shortcut) |
+| `!version` | Show the running version, git commit, uptime and Python version |
 | `!osint email <address>` | Have I Been Pwned breach check for an email address |
 | `!osint domain <domain>` | crt.sh cert transparency + WHOIS age + passive DNS |
 | `!osint ip <address>` | CIRCL passive DNS for an IP address |
