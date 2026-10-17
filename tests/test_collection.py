@@ -136,10 +136,13 @@ async def test_reddit_requests_are_spaced_out(monkeypatch):
 
     monkeypatch.setattr(collection.asyncio, "sleep", fake_sleep)
     monkeypatch.setattr(collection, "_host_last", {})
+    # A frozen clock: Windows' coarse monotonic clock made the real wait
+    # come out as 61.00000000000003 when no time had passed.
+    monkeypatch.setattr(collection.time, "monotonic", lambda: 1000.0)
     await collection._throttle("https://www.reddit.com/r/a/.rss")
     await collection._throttle("https://www.reddit.com/r/b/.rss")
     await collection._throttle("https://krebsonsecurity.com/feed/")
-    assert len(sleeps) == 1 and 60 < sleeps[0] <= 61
+    assert sleeps == [61.0]
 
 
 async def test_reddit_results_are_reused_for_an_hour(monkeypatch):
