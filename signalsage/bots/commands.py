@@ -41,6 +41,10 @@ HELP_TEXT = """\
 • `!osint ip <address>` — passive DNS lookup for an IP address
 • `!osint asn <AS1234>` — BGPView ASN lookup (prefixes, IP ranges, org info)
 
+*Bot*
+• `!version` — show the running version, commit and uptime
+• `!help` — show this reference
+
 *IOC enrichment* is automatic — just post any IP, domain, URL, hash, CVE or ASN in a monitored channel.\
 """
 

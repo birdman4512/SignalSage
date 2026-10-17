@@ -3,6 +3,9 @@
 .env.*
 data/
 .git/
+!.git/HEAD
+!.git/refs/heads/
+!.git/packed-refs
 .venv/
 .claude/
 **/__pycache__/

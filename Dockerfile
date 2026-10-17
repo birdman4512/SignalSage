@@ -13,6 +13,10 @@ RUN pip install --no-cache-dir --require-hashes -r requirements.lock
 COPY signalsage/ ./signalsage/
 COPY config/ ./config/
 
+# Record the commit being built so !version can report it. .dockerignore lets
+# only .git/HEAD and the refs through; a context without .git records nothing.
+RUN --mount=type=bind,target=/tmp/context python -m signalsage.version /tmp/context
+
 # Optionally bake in the Codex + Claude Code CLIs so the digest.llm_provider: cli
 # backend works inside the container (otherwise these CLIs only exist on a host).
 # Off by default to keep the image lean; the docker-compose codex/claude profiles

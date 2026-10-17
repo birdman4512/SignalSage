@@ -12,6 +12,7 @@ from slack_bolt.adapter.socket_mode.aiohttp import AsyncSocketModeHandler
 from slack_bolt.async_app import AsyncApp
 
 from signalsage.ioc.processor import IOCProcessor
+from signalsage.version import version_text
 
 from .auth import CommandAuth
 from .commands import (
@@ -85,7 +86,7 @@ class SlackBot:
             if cmd is not None:
                 cmd_name, cmd_args = cmd
                 user_id = event.get("user", "") or ""
-                if cmd_name in ("digest", "osint", "help", "?"):
+                if cmd_name in ("digest", "osint", "help", "?", "version"):
                     if not self.auth.authorized_slack(user_id):
                         logger.info(
                             "Slack user %s denied command %r — not in allowlist",
@@ -115,6 +116,8 @@ class SlackBot:
                     )
                 elif cmd_name in ("help", "?"):
                     await say(text=HELP_TEXT)
+                elif cmd_name == "version":
+                    await say(text=version_text())
                 return  # don't also process commands as IOCs
 
             # --- IOC enrichment ---
@@ -157,7 +160,7 @@ class SlackBot:
             cmd = parse_command(text)
             if cmd is not None:
                 cmd_name, cmd_args = cmd
-                if cmd_name in ("digest", "osint", "help", "?"):
+                if cmd_name in ("digest", "osint", "help", "?", "version"):
                     if not self.auth.authorized_slack(user_id):
                         logger.info(
                             "Slack user %s denied @mention command %r — not in allowlist",
@@ -186,6 +189,9 @@ class SlackBot:
                         reply=lambda msg: say(text=msg),
                         platform=Platform.SLACK,
                     )
+                    return
+                if cmd_name == "version":
+                    await say(text=version_text())
                     return
             await say(text=HELP_TEXT)
 

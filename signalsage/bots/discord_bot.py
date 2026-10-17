@@ -11,6 +11,7 @@ import discord
 from signalsage.intel.base import IntelResult
 from signalsage.ioc.models import IOC
 from signalsage.ioc.processor import IOCProcessor
+from signalsage.version import version_text
 
 from .auth import CommandAuth
 from .commands import (
@@ -337,7 +338,7 @@ class DiscordBot(discord.Client):
         if cmd is not None:
             cmd_name, cmd_args = cmd
             user_id = message.author.id
-            if cmd_name in ("digest", "osint", "help", "?"):
+            if cmd_name in ("digest", "osint", "help", "?", "version"):
                 if not self.auth.authorized_discord(user_id):
                     logger.info(
                         "Discord user %s denied command %r — not in allowlist",
@@ -367,6 +368,8 @@ class DiscordBot(discord.Client):
                 )
             elif cmd_name in ("help", "?"):
                 await message.channel.send(HELP_TEXT)
+            elif cmd_name == "version":
+                await message.channel.send(version_text())
             return  # don't also process commands as IOCs
 
         # --- IOC enrichment ---

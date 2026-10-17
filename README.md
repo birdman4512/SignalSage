@@ -78,6 +78,7 @@ Keyword commands work for both scheduled and urgent topics. YAML keywords seed t
 !osint domain example.com
 !osint email user@example.com
 !osint asn AS13335
+!version                        version, commit and uptime of the running bot
 ```
 
 For an immediate alert topic, explicitly configure `watch_mode: true` and `alert_keywords`, for example `["actively exploited"]`. It must pass both relevance selection and the alert rule. Quiet hours still apply. Ordinary news topics should use a cron schedule. See [the topic template](config/digests/template.yaml.example).
