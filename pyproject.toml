@@ -7,7 +7,7 @@ name = "signalsage"
 version = "1.0.0"
 description = "Self-hosted IOC enrichment and personalized news digest bot"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 license = "MIT"
 authors = [{ name = "SignalSage contributors" }]
 dependencies = [
@@ -46,6 +46,7 @@ fail_under = 55
 
 [tool.ruff]
 line-length = 100
+# Style stays 3.12-compatible so ruff doesn't rewrite to 3.14-only syntax.
 target-version = "py312"
 
 [tool.ruff.lint]
@@ -56,7 +57,7 @@ ignore = ["E501"]  # line length handled by formatter
 known-first-party = ["signalsage"]
 
 [tool.mypy]
-python_version = "3.12"
+python_version = "3.14"
 ignore_missing_imports = true
 warn_unused_ignores = true
 check_untyped_defs = true

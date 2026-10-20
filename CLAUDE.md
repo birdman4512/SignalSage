@@ -488,7 +488,7 @@ Tests use `pytest-asyncio` (all async tests run automatically with `asyncio_mode
 
 ### CI/CD
 
-- **`.github/workflows/ci.yml`** — runs on every push/PR to `main`: ruff lint + format check, mypy type check, pytest.
+- **`.github/workflows/ci.yml`** — runs on every push/PR to `main`: one Ubuntu job on Python 3.14 (ruff lint + format check, mypy type check, pytest, config validation) named `Lint & Test`, which `deploy/autodeploy.sh` waits for; plus a `pip-audit` dependency audit.
 - **`.github/workflows/docker.yml`** — builds the Docker image on every push/PR; uses GitHub Actions layer cache. Uncomment the push section to publish to GHCR on merge to `main`.
 
 ---
