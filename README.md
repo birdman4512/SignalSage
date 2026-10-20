@@ -169,6 +169,6 @@ Production dependencies are hash-locked in `requirements.lock`. Regenerate it
 after intentionally changing `requirements.txt`:
 
 ```bash
-uv pip compile requirements.txt --universal --python-version 3.12 \
+uv pip compile requirements.txt --universal --python-version 3.14 \
   --generate-hashes --output-file requirements.lock
 ```

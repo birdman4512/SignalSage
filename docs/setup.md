@@ -3,7 +3,7 @@
 ## Prerequisites
 
 - **Docker + Docker Compose** (recommended) — [docker.com/get-started](https://www.docker.com/get-started/)
-- **Or:** Python 3.12+ for running locally without Docker
+- **Or:** Python 3.14+ for running locally without Docker
 - At minimum, a **Slack** or **Discord** account with permission to add a bot
 
 ---

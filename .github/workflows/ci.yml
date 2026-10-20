@@ -7,21 +7,18 @@ on:
     branches: [main]
 
 jobs:
+  # One job on the Python version the Docker image runs. Its name is the
+  # stable check that deploy/autodeploy.sh waits for before deploying.
   test:
-    name: Test (${{ matrix.os }}, ${{ matrix.python }})
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-        python: ["3.12", "3.14"]
-    runs-on: ${{ matrix.os }}
+    name: Lint & Test
+    runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v7
         with:
-          python-version: ${{ matrix.python }}
+          python-version: "3.14"
           cache: pip
 
       - name: Install dependencies
@@ -46,21 +43,10 @@ jobs:
         run: python -c "from signalsage.config import *; c=validate_config(load_config()); validate_digests(load_digests(), c['digest']['timezone'])"
 
       - name: Upload coverage
-        if: matrix.os == 'ubuntu-latest' && matrix.python == '3.12'
         uses: actions/upload-artifact@v7
         with:
           name: coverage
           path: coverage.xml
-
-  # Single stable check name: deploy/autodeploy.sh only deploys commits whose
-  # "Lint & Test" check-run succeeded, and matrix jobs get suffixed names.
-  gate:
-    name: Lint & Test
-    needs: [test]
-    if: always()
-    runs-on: ubuntu-latest
-    steps:
-      - run: test "${{ needs.test.result }}" = success
 
   audit:
     name: Dependency audit
@@ -69,7 +55,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.12"
+          python-version: "3.14"
           cache: pip
       - run: pip install pip-audit
       - run: pip-audit -r requirements.lock
