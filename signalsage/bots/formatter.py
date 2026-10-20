@@ -590,17 +590,31 @@ def _combined_digest_slack(topic_name: str, summary: str, meta: dict) -> list[di
     from signalsage.digest.ranking import canonical_url
 
     items, more = combined_digest_parts(summary)
+    items = items[:20]
+    more = [item for item in more[:15] if item.get("headline")]
     icon = "🚨" if meta.get("bare") else _topic_icon(topic_name)
+    count = len(items)
+    stories = f"{count} stor{'y' if count == 1 else 'ies'}"
+    if more:
+        stories += f"  ·  {len(more)} more headline{'' if len(more) == 1 else 's'} at the end"
+    # A header block renders larger than the stories, so the post has an
+    # obvious starting point after scrolling up to it.
     blocks: list[dict] = [
         {
-            "type": "section",
-            "text": {
-                "type": "mrkdwn",
-                "text": f"*{_escape_mrkdwn(f'{icon}  {topic_name}'[:150])}*",
-            },
-        }
+            "type": "header",
+            "text": {"type": "plain_text", "text": f"{icon}  {topic_name}"[:150], "emoji": True},
+        },
+        {
+            "type": "context",
+            "elements": [
+                {
+                    "type": "mrkdwn",
+                    "text": stories,
+                }
+            ],
+        },
     ]
-    for index, item in enumerate(items[:20]):
+    for index, item in enumerate(items):
         title = _escape_mrkdwn(str(item.get("headline", ""))[:160])
         url = canonical_url(str(item.get("url", "")))
         heading = f"<{url}|{title}>" if url else title
@@ -610,15 +624,15 @@ def _combined_digest_slack(topic_name: str, summary: str, meta: dict) -> list[di
         source = _source_label(url)
         line = f"{number} *{heading}*" + (f"  ·  _{_escape_mrkdwn(source)}_" if source else "")
         story = _escape_mrkdwn(str(item.get("summary", ""))[:400])
+        # A divider before each story marks where one ends and the next begins.
+        blocks.append({"type": "divider"})
         blocks.append(
             {"type": "section", "text": {"type": "mrkdwn", "text": f"{line}\n{story}"[:2900]}}
         )
     lines = []
-    for item in more[:15]:
+    for item in more:
         title = _escape_mrkdwn(str(item.get("headline", ""))[:160])
         url = canonical_url(str(item.get("url", "")))
-        if not title:
-            continue
         source = _source_label(url)
         # Italic host like the numbered stories: a bare domain would be auto-linked
         # right next to the headline link, making both hard to tap on mobile.
@@ -629,6 +643,7 @@ def _combined_digest_slack(topic_name: str, summary: str, meta: dict) -> list[di
     if lines:
         # A section (not context) block keeps the list at full text size, and a
         # blank line between items gives each link its own tap target.
+        blocks.append({"type": "divider"})
         blocks.append(
             {
                 "type": "section",
@@ -638,19 +653,18 @@ def _combined_digest_slack(topic_name: str, summary: str, meta: dict) -> list[di
     hint = vote_hint(len(items), [f":{name}:" for name in NUMBER_SHORTCODES])
     if hint:
         blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": hint}]})
-    for image_url in meta.get("images", [])[:3]:
-        if safe_image := canonical_url(str(image_url)):
-            blocks.append(
-                {
-                    "type": "image",
-                    "image_url": safe_image,
-                    "alt_text": f"{topic_name} source image"[:200],
-                }
-            )
-    count = len(items)
+    # No image blocks: they load after the text and push the post around while
+    # the reader is finding their place.
+    # ``text`` is the phone notification, so lead with the top headline rather
+    # than just a story count.
+    alert = f"{icon} {topic_name}"
+    if items:
+        alert += f": {str(items[0].get('headline', ''))[:120]}"
+        if count > 1:
+            alert += f" (+{count - 1} more)"
     return [
         {
-            "text": f"{topic_name}: {count} stor{'y' if count == 1 else 'ies'}",
+            "text": _escape_mrkdwn(alert),
             "blocks": blocks,
             "unfurl_links": False,
             "unfurl_media": False,

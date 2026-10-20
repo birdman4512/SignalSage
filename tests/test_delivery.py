@@ -121,8 +121,9 @@ def test_combined_payload_is_one_numbered_message_with_also_list():
     payloads = format_digest_slack_message("News", json.dumps(data), meta=combined_meta(3))
     assert len(payloads) == 1
     blocks = payloads[0]["blocks"]
+    assert blocks[0]["type"] == "header" and blocks[0]["text"]["text"].endswith("News")
     sections = [b["text"]["text"] for b in blocks if b["type"] == "section"]
-    stories, also = sections[1:-1], sections[-1]
+    stories, also = sections[:-1], sections[-1]
     assert [s.split()[0] for s in stories] == [":one:", ":two:", ":three:"]
     assert "<https://example.com/0|Story 0>" in stories[0]
     assert "Why selected" not in stories[0]  # less text per story than the old cards
@@ -130,7 +131,29 @@ def test_combined_payload_is_one_numbered_message_with_also_list():
     assert "_example.com_" in also  # host is plain italic, not a second link
     context = " ".join(b["elements"][0]["text"] for b in blocks if b["type"] == "context")
     assert ":one:–:three:" in context
+    assert "3 stories  ·  1 more headline at the end" in context
+    assert [b["type"] for b in blocks].count("divider") == 4  # before each story and Also
+    assert not any(b["type"] == "image" for b in blocks)
     assert len(blocks) < 50
+
+
+def test_combined_notification_text_leads_with_top_headline():
+    data = json.loads(summary(3))
+    data["items"][0]["headline"] = "Patch now <!channel>"
+    payload = format_digest_slack_message("News", json.dumps(data), meta=combined_meta(3))[0]
+    assert payload["text"].endswith(": Patch now &lt;!channel&gt; (+2 more)")
+    single = json.dumps({"items": data["items"][:1]})
+    text = format_digest_slack_message("News", single, meta=combined_meta(1))[0]["text"]
+    assert text.endswith(": Patch now &lt;!channel&gt;")
+
+
+def test_combined_post_with_twenty_stories_stays_under_block_limit():
+    data = json.loads(summary(20))
+    data["more"] = [
+        {"headline": f"Extra {i}", "url": f"https://example.com/x{i}"} for i in range(15)
+    ]
+    payload = format_digest_slack_message("News", json.dumps(data), meta=combined_meta(20))[0]
+    assert len(payload["blocks"]) <= 50
 
 
 async def test_combined_post_maps_every_story_and_seeds_numbers():

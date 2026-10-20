@@ -460,7 +460,8 @@ async def test_collection_to_validated_summary_to_slack_then_restart(tmp_path, m
     await pipeline.publish(TOPIC, 5)
     posted = slack.app.client.chat_postMessage.call_args.kwargs
     assert posted["channel"] == "C123"
-    assert ARTICLE["link"] in posted["blocks"][1]["text"]["text"]
+    first_story = next(b for b in posted["blocks"] if b["type"] == "section")
+    assert ARTICLE["link"] in first_story["text"]["text"]
     assert store.status()["pending_deliveries"] == 0
     restarted = DigestPipeline(
         DigestSummarizer(llm),
