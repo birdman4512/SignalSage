@@ -3,6 +3,7 @@
 import asyncio
 import calendar
 import datetime
+import html
 import ipaddress
 import json
 import logging
@@ -126,6 +127,23 @@ def _is_feed_url(url: str, content_type: str = "") -> bool:
     if any(ct in content_type for ct in _XML_CONTENT_TYPES):
         return True
     return False
+
+
+_TAG_RE = re.compile(r"</?[a-zA-Z][^>]*>")
+
+
+def clean_title(title: str) -> str:
+    """One-line plain-text headline: no HTML tags, entities or line breaks.
+
+    Some feeds put markup in titles (The Register wraps words in ``<span>``)
+    or line breaks (BOM warnings); either breaks a Slack ``<url|title>`` link.
+    """
+    title = str(title or "")
+    if _TAG_RE.search(title):
+        title = BeautifulSoup(title, "lxml").get_text()
+    else:
+        title = html.unescape(title)
+    return _WHITESPACE_RE.sub(" ", title).strip()
 
 
 def _strip_html(html: str) -> str:
@@ -282,7 +300,7 @@ async def _extract_feed_items(
             logger.info("Skipping entry (too old): %r", entry.get("title", ""))
             continue  # too old
 
-        title = entry.get("title", "")
+        title = clean_title(entry.get("title", ""))
         full_content = entry.get("content") or []
         summary = (
             (full_content[0].get("value", "") if full_content else "")
@@ -475,7 +493,7 @@ def _extract_json_feed_items(raw: str, lookback_seconds: int | None = None) -> l
             continue
 
         # Extract fields — prefer CISA KEV names, fall back to generic names
-        title = (
+        title = clean_title(
             item.get("vulnerabilityName")
             or item.get("cveID")
             or item.get("title")

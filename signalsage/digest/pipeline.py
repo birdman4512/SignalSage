@@ -10,7 +10,7 @@ from signalsage.ioc.models import IOC, IOCType
 
 from . import reddit
 from .collection import collect_source, fetch_article_text
-from .fetcher import _transcribe_audio, parse_lookback
+from .fetcher import _transcribe_audio, clean_title, parse_lookback
 from .ranking import contains, fingerprint, score_article, similar_story
 from .store import ArticleStore
 from .summarizer import SummaryValidationError, excerpt_summary
@@ -315,7 +315,9 @@ class DigestPipeline:
                     # Source identity and relevance are never taken from model output.
                     article["card"] = {
                         "art_id": article["id"],
-                        "headline": article["title"][:160],
+                        # Cleaned again here: articles stored before titles
+                        # were cleaned at fetch time can still hold markup.
+                        "headline": clean_title(article["title"])[:160],
                         "url": article["link"],
                         "icon": "📰",
                         "severity": "low",
@@ -374,7 +376,8 @@ class DigestPipeline:
                             "overview": f"{len(cards)} stories selected for your interests.",
                             "items": cards,
                             "more": [
-                                {"headline": a["title"][:160], "url": a["link"]} for a in extras
+                                {"headline": clean_title(a["title"])[:160], "url": a["link"]}
+                                for a in extras
                             ],
                         }
                     ),

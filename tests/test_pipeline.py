@@ -331,6 +331,19 @@ async def test_one_combined_post_with_headline_only_extras(tmp_path):
     assert len(dest.messages) == 1
 
 
+async def test_stored_titles_with_markup_are_cleaned_in_the_post(tmp_path):
+    pipeline, dest = make_pipeline(tmp_path)
+    ingest(pipeline, {**ARTICLE, "title": 'CVE-2026-1000 <span class="x">patch</span>'})
+    ingest(
+        pipeline,
+        {**ARTICLE, "title": "CVE-2026-1001\n\t\tpatch", "link": "https://source.test/2"},
+    )
+    await pipeline.publish(TOPIC, 1)
+    _, summary, _, _ = dest.messages[0]
+    headlines = [i["headline"] for i in summary["items"] + summary["more"]]
+    assert sorted(headlines) == ["CVE-2026-1000 patch", "CVE-2026-1001 patch"]
+
+
 async def test_urgent_alert_has_no_headline_extras(tmp_path):
     pipeline, dest = make_pipeline(tmp_path)
     topic = {**TOPIC, "alert_keywords": ["patch"]}
