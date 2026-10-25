@@ -127,6 +127,15 @@ def test_active_hours_weekend_and_exclusive_end():
     assert not _within_active_hours(datetime(2026, 9, 26, 17), "06:00", "18:00", "09:00", "17:00")
 
 
+def test_quiet_days_are_quiet_all_day():
+    hours = ("06:00", "18:00", "09:00", "17:00")
+    # 2026-09-27 is a Sunday, 2026-09-26 a Saturday.
+    assert not _within_active_hours(datetime(2026, 9, 27, 12), *hours, ["sun"])
+    assert not _within_active_hours(datetime(2026, 9, 27, 12), *hours, ["Sunday"])
+    assert _within_active_hours(datetime(2026, 9, 26, 12), *hours, ["sun"])
+    assert _within_active_hours(datetime(2026, 9, 27, 12), *hours)
+
+
 # Fixed reference times so cron walks are deterministic. May 4 2026 is a Monday;
 # the 09:00 UTC offset means each scheduled fire of interest has already passed
 # earlier in the day (so the "previous fire" exists in every test schedule).

@@ -124,6 +124,7 @@ digest:
     weekday_end: "18:00"
     weekend_start: "09:00"   # Sat-Sun
     weekend_end: "17:00"
+    quiet_days: ["sun"]      # quiet all day; collection still runs, Monday catches up
 
   # LLM backend: "ollama" (local, free), "anthropic" (paid API), or "cli"
   # ("cli" shells out to the Claude Code / Codex CLI in headless mode — bills

@@ -73,14 +73,7 @@ def _compute_auto_lookback(
     def _allowed(dt: datetime) -> bool:
         if not active_hours:
             return True
-        local = dt.astimezone(tzinfo)
-        return _within_active_hours(
-            local,
-            active_hours.get("weekday_start", "00:00"),
-            active_hours.get("weekday_end", "23:59"),
-            active_hours.get("weekend_start", "00:00"),
-            active_hours.get("weekend_end", "23:59"),
-        )
+        return _active_hours_allow(dt.astimezone(tzinfo), active_hours)
 
     # Walk forward from 14d ago, keeping only the two most recent fires <= now
     # that would actually run (i.e. inside active_hours). 14d covers
@@ -132,20 +125,38 @@ def _parse_hhmm(value: str) -> dtime:
     return dtime(int(hour), int(minute or 0))
 
 
+_DAY_NAMES = ("mon", "tue", "wed", "thu", "fri", "sat", "sun")
+
+
 def _within_active_hours(
     now: datetime,
     weekday_start: str,
     weekday_end: str,
     weekend_start: str,
     weekend_end: str,
+    quiet_days: list[str] | tuple[str, ...] = (),
 ) -> bool:
     """Return True if *now* (a tz-aware local datetime) falls inside the
     configured active window — weekday window Mon-Fri, weekend window Sat-Sun.
+    Days named in *quiet_days* (e.g. ``["sun"]``) are quiet all day.
     """
+    if _DAY_NAMES[now.weekday()] in {str(d).strip().lower()[:3] for d in quiet_days}:
+        return False
     is_weekend = now.weekday() >= 5  # Sat=5, Sun=6
     start_s, end_s = (weekend_start, weekend_end) if is_weekend else (weekday_start, weekday_end)
     start, end = _parse_hhmm(start_s), _parse_hhmm(end_s)
     return start <= now.time() < end
+
+
+def _active_hours_allow(now: datetime, active_hours: dict) -> bool:
+    return _within_active_hours(
+        now,
+        active_hours.get("weekday_start", "00:00"),
+        active_hours.get("weekday_end", "23:59"),
+        active_hours.get("weekend_start", "00:00"),
+        active_hours.get("weekend_end", "23:59"),
+        active_hours.get("quiet_days") or (),
+    )
 
 
 class DigestScheduler:
@@ -241,13 +252,7 @@ class DigestScheduler:
     def _in_active_hours(self) -> bool:
         if not self.active_hours:
             return True
-        return _within_active_hours(
-            datetime.now(self._tzinfo),
-            self.active_hours.get("weekday_start", "00:00"),
-            self.active_hours.get("weekday_end", "23:59"),
-            self.active_hours.get("weekend_start", "00:00"),
-            self.active_hours.get("weekend_end", "23:59"),
-        )
+        return _active_hours_allow(datetime.now(self._tzinfo), self.active_hours)
 
     async def _collect_all(self):
         # Collection deliberately continues during quiet hours and while the LLM is busy.

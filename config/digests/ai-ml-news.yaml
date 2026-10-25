@@ -1,7 +1,7 @@
 # One digest topic per file. See template.yaml.example for the full field reference.
 name: "AI & ML News"
 tags: [ai, ml, llm]             # !digest ai
-schedule: "0 8,12,16 * * *"      # 8am, noon, 4pm (weekends skip 8am: quiet hours)
+schedule: "0 8,12,16 * * *"      # 8am, noon, 4pm (Sat skips 8am, Sun quiet)
 top_stories_count: 5
 keywords: ["gpt", "claude", "gemini", "llm", "model release"]
 exclude_keywords: []
