@@ -43,6 +43,8 @@ class DigestPipeline:
         self.processor = processor
         self.whisper_base_url = whisper_base_url
         self.settings = settings or {}
+        # Topics whose queued posts are delivered even outside active hours.
+        self.always_deliver: set[str] = set()
         self._collection_lock = asyncio.Lock()
         self._publish_lock = asyncio.Lock()
         self._delivery_lock = asyncio.Lock()
@@ -428,8 +430,12 @@ class DigestPipeline:
         async with self._delivery_lock:
             failed_destinations: set[str] = set()
             for row in await self.store.acall("pending", force=force):
-                if allowed is not None and not allowed():
-                    break
+                if (
+                    allowed is not None
+                    and row["topic"] not in self.always_deliver
+                    and not allowed()
+                ):
+                    continue
                 if row["destination"] in failed_destinations:
                     continue
                 platform = row["destination"].split(":", 1)[0]

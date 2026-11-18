@@ -1,0 +1,49 @@
+# One digest topic per file. See template.yaml.example for the full field reference.
+# Urgent BoM warnings for South East Queensland. Posts as soon as a warning
+# names an SEQ district/area (keywords) AND is a serious warning type
+# (alert_keywords). Unlike other topics it also posts during quiet hours:
+# a severe storm at 2am or on a Sunday is exactly when you want to know.
+name: "SEQ Weather Alerts"
+tags: [weather, seq]            # !digest weather
+watch_mode: true
+poll_interval_minutes: 10
+ignore_active_hours: true
+keywords:
+  - "Southeast Coast"
+  - "South East Queensland"
+  - "SEQ"
+  - "Brisbane"
+  - "Gold Coast"
+  - "Sunshine Coast"
+  - "Ipswich"
+  - "Logan"
+  - "Moreton Bay"
+  - "Redland"
+  - "Scenic Rim"
+  - "Lockyer"
+  - "Somerset"
+  - "Noosa"
+  - "Toowoomba"
+  - "Bremer"
+  - "Albert"
+  - "Caboolture"
+  - "Pine Rivers"
+  - "Maroochy"
+  - "Mooloolah"
+  - "Nerang"
+  - "Coomera"
+alert_keywords:
+  - "severe thunderstorm"
+  - "severe weather"
+  - "flood warning"
+  - "flash flood"
+  - "tropical cyclone"
+  - "fire weather warning"
+  - "heatwave warning"
+  - "tsunami"
+exclude_keywords: ["cancellation", "cancelled"]
+digest_channel: "#general"
+top_stories_count: 3
+sources:
+  - name: "BoM Queensland Warnings"
+    url: "http://www.bom.gov.au/fwo/IDZ00056.warnings_qld.xml"
