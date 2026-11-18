@@ -231,6 +231,8 @@ class DigestScheduler:
                     replace_existing=True,
                 )
                 self._topics.append(topic)
+                if topic.get("watch_mode") and topic.get("ignore_active_hours"):
+                    self.pipeline.always_deliver.add(name)
             except ValueError as exc:
                 logger.error("Skipping topic '%s': %s", name, exc)
         if self._topics:
@@ -264,7 +266,7 @@ class DigestScheduler:
         await self.store.acall("prune", int(self.pipeline.settings.get("retention_days", 90)))
 
     async def _retry_delivery(self):
-        if self._in_active_hours():
+        if self._in_active_hours() or self.pipeline.always_deliver:
             await self.pipeline.flush(allowed=self._in_active_hours)
 
     async def _run_topic_scheduled(self, topic):
@@ -272,7 +274,9 @@ class DigestScheduler:
             await self._run_topic(topic, scheduled=True)
 
     async def _run_watch_topic_scheduled(self, topic):
-        if self._in_active_hours():
+        # ignore_active_hours topics (e.g. severe weather) post around the clock;
+        # flush still holds back other topics' queued posts until active hours.
+        if topic.get("ignore_active_hours") or self._in_active_hours():
             await self._run_watch_topic(topic, scheduled=True)
 
     async def _run_topic(self, topic, progress=None, override_channel=None, scheduled=False):

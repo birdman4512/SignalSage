@@ -26,4 +26,5 @@ sources:
 # poll_interval_minutes: 15
 # alert_keywords: ["actively exploited", "emergency patch"]
 # Both personal relevance and explicit alert_keywords must match.
+# ignore_active_hours: true      # post even in quiet hours (e.g. severe weather)
 # Quiet hours apply to posting; collection continues in the background.

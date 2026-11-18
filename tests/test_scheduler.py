@@ -1,5 +1,6 @@
 """Scheduler orchestration and cron coverage regressions."""
 
+import json
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 
@@ -217,3 +218,62 @@ def test_auto_lookback_skips_quiet_hours_fires():
 def test_auto_lookback_unaffected_without_active_hours():
     """Sanity check: active_hours=None preserves the original un-filtered gap."""
     assert _compute_auto_lookback("0 5,11,17,23 * * *", "UTC", 2.0, _now=_MON_0900) == "8h"
+
+
+async def test_ignore_active_hours_watch_topic_posts_in_quiet_hours(tmp_path):
+    weather = {
+        "name": "Weather",
+        "watch_mode": True,
+        "ignore_active_hours": True,
+        "alert_keywords": ["severe thunderstorm"],
+        "sources": [],
+    }
+    scheduler = make_scheduler(tmp_path, [weather])
+    assert scheduler.pipeline.always_deliver == {"Weather"}
+    scheduler._run_watch_topic = AsyncMock()
+    scheduler.pipeline.flush = AsyncMock()
+    with patch.object(scheduler, "_in_active_hours", return_value=False):
+        await scheduler._run_watch_topic_scheduled(weather)
+        await scheduler._retry_delivery()
+    scheduler._run_watch_topic.assert_awaited_once()
+    scheduler.pipeline.flush.assert_awaited_once()
+
+
+async def test_quiet_hours_flush_only_delivers_always_deliver_topics(tmp_path):
+    scheduler = make_scheduler(tmp_path)
+    pipeline = scheduler.pipeline
+    pipeline.always_deliver = {"Weather"}
+    rows = [
+        {
+            "id": "a",
+            "destination": "test:C1",
+            "topic": "News",
+            "offset": 0,
+            "body": json.dumps({"channel": "C1", "summary": "{}", "meta": {}}),
+        },
+        {
+            "id": "b",
+            "destination": "test:C1",
+            "topic": "Weather",
+            "offset": 0,
+            "body": json.dumps({"channel": "C1", "summary": "{}", "meta": {}}),
+        },
+    ]
+    sent = []
+
+    class Owner:
+        platform_name = "test"
+
+        async def notify(self, topic, summary, channel=None, meta=None):
+            sent.append(topic)
+
+    pipeline.notifiers = [Owner().notify]
+    calls = []
+
+    async def acall(name, *args, **kwargs):
+        calls.append(name)
+        return rows if name == "pending" else None
+
+    pipeline.store.acall = acall
+    await pipeline.flush(allowed=lambda: False)
+    assert sent == ["Weather"]
