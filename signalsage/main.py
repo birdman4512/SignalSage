@@ -84,6 +84,12 @@ async def main() -> None:
             max_chars=digest_cfg.get("article_chars", 6000),
             max_total_chars=digest_cfg.get("max_prompt_chars", 8000),
             interest_topics=digest_cfg.get("interest_topics") or [],
+            # Several articles per call only for large-context API backends; a
+            # small local model keeps one article per call.
+            batch_size=int(
+                digest_cfg.get("llm_batch_size") or (8 if llm_provider == "gemini" else 1)
+            ),
+            batch_chars=int(digest_cfg.get("llm_batch_chars", 100_000)),
         )
         logger.info("Digest summarizer ready (provider: %s)", llm_provider)
     else:

@@ -94,6 +94,13 @@ digest:
   retention_days: 90
   article_chars: 6000              # body budget for ONE shortlisted article
   max_prompt_chars: 8000
+  # The two budgets above suit Ollama's fixed 4,096-token context. With an API
+  # backend (gemini/anthropic) raise them, e.g. article_chars: 24000 and
+  # max_prompt_chars: 30000, so summaries read the whole article.
+  # Articles per model call. Unset = 8 for gemini (fewer requests against the
+  # free daily quota), 1 for every other backend. Keep 1 for Ollama.
+  # llm_batch_size: 8
+  llm_batch_chars: 100000          # max article text per batched call
   fetch_article_text: true
   enrich_cves: true                # reuse existing IOC providers for article CVEs
   top_stories_count: 5

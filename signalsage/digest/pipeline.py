@@ -7,6 +7,7 @@ import re
 import time
 
 from signalsage.ioc.models import IOC, IOCType
+from signalsage.llm.base import LLMRateLimitError
 
 from . import reddit
 from .collection import collect_source, fetch_article_text
@@ -180,6 +181,97 @@ class DigestPipeline:
         article.update(body=body, body_kind=kind, enrichment=enrichment)
         return article
 
+    @staticmethod
+    def _card(article: dict, summary: dict) -> dict:
+        # Source identity and relevance are never taken from model output.
+        return {
+            "art_id": article["id"],
+            # Cleaned again here: articles stored before titles
+            # were cleaned at fetch time can still hold markup.
+            "headline": clean_title(article["title"])[:160],
+            "url": article["link"],
+            "icon": "📰",
+            "severity": "low",
+            "summary": summary["summary"],
+            "evidence": summary["evidence"],
+            "relevance_reason": "; ".join(article["reasons"][:3]),
+            "content_kind": (
+                f"quoted excerpt of {article['body_kind']}"
+                if summary.get("fallback")
+                else article["body_kind"]
+            ),
+            "relevance_score": article["relevance_score"],
+        }
+
+    @property
+    def _batch_size(self) -> int:
+        try:
+            return max(1, int(getattr(self.summarizer, "batch_size", 1) or 1))
+        except (TypeError, ValueError):
+            return 1
+
+    async def _judge_all(self, articles: list[dict], profile: dict) -> dict:
+        """{art_id: (relevant, reason) | Exception} for borderline articles.
+
+        Batched backends judge up to batch_size articles per call; otherwise one
+        call each. A non-ValueError (model down, quota gone) is recorded for every
+        remaining article instead of paying another failed call per article.
+        """
+        out: dict = {}
+        size = self._batch_size
+        if size > 1:
+            for start in range(0, len(articles), size):
+                chunk = articles[start : start + size]
+                try:
+                    out.update(await self.summarizer.judge_relevance_batch(chunk, profile))
+                except Exception as exc:
+                    rest = chunk if isinstance(exc, ValueError) else articles[start:]
+                    out.update({a["id"]: exc for a in rest})
+                    if not isinstance(exc, ValueError):
+                        break
+            return out
+        for index, article in enumerate(articles):
+            try:
+                out[article["id"]] = await self.summarizer.judge_relevance(article, profile)
+            except Exception as exc:
+                if isinstance(exc, ValueError):
+                    out[article["id"]] = exc
+                    continue
+                out.update({a["id"]: exc for a in articles[index:]})
+                break
+        return out
+
+    async def _summarize_all(self, articles: list[dict], profile: dict, include) -> dict:
+        """{art_id: summary dict | Exception}, batched when the backend allows it."""
+        size = self._batch_size
+        if size > 1:
+            interests = list(dict.fromkeys([*(profile.get("topics") or {}), *(include or [])]))
+            out: dict = {}
+            for start in range(0, len(articles), size):
+                chunk = articles[start : start + size]
+                out.update(await self.summarizer.summarize_batch(chunk, interests))
+                fatal = [
+                    r
+                    for r in out.values()
+                    if isinstance(r, Exception) and not isinstance(r, ValueError)
+                ]
+                if fatal:
+                    out.update({a["id"]: fatal[0] for a in articles[start + size :]})
+                    break
+            return out
+        out = {}
+        for index, article in enumerate(articles):
+            try:
+                out[article["id"]] = await self.summarizer.summarize_article(article)
+            except Exception as exc:
+                if isinstance(exc, ValueError):
+                    out[article["id"]] = exc
+                    continue
+                # Unavailable model: don't pay another timeout per article.
+                out.update({a["id"]: exc for a in articles[index:]})
+                break
+        return out
+
     async def publish(
         self,
         topic: dict,
@@ -252,23 +344,36 @@ class DigestPipeline:
             )
             selected: list[dict] = []
             tried: set[str] = set()
-            # Bound model work even when a feed or first-install backlog is large.
-            attempted = 0
+            # Bound model work even when a feed or first-install backlog is large:
+            # at most top_n * 2 distinct stories are considered per run.
+            window: list[dict] = []
             for article in ranked:
-                if len(selected) >= top_n or attempted >= top_n * 2:
+                if len(window) >= top_n * 2:
                     break
-                if any(similar_story(article, other) for other in selected):
+                if any(similar_story(article, other) for other in window):
                     metrics["deduplicated"] += 1
                     continue
                 if time.monotonic() < self._generation_retry.get(article["id"], 0):
                     continue
-                attempted += 1
+                window.append(article)
+            borderline = [a for a in window if a["relevance_score"] < threshold]
+            verdicts = (
+                await self._judge_all(borderline, {**profile, "keywords": include})
+                if borderline
+                else {}
+            )
+            awaiting: list[dict] = []  # selected, still needing a model summary
+            cache_key = self.summarizer.cache_key
+            for article in window:
+                if len(selected) >= top_n:
+                    break
                 tried.add(article["id"])
                 try:
                     if article["relevance_score"] < threshold:
-                        relevant, reason = await self.summarizer.judge_relevance(
-                            article, {**profile, "keywords": include}
-                        )
+                        verdict = verdicts.get(article["id"]) or ValueError("No relevance verdict")
+                        if isinstance(verdict, Exception):
+                            raise verdict
+                        relevant, reason = verdict
                         if not relevant:
                             await self.store.acall(
                                 "decision",
@@ -294,45 +399,11 @@ class DigestPipeline:
                     article = await self.prepare(
                         article, sources_by_url.get(article.get("source_url", "")), include
                     )
-                    cache_key = self.summarizer.cache_key
                     if article.get("cached_summary") and article.get("summary_key") == cache_key:
-                        summary = json.loads(article["cached_summary"])
+                        article["card"] = self._card(article, json.loads(article["cached_summary"]))
                         metrics["cached"] += 1
                     else:
-                        if progress:
-                            await progress(f"Summarizing: {article['title'][:100]}")
-                        try:
-                            summary = await self.summarizer.summarize_article(article)
-                            metrics["summaries"] += 1
-                        except SummaryValidationError as exc:
-                            # At temperature 0 a retry fails identically, so post a
-                            # verbatim excerpt instead. It's cached under this
-                            # model/prompt key; a model change gets a fresh attempt.
-                            logger.info("Article %s: %s; quoting it", article["id"][:12], exc)
-                            summary = excerpt_summary(article)
-                            metrics["quoted"] = metrics.get("quoted", 0) + 1
-                        await self.store.acall(
-                            "cache_summary", article["id"], cache_key, json.dumps(summary)
-                        )
-                    # Source identity and relevance are never taken from model output.
-                    article["card"] = {
-                        "art_id": article["id"],
-                        # Cleaned again here: articles stored before titles
-                        # were cleaned at fetch time can still hold markup.
-                        "headline": clean_title(article["title"])[:160],
-                        "url": article["link"],
-                        "icon": "📰",
-                        "severity": "low",
-                        "summary": summary["summary"],
-                        "evidence": summary["evidence"],
-                        "relevance_reason": "; ".join(article["reasons"][:3]),
-                        "content_kind": (
-                            f"quoted excerpt of {article['body_kind']}"
-                            if summary.get("fallback")
-                            else article["body_kind"]
-                        ),
-                        "relevance_score": article["relevance_score"],
-                    }
+                        awaiting.append(article)
                     selected.append(article)
                 except TranscriptPending as exc:
                     metrics["deferred"] = metrics.get("deferred", 0) + 1
@@ -341,8 +412,43 @@ class DigestPipeline:
                     metrics["failed"] += 1
                     self._generation_retry[article["id"]] = time.monotonic() + 300
                     logger.warning("Article %s remains pending: %s", article["id"][:12], exc)
-                    if not isinstance(exc, ValueError):
-                        break  # unavailable model: don't pay another timeout per article
+            if awaiting:
+                if progress:
+                    titles = "; ".join(a["title"][:60] for a in awaiting[:3])
+                    await progress(f"Summarizing {len(awaiting)}: {titles}")
+                results = await self._summarize_all(awaiting, profile, include)
+                for article in awaiting:
+                    result = results.get(article["id"]) or RuntimeError("No summary produced")
+                    try:
+                        if isinstance(result, SummaryValidationError):
+                            # At temperature 0 a retry fails identically, so post a
+                            # verbatim excerpt instead. It's cached under this
+                            # model/prompt key; a model change gets a fresh attempt.
+                            logger.info("Article %s: %s; quoting it", article["id"][:12], result)
+                            summary = excerpt_summary(article)
+                            metrics["quoted"] = metrics.get("quoted", 0) + 1
+                        elif isinstance(result, LLMRateLimitError):
+                            # Out of model quota: post the story as a quoted excerpt
+                            # now rather than holding it. Not cached, so a later
+                            # selection under a fresh quota can still summarise it.
+                            logger.warning("Article %s: %s; quoting it", article["id"][:12], result)
+                            article["card"] = self._card(article, excerpt_summary(article))
+                            metrics["quoted"] = metrics.get("quoted", 0) + 1
+                            continue
+                        elif isinstance(result, Exception):
+                            raise result
+                        else:
+                            summary = result
+                            metrics["summaries"] += 1
+                        await self.store.acall(
+                            "cache_summary", article["id"], cache_key, json.dumps(summary)
+                        )
+                        article["card"] = self._card(article, summary)
+                    except Exception as exc:
+                        metrics["failed"] += 1
+                        self._generation_retry[article["id"]] = time.monotonic() + 300
+                        selected.remove(article)
+                        logger.warning("Article %s remains pending: %s", article["id"][:12], exc)
             # The next-best confident matches ride along as headline-only links:
             # no model work, and once shown they count as delivered.
             headline_count = (
