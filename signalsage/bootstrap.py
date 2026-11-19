@@ -82,7 +82,7 @@ def build_llm(digest: dict) -> BaseLLM | None:
             timeout=digest.get("gemini_timeout", 120),
             temperature=float(digest.get("temperature", 0)),
             min_interval=float(digest.get("gemini_min_interval", 6)),
-            thinking_budget=None if budget in (None, "") else int(budget),
+            thinking_budget=None if budget is None or budget == "" else int(budget),
         )
     if provider == "cli":
         return CliLLM(
