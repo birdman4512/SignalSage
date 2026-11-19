@@ -15,7 +15,7 @@ SignalSage is a fully async, Docker-based threat intelligence bot that connects 
 1. **Monitors messages** for Indicators of Compromise (IOCs) — IP addresses, domains, URLs, file hashes, email addresses, and CVEs.
 2. **Enriches IOCs** in real-time by querying multiple threat intelligence APIs in parallel.
 3. **Posts enriched results** back to the same channel with risk ratings, summaries, and links.
-4. **Runs a scheduled LLM-powered news digest** by fetching configured RSS/web sources and summarizing them with a configurable LLM backend (Ollama, Anthropic Claude, or a headless Claude Code / Codex CLI).
+4. **Runs a scheduled LLM-powered news digest** by fetching configured RSS/web sources and summarizing them with a configurable LLM backend (Ollama, Google Gemini, Anthropic Claude, or a headless Claude Code / Codex CLI).
 
 ---
 
@@ -105,7 +105,8 @@ Copy `.env.example` to `.env` and fill in your credentials:
 | `HIBP_API_KEY` | Have I Been Pwned API key — https://haveibeenpwned.com/API/Key |
 | `WHOISXML_API_KEY` | WhoisXML API key (optional — falls back to free RDAP without key) |
 | `CIRCL_PDNS_KEY` | CIRCL Passive DNS credentials as `user:password` (free at https://www.circl.lu/services/passive-dns/) |
-| `LLM_PROVIDER` | `ollama` (default), `anthropic`, or `cli` |
+| `LLM_PROVIDER` | `ollama` (default), `gemini`, `anthropic`, or `cli` |
+| `GEMINI_API_KEY` | Gemini API key (only needed when `digest.llm_provider: gemini`) |
 | `OLLAMA_BASE_URL` | Ollama endpoint URL (default `http://localhost:11434`; use `http://ollama:11434` for the bundled Docker service) |
 | `OLLAMA_MODEL` | Ollama model to use (e.g. `gemma2:2b`) |
 | `ANTHROPIC_API_KEY` | Anthropic API key (only needed when `digest.llm_provider: anthropic`) |
@@ -127,7 +128,7 @@ Main configuration file. Uses `${ENV_VAR}` syntax for environment variable subst
 - `intel.max_iocs_per_message` — max IOCs to look up per message (default: 5)
 - `intel.cache_ttl` — seconds to cache lookup results (default: 3600)
 - `intel.timeout` — HTTP timeout per provider request in seconds (default: 10)
-- `digest.llm_provider` — LLM backend: `"ollama"` (default), `"anthropic"`, or `"cli"`
+- `digest.llm_provider` — LLM backend: `"ollama"` (default), `"gemini"`, `"anthropic"`, or `"cli"`
 - `digest.cli_command` — CLI executable when `llm_provider: cli` — `"claude"` (default) or `"codex"`, or a full path
 - `digest.cli_extra_args` — extra flags passed to the CLI (e.g. `["--model", "claude-opus-4-8"]`; default: `[]`)
 - `digest.cli_timeout` — seconds to wait for the CLI to return (default: 600)
@@ -346,6 +347,7 @@ no keyword matches.
 `signalsage/llm/base.py` defines `BaseLLM` with a single `async complete(system, user, max_tokens) -> str` method. Three backends are provided:
 
 - **`OllamaLLM`** — calls a locally-running Ollama instance (default). Requires Ollama installed and a model pulled (e.g. `ollama pull llama3.2`).
+- **`GeminiLLM`** — calls the Gemini `generateContent` REST API via httpx (no SDK). Requires `GEMINI_API_KEY`; spaces calls by `gemini_min_interval` and retries per-minute 429s.
 - **`AnthropicLLM`** — calls the Anthropic API. Requires `ANTHROPIC_API_KEY`.
 - **`CliLLM`** — shells out to the **Claude Code** (`claude -p`) or **Codex** (`codex exec`) CLI in headless mode, so digest generation bills against your CLI subscription instead of a per-token API key. The CLI must be installed and authenticated. The default image does **not** include it, but the docker-compose `codex`/`claude` profiles build the image with `INSTALL_CLI_LLM=true` (which `npm install -g`'s both CLIs) and mount your host credentials (`CLI_AUTH_DIR`), so the backend works inside the container as well as on a bare host. Slower per call (each completion boots a fresh agent process) and offers no temperature/max-token control. In codex mode `CliLLM` auto-adds `--skip-git-repo-check` and `--dangerously-bypass-approvals-and-sandbox` (digest generation is text-only, and the container has no git repo or Landlock sandbox); `digest.cli_extra_args` is appended after these.
 
@@ -521,6 +523,7 @@ SignalSage/
     ├── llm/
     │   ├── base.py          # BaseLLM ABC
     │   ├── anthropic_llm.py # Anthropic API backend
+    │   ├── gemini.py        # Google Gemini API backend
     │   ├── cli_llm.py       # Claude Code / Codex CLI headless backend
     │   └── ollama.py        # Ollama local backend (default)
     ├── digest/
