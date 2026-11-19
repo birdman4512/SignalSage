@@ -85,7 +85,7 @@ class DigestScheduler:
         notifiers: list[Callable],
         default_schedule: str = "0 9,16 * * *",
         timezone: str = "UTC",
-        whisper_base_url: str | None = None,
+        transcriber: Callable | None = None,
         data_dir: str = "data",
         top_stories_count: int = 5,
         lookback_buffer_hours: float = 2,
@@ -119,7 +119,7 @@ class DigestScheduler:
             self._watch_keywords,
             profile=profile,
             processor=processor,
-            whisper_base_url=whisper_base_url,
+            transcriber=transcriber,
             settings=pipeline_settings,
         )
         self._topics = []

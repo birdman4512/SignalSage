@@ -16,7 +16,7 @@ Collect feeds every 15 minutes, including overnight
   → drop articles already queued/delivered to each destination
   → score against interests, products, geography and exclusions
   → ask Gemini about borderline relevance only (one batched call)
-  → fetch shortlisted article text / optionally transcribe podcasts
+  → fetch shortlisted article text / transcribe shortlisted podcast episodes
   → enrich explicit CVEs using the IOC providers
   → summarize the selected articles (one batched call), validating each
   → persist exact outgoing messages, deliver on schedule, retry failures
@@ -77,16 +77,9 @@ YAML keywords seed the persistent keyword store once; later edits use commands:
 
 For an immediate alert topic, set `watch_mode: true` and `alert_keywords`; a story must pass both relevance selection and an alert keyword. Quiet hours still apply unless `ignore_active_hours: true`. See [the topic template](config/digests/template.yaml.example).
 
-## Optional podcasts
+## Podcasts
 
-Shortlisted podcast episodes can be transcribed by a local Whisper container. It needs about 2 GB of RAM, so it is off by default:
-
-```bash
-# .env: WHISPER_ENABLED=true
-docker compose --profile podcasts up -d --build
-```
-
-A ~40-minute episode peaks Whisper at about 1.3 GB and takes roughly 20 CPU-minutes, so that topic's post can arrive 10–20 minutes late. Episodes over 80 MB use their feed description. Transcripts are condensed to `article_chars` (opening plus the passages that best match the title and topic keywords).
+When a podcast episode is shortlisted, the bot downloads its audio and Gemini transcribes it (Files API upload, deleted straight after); a 30-minute episode takes about 15 seconds and no local RAM. Only shortlisted episodes are transcribed, and transcripts are cached. Episodes over 64 MB (about an hour, the free tier's per-minute token limit) use their feed description. Transcripts are condensed to `article_chars` (opening plus the passages that best match the title and topic keywords) before summarizing. Set `digest.transcribe_podcasts: false` to turn it off.
 
 A source can instead point at a show's published transcript with `transcript_url` (`{episode}` filled from `episode_pattern`). Security Now uses GRC's transcripts this way; the episode is held up to `digest.transcript_wait_days` (default 4) for it.
 

@@ -9,7 +9,7 @@ An async Python 3.14 bot for Slack (and optionally Discord) that:
 1. **Enriches IOCs** posted in channels (IPs, domains, URLs, hashes, emails, CVEs, ASNs) by querying threat-intel providers in parallel, then adds a short Gemini assessment. `!osint` runs deeper lookups.
 2. **Posts personalized news digests**: collects feeds into SQLite every 15 minutes, scores articles against an interest profile, and summarizes the selected ones with Google Gemini (the only LLM backend).
 
-Runs as one Docker container (plus an optional Whisper container for podcast transcription). Production is a GCP e2-micro (1 GB RAM) that auto-deploys `main`.
+Runs as one Docker container. Production is a GCP e2-micro (1 GB RAM) that auto-deploys `main`.
 
 ## Commands
 
@@ -38,7 +38,7 @@ signalsage/
   llm/             base.py (BaseLLM, LLMRateLimitError), gemini.py (REST via httpx, no SDK)
   digest/
     collection.py  feed/page/Reddit collection, article text fetch (SSRF-checked redirects)
-    fetcher.py     feed parsing, HTML extraction, Whisper transcription helpers
+    fetcher.py     feed parsing, HTML extraction, podcast audio download for transcription
     store.py       SQLite store (articles, decisions, outbox, deliveries, feedback); migrations.py
     ranking.py     score_article(), canonical URLs, near-duplicate detection
     pipeline.py    DigestPipeline: collect → rank → judge → prepare → summarize → enqueue → flush
@@ -65,6 +65,7 @@ deploy/autodeploy.sh          cron pull-deploy gated on CI
 - Calls are serialized and spaced `gemini_min_interval` (6 s). A 429 with a short `retryDelay` is retried; otherwise `LLMRateLimitError`.
 - Do **not** send `thinkingConfig.thinkingBudget` by default: Gemini 3 models reject it (400). Thinking tokens also count against `maxOutputTokens`. Measured: thinking adds no quality for this workload.
 - The free key must come from a project **without billing**; a billed project's key returns 402 (prepay).
+- `GeminiLLM.transcribe(path, mime)` transcribes shortlisted podcast audio: resumable Files API upload → poll until `ACTIVE` → `generateContent` with `fileData` → delete the file. Audio costs ~32 tokens/s, so `fetcher._MAX_AUDIO_BYTES` (64 MB ≈ 1 h) keeps one episode under the free per-minute token limit.
 
 ## Conventions
 

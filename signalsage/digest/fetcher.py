@@ -11,7 +11,7 @@ import re
 import socket
 import tempfile
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -48,12 +48,26 @@ def _user_agent(url: str) -> str:
     return _DEFAULT_UA
 
 
-# Max audio file size to attempt transcription (bytes). Downloads larger than this are skipped.
-# Measured on the production host (base.en, 2 GB cap): a 38 MB / ~40 min episode
-# peaks Whisper at ~1.3 GB and takes ~20 min per CPU. Two-hour shows (120 MB+)
-# would take over an hour and risk the memory cap, so they fall back to the
-# episode's feed description instead.
-_MAX_AUDIO_BYTES = 80 * 1024 * 1024  # 80 MB
+# Max audio file size to attempt transcription (bytes). Gemini bills audio at
+# ~32 tokens/second, and the free tier caps tokens per minute (~125k), so one
+# request must stay under roughly an hour of audio: 64 MB is ~65 minutes at
+# 128 kbps. Longer episodes fall back to their feed description.
+_MAX_AUDIO_BYTES = 64 * 1024 * 1024  # 64 MB
+
+# Gemini-accepted audio types by file extension, for servers that send a generic
+# Content-Type such as application/octet-stream.
+_AUDIO_MIME = {
+    ".mp3": "audio/mpeg",
+    ".m4a": "audio/aac",
+    ".aac": "audio/aac",
+    ".ogg": "audio/ogg",
+    ".oga": "audio/ogg",
+    ".opus": "audio/ogg",
+    ".wav": "audio/wav",
+    ".flac": "audio/flac",
+}
+
+Transcriber = Callable[[str, str], Awaitable[str | None]]
 
 # Cap how many redirect hops the audio downloader will follow. A compromised feed
 # can redirect from a benign-looking URL to internal infrastructure (services on the
@@ -63,7 +77,7 @@ _MAX_AUDIO_REDIRECTS = 3
 # Transcripts keyed by audio URL. Podcast feeds list the same ~10 episodes on
 # every fetch, and a multi-day lookback re-sees the same episode on every run —
 # without this each run re-downloads and re-transcribes tens of MB per episode.
-# Failures are remembered for a shorter window so a flaky host (or a Whisper OOM)
+# Failures are remembered for a shorter window so a flaky host (or a quota limit)
 # is retried later rather than hammered on every poll.
 _TRANSCRIPT_CACHE: TTLCache = TTLCache(maxsize=256, ttl=14 * 86400)
 _TRANSCRIPT_FAILURES: TTLCache = TTLCache(maxsize=256, ttl=6 * 3600)
@@ -152,15 +166,10 @@ def _strip_html(html: str) -> str:
     return _WHITESPACE_RE.sub(" ", text).strip()
 
 
-async def _transcribe_audio(
-    audio_url: str,
-    whisper_base_url: str,
-    timeout: int = 1800,  # CPU transcription of a 40-min episode takes 10-20 min
-) -> str | None:
-    """
-    Download an audio file and transcribe it via the Whisper API, with results
-    (and failures) cached by URL.
+async def _transcribe_audio(audio_url: str, transcriber: Transcriber) -> str | None:
+    """Download an audio file and transcribe it, with results (and failures) cached by URL.
 
+    *transcriber* is called with (local_path, mime_type), e.g. GeminiLLM.transcribe.
     Returns the transcript text, or None on failure.
     """
     if audio_url in _TRANSCRIPT_CACHE:
@@ -168,7 +177,7 @@ async def _transcribe_audio(
     if audio_url in _TRANSCRIPT_FAILURES:
         logger.debug("Skipping audio that recently failed to transcribe: %s", audio_url)
         return None
-    transcript = await _download_and_transcribe(audio_url, whisper_base_url, timeout)
+    transcript = await _download_and_transcribe(audio_url, transcriber)
     if transcript:
         _TRANSCRIPT_CACHE[audio_url] = transcript
     else:
@@ -176,16 +185,12 @@ async def _transcribe_audio(
     return transcript
 
 
-async def _download_and_transcribe(
-    audio_url: str,
-    whisper_base_url: str,
-    timeout: int,
-) -> str | None:
+async def _download_and_transcribe(audio_url: str, transcriber: Transcriber) -> str | None:
     logger.info("Downloading audio for transcription: %s", audio_url)
 
     # SSRF guard: only allow http(s) URLs whose host resolves to a public address.
     # A malicious or compromised feed could otherwise redirect this fetch to
-    # cloud-metadata endpoints or internal services on the Docker network.
+    # cloud-metadata endpoints or internal services.
     parsed = urlparse(audio_url)
     if parsed.scheme not in ("http", "https") or not parsed.hostname:
         logger.warning("Refusing audio URL with disallowed scheme/host: %s", audio_url)
@@ -196,6 +201,7 @@ async def _download_and_transcribe(
 
     tmp_path: str | None = None
     total = 0
+    mime = "audio/mpeg"
     try:
         # max_redirects keeps the redirect chain short; even after the upfront
         # host check, the server could 302 toward an internal address.
@@ -216,9 +222,11 @@ async def _download_and_transcribe(
                     )
                     return None
 
-                suffix = Path(audio_url.split("?")[0]).suffix or ".mp3"
-                # delete=False so we can re-open the file for upload to Whisper;
-                # the outer finally block guarantees cleanup on every exit path.
+                suffix = Path(audio_url.split("?")[0]).suffix.lower() or ".mp3"
+                served = resp.headers.get("content-type", "").split(";")[0].strip().lower()
+                mime = served if served.startswith("audio/") else _AUDIO_MIME.get(suffix, mime)
+                # delete=False so the file can be re-opened for upload; the outer
+                # finally block guarantees cleanup on every exit path.
                 with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
                     tmp_path = tmp.name
                     async for chunk in resp.aiter_bytes(chunk_size=65536):
@@ -232,20 +240,10 @@ async def _download_and_transcribe(
 
         if not tmp_path:
             return None
-
-        logger.info("Transcribing %.1f MB audio via Whisper...", total / (1024 * 1024))
-        whisper_url = f"{whisper_base_url.rstrip('/')}/v1/audio/transcriptions"
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            with open(tmp_path, "rb") as audio_file:
-                resp = await client.post(
-                    whisper_url,
-                    files={"file": (Path(tmp_path).name, audio_file, "audio/mpeg")},
-                    data={"model": "Systran/faster-whisper-base.en"},
-                )
-            resp.raise_for_status()
-            transcript = resp.json().get("text", "").strip()
-            logger.info("Transcription complete: %d characters", len(transcript))
-            return transcript or None
+        logger.info("Transcribing %.1f MB of %s audio...", total / (1024 * 1024), mime)
+        transcript = (await transcriber(tmp_path, mime) or "").strip()
+        logger.info("Transcription complete: %d characters", len(transcript))
+        return transcript or None
     except Exception as exc:
         logger.warning("Audio download/transcription failed for %s: %s", audio_url, exc)
         return None
@@ -271,17 +269,13 @@ async def _extract_feed_items(
     feed_data: dict,
     max_chars: int,
     lookback_seconds: int | None = None,
-    whisper_base_url: str | None = None,
-    skip_audio: Callable[[dict], bool] | None = None,
 ) -> list[dict]:
     """Extract discrete items from a parsed feedparser feed, optionally filtered by age.
 
     Returns a list of {title, link, summary, published_ts} dicts, newest-feed-order
-    preserved. All available entries are inspected before date filtering.
-
-    *skip_audio* is called with ``{"title", "link"}`` for entries that carry an
-    audio enclosure; returning True skips transcription (watch mode uses it to
-    avoid transcribing episodes it has already evaluated and will discard).
+    preserved. All available entries are inspected before date filtering. Audio
+    enclosures are recorded as ``audio_url``; episodes are transcribed later, only
+    once shortlisted (see DigestPipeline.prepare).
     """
     cutoff = time.time() - lookback_seconds if lookback_seconds else None
     items: list[dict] = []
@@ -312,19 +306,7 @@ async def _extract_feed_items(
             # Full-content entries can be large HTML; parse off the event loop.
             summary = await asyncio.to_thread(_strip_html, summary)
 
-        # Try podcast transcription if Whisper is configured and entry has audio
         audio_url = _get_audio_enclosure(entry)
-        if audio_url and skip_audio and skip_audio({"title": title, "link": link}):
-            logger.debug("Skipping transcription of already-seen entry: %r", title)
-        elif audio_url:
-            if whisper_base_url:
-                transcript = await _transcribe_audio(audio_url, whisper_base_url)
-                if transcript:
-                    summary = f"[Transcript]\n{transcript[:max_chars]}"
-            else:
-                logger.info("Audio enclosure found but Whisper disabled — skipping: %s", audio_url)
-        else:
-            logger.debug("No audio enclosure in entry: %r", title)
 
         if not link:
             logger.warning("Feed entry has no link: %r", title)

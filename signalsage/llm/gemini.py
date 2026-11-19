@@ -4,6 +4,7 @@ import asyncio
 import logging
 import re
 import time
+from pathlib import Path
 
 import httpx
 
@@ -12,6 +13,7 @@ from .base import BaseLLM, LLMRateLimitError
 logger = logging.getLogger(__name__)
 
 API_BASE = "https://generativelanguage.googleapis.com/v1beta"
+UPLOAD_URL = "https://generativelanguage.googleapis.com/upload/v1beta/files"
 
 # JSON Schema keywords Gemini's responseJsonSchema is known to accept. Anything
 # else (e.g. minLength/maxLength) is dropped rather than risking a 400; the
@@ -36,6 +38,11 @@ _SCHEMA_KEYS = {
 # A per-minute 429 is worth waiting out; a per-day one (retryDelay of hours, or
 # none at all) is surfaced immediately as LLMRateLimitError.
 _MAX_RETRY_WAIT = 65.0
+_TRANSCRIBE_PROMPT = (
+    "Transcribe this podcast episode as plain text, as close to verbatim as possible. "
+    "No timestamps and no commentary. Use speaker names only where they are clear. "
+    "Leave out advertisements and sponsor reads."
+)
 _MAX_RETRIES = 2
 
 
@@ -122,12 +129,16 @@ class GeminiLLM(BaseLLM):
             await asyncio.sleep(wait)
         self._last_call = time.monotonic()
 
-    async def _post(self, client: httpx.AsyncClient, payload: dict) -> dict:
+    async def _post(
+        self, client: httpx.AsyncClient, payload: dict, timeout: float | None = None
+    ) -> dict:
         url = f"{API_BASE}/models/{self.model}:generateContent"
         headers = {"x-goog-api-key": self.api_key}
         for attempt in range(_MAX_RETRIES + 1):
             await self._wait_turn()
-            resp = await client.post(url, json=payload, headers=headers, timeout=self.timeout)
+            resp = await client.post(
+                url, json=payload, headers=headers, timeout=timeout or self.timeout
+            )
             if resp.status_code != 429:
                 break
             try:
@@ -183,3 +194,79 @@ class GeminiLLM(BaseLLM):
         if not text and reason not in (None, "STOP"):
             raise RuntimeError(f"Gemini returned no text (finishReason={reason})")
         return text
+
+    # ------------------------------------------------------------------ #
+    # Audio transcription (podcast episodes) via the Files API            #
+    # ------------------------------------------------------------------ #
+    async def transcribe(self, path: str, mime_type: str, timeout: float = 600) -> str | None:
+        """Transcribe a local audio file; returns plain text, or None if nothing came back.
+
+        Uploads the file (Files API, kept by Google for at most 48 h, deleted
+        here as soon as the transcript is back), waits for it to be processed,
+        then asks the model for a plain transcript. A transcript cut short by
+        the output limit is still returned: the summary step only needs the
+        passages relevant to the episode.
+        """
+        headers = {"x-goog-api-key": self.api_key}
+        data = await asyncio.to_thread(Path(path).read_bytes)
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            start = await client.post(
+                UPLOAD_URL,
+                headers={
+                    **headers,
+                    "X-Goog-Upload-Protocol": "resumable",
+                    "X-Goog-Upload-Command": "start",
+                    "X-Goog-Upload-Header-Content-Length": str(len(data)),
+                    "X-Goog-Upload-Header-Content-Type": mime_type,
+                },
+                json={"file": {"display_name": Path(path).name}},
+            )
+            start.raise_for_status()
+            upload_url = start.headers.get("x-goog-upload-url")
+            if not upload_url:
+                raise RuntimeError("Gemini upload did not return an upload URL")
+            done = await client.post(
+                upload_url,
+                headers={"X-Goog-Upload-Offset": "0", "X-Goog-Upload-Command": "upload, finalize"},
+                content=data,
+            )
+            done.raise_for_status()
+            del data
+            file = done.json().get("file") or {}
+            name, uri = file.get("name"), file.get("uri")
+            if not name or not uri:
+                raise RuntimeError(f"Unexpected Gemini upload response: {file}")
+            try:
+                state = file.get("state")
+                for _ in range(60):  # processing is usually a few seconds
+                    if state != "PROCESSING":
+                        break
+                    await asyncio.sleep(5)
+                    poll = await client.get(f"{API_BASE}/{name}", headers=headers)
+                    poll.raise_for_status()
+                    state = poll.json().get("state")
+                if state != "ACTIVE":
+                    raise RuntimeError(f"Gemini could not process the audio (state={state})")
+                payload = {
+                    "contents": [
+                        {
+                            "role": "user",
+                            "parts": [
+                                {"fileData": {"mimeType": mime_type, "fileUri": uri}},
+                                {"text": _TRANSCRIBE_PROMPT},
+                            ],
+                        }
+                    ],
+                    "generationConfig": {"maxOutputTokens": 30000, "temperature": 0},
+                }
+                async with self._lock:
+                    result = await self._post(client, payload, timeout=timeout)
+            finally:
+                try:
+                    await client.delete(f"{API_BASE}/{name}", headers=headers)
+                except httpx.HTTPError:
+                    pass  # the Files API deletes it after 48 h anyway
+        candidates = result.get("candidates") or []
+        parts = ((candidates[0].get("content") or {}).get("parts") or []) if candidates else []
+        text = "".join(p.get("text", "") for p in parts if not p.get("thought")).strip()
+        return text or None

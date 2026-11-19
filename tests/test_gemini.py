@@ -1,6 +1,7 @@
 """Tests for the Gemini LLM backend."""
 
 import json
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
@@ -144,3 +145,65 @@ def test_no_key_means_no_llm_and_config_still_valid():
     # Without a key the bot still runs IOC enrichment; digests are disabled.
     assert build_llm({"gemini_api_key": ""}) is None
     assert validate_config({"digest": {}}) == {"digest": {}}
+
+
+@respx.mock
+async def test_transcribe_uploads_waits_generates_and_deletes(tmp_path, monkeypatch):
+    monkeypatch.setattr("signalsage.llm.gemini.asyncio.sleep", AsyncMock())
+    audio = tmp_path / "ep.mp3"
+    audio.write_bytes(b"AUDIO")
+    start = respx.post("https://generativelanguage.googleapis.com/upload/v1beta/files").mock(
+        return_value=httpx.Response(200, headers={"x-goog-upload-url": "https://up.test/1"})
+    )
+    upload = respx.post("https://up.test/1").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "file": {
+                    "name": "files/f1",
+                    "uri": "https://g.test/files/f1",
+                    "state": "PROCESSING",
+                }
+            },
+        )
+    )
+    poll = respx.get("https://generativelanguage.googleapis.com/v1beta/files/f1").mock(
+        return_value=httpx.Response(200, json={"name": "files/f1", "state": "ACTIVE"})
+    )
+    gen = respx.post(URL).mock(return_value=_ok("Hello and welcome to the show."))
+    delete = respx.delete("https://generativelanguage.googleapis.com/v1beta/files/f1").mock(
+        return_value=httpx.Response(200, json={})
+    )
+
+    text = await _llm().transcribe(str(audio), "audio/mpeg")
+
+    assert text == "Hello and welcome to the show."
+    assert start.calls.last.request.headers["x-goog-upload-header-content-type"] == "audio/mpeg"
+    assert start.calls.last.request.headers["x-goog-upload-header-content-length"] == "5"
+    assert upload.calls.last.request.content == b"AUDIO"
+    assert poll.called and delete.called
+    part = json.loads(gen.calls.last.request.content)["contents"][0]["parts"][0]
+    assert part == {"fileData": {"mimeType": "audio/mpeg", "fileUri": "https://g.test/files/f1"}}
+
+
+@respx.mock
+async def test_transcribe_deletes_file_even_when_generation_fails(tmp_path):
+    audio = tmp_path / "ep.mp3"
+    audio.write_bytes(b"AUDIO")
+    respx.post("https://generativelanguage.googleapis.com/upload/v1beta/files").mock(
+        return_value=httpx.Response(200, headers={"x-goog-upload-url": "https://up.test/1"})
+    )
+    respx.post("https://up.test/1").mock(
+        return_value=httpx.Response(
+            200, json={"file": {"name": "files/f1", "uri": "https://g.test/f1", "state": "ACTIVE"}}
+        )
+    )
+    respx.post(URL).mock(
+        return_value=httpx.Response(429, json={"error": {"message": "quota", "details": []}})
+    )
+    delete = respx.delete("https://generativelanguage.googleapis.com/v1beta/files/f1").mock(
+        return_value=httpx.Response(200, json={})
+    )
+    with pytest.raises(LLMRateLimitError):
+        await _llm().transcribe(str(audio), "audio/mpeg")
+    assert delete.called

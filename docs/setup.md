@@ -253,7 +253,7 @@ Each run posts one message per topic: numbered stories, each with a headline lin
 
 Use `!digest status` for collection/delivery counts and `!digest feedback <article-id> useful|less` to adjust future source rankings. Keyword commands apply to all topics. `!digest top <N>` overrides per-topic counts for the current session.
 
-To transcribe shortlisted podcasts, set `WHISPER_ENABLED=true` and start Whisper with `docker compose --profile podcasts up -d`. Both are off by default; Whisper needs about 2 GB of RAM.
+Shortlisted podcast episodes are transcribed by Gemini (up to about an hour of audio); set `digest.transcribe_podcasts: false` to turn that off.
 
 A topic's `lookback` is now an initial-import bound only. It never drops persisted pending articles; later polls inspect every available feed entry. Keep the writable `data/` volume when upgrading.
 

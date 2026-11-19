@@ -1,26 +1,8 @@
 # SignalSage: one bot container. The digest model is Google Gemini (set
 # GEMINI_API_KEY in .env); without a key the bot runs IOC enrichment only.
 #
-#   docker compose up -d --build                     # start / update
-#   docker compose --profile podcasts up -d --build  # also start Whisper
+#   docker compose up -d --build     # start / update
 #   docker compose logs -f
-
-networks:
-  # Internal network: containers reach each other by service name (whisper).
-  # Nothing binds to a host port.
-  internal:
-    driver: bridge
-    internal: true   # blocks outbound internet from this network
-    ipam:
-      config:
-        - subnet: 10.10.50.0/24
-
-  # External network: outbound internet for Slack, Discord, feeds, intel APIs, Gemini.
-  external:
-    driver: bridge
-    ipam:
-      config:
-        - subnet: 10.10.51.0/24
 
 services:
   signalsage:
@@ -29,9 +11,6 @@ services:
     container_name: signalsage
     restart: unless-stopped
     env_file: .env
-    networks:
-      - internal   # talks to whisper
-      - external   # reaches the internet
     volumes:
       - ./config:/app/config:ro
       - ./data:/app/data
@@ -48,27 +27,3 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
-
-  # ── Whisper speech-to-text (optional podcast transcription) ─────────────
-  # Opt in with --profile podcasts (or COMPOSE_PROFILES=podcasts in .env) and
-  # WHISPER_ENABLED=true. OpenAI-compatible transcription API; downloads its
-  # model (~150 MB) on first start, cached on a volume afterwards.
-  whisper:
-    profiles: ["podcasts"]
-    image: fedirz/faster-whisper-server:latest-cpu
-    container_name: whisper
-    restart: unless-stopped
-    environment:
-      WHISPER__MODEL: base.en
-    volumes:
-      - whisper_data:/root/.cache/huggingface
-    networks:
-      - internal   # reachable by signalsage
-      - external   # needed on first start to download the model
-    # 2 GB is the measured floor: a ~40 min episode peaks at ~1.3 GB, and at
-    # 1 GB the container is OOM-killed mid-transcription.
-    cpus: "2.0"
-    mem_limit: 2g
-
-volumes:
-  whisper_data:

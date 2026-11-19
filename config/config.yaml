@@ -83,6 +83,7 @@ digest:
   bootstrap_days: 7                # initial install only; checkpoints survive restarts
   max_article_age_days: 8          # never post stories collected/published longer ago than this
   transcript_wait_days: 4          # hold an episode this long for its published transcript (source transcript_url)
+  transcribe_podcasts: true        # Gemini transcribes shortlisted episodes (<= ~1 h of audio)
   # Reddit Data API (optional). Needs an approved app: Reddit requires a request
   # and explicit approval under its Responsible Builder Policy. With both
   # client_id and client_secret set, subreddit sources use the API (~100 req/min);
@@ -138,12 +139,3 @@ digest:
   gemini_thinking_budget: null      # omit (gemini-3.x rejects it); 0 disables thinking on gemini-2.5
   gemini_timeout: 120
   temperature: 0
-
-# ── Whisper podcast transcription (optional) ──────────────────────────────
-# When enabled, podcast RSS enclosures (audio/*) are downloaded and transcribed
-# before being passed to the LLM for summarisation.
-# Requires the whisper service in docker-compose.yml.
-whisper:
-  enabled: ${WHISPER_ENABLED:-false}
-  base_url: "http://whisper:8000"
-  # max_audio_mb and transcription_timeout are enforced in fetcher.py constants

@@ -147,13 +147,11 @@ async def main() -> None:
     if summarizer and notifiers:
         from signalsage.scheduler import DigestScheduler
 
-        whisper_cfg = cfg.get("whisper", {})
-        whisper_base_url: str | None = None
-        if whisper_cfg.get("enabled"):
-            whisper_base_url = whisper_cfg.get("base_url") or "http://whisper:8000"
-            logger.info("Whisper transcription enabled at %s", whisper_base_url)
-        else:
-            logger.info("Whisper transcription disabled")
+        # Shortlisted podcast episodes are transcribed by Gemini (audio input).
+        transcriber = None
+        if digest_cfg.get("transcribe_podcasts", True):
+            transcriber = getattr(summarizer.llm, "transcribe", None)
+        logger.info("Podcast transcription %s", "enabled (Gemini)" if transcriber else "disabled")
 
         try:
             scheduler = DigestScheduler(
@@ -162,7 +160,7 @@ async def main() -> None:
                 notifiers=notifiers,
                 default_schedule=digest_cfg.get("default_schedule", "0 6 * * *"),
                 timezone=digest_cfg.get("timezone", "UTC"),
-                whisper_base_url=whisper_base_url,
+                transcriber=transcriber,
                 data_dir=digest_cfg.get("data_dir", "data"),
                 top_stories_count=int(digest_cfg.get("top_stories_count", 10)),
                 lookback_buffer_hours=float(digest_cfg.get("lookback_buffer_hours", 2)),

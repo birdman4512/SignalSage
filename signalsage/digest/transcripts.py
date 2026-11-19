@@ -7,7 +7,7 @@ from .ranking import contains
 
 _DEFAULT_EPISODE_PATTERN = r"(\d+)"
 _LEAD_CHARS = 1500  # opening kept verbatim: GRC's header + DESCRIPTION, or a show's intro
-_WINDOW_CHARS = 600  # passage size when a transcript has no paragraph breaks (Whisper)
+_WINDOW_CHARS = 600  # passage size when a transcript has no paragraph breaks
 _STOPWORDS = {
     "about", "after", "again", "being", "from", "have", "into", "just", "more", "over",
     "that", "their", "there", "this", "what", "when", "which", "with", "your",
@@ -44,7 +44,7 @@ def _passages(text: str) -> list[str]:
     paragraphs = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
     if len(paragraphs) >= 3:
         return paragraphs
-    # One unbroken blob (Whisper output): group sentences into ~600-char windows.
+    # One unbroken blob (machine transcript): group sentences into ~600-char windows.
     windows: list[str] = []
     current = ""
     for sentence in re.split(r"(?<=[.!?])\s+", text):

@@ -42,7 +42,7 @@ def test_long_transcript_keeps_header_and_on_topic_passages():
     assert len(out) <= 400
 
 
-def test_whisper_blob_is_windowed_and_short_text_untouched():
+def test_unbroken_transcript_is_windowed_and_short_text_untouched():
     blob = " ".join(["Intro sentence here."] * 200 + ["The ransomware gang struck again."])
     out = select_passages(blob, "Ransomware roundup", [], budget=800)
     assert "ransomware gang struck" in out

@@ -1,7 +1,12 @@
-"""Tests for per-item extraction used by watch-mode polling."""
+"""Tests for feed item extraction and podcast audio transcription."""
 
 import json
+import pathlib
 import time
+from unittest.mock import AsyncMock
+
+import httpx
+import respx
 
 from signalsage.digest.fetcher import (
     _extract_feed_items,
@@ -126,26 +131,6 @@ def _audio_feed(n: int = 2) -> dict:
     }
 
 
-async def test_skip_audio_predicate_skips_transcription(monkeypatch):
-    from signalsage.digest import fetcher
-
-    calls: list[str] = []
-
-    async def fake_transcribe(url, base, timeout=600):
-        calls.append(url)
-        return "transcript"
-
-    monkeypatch.setattr(fetcher, "_transcribe_audio", fake_transcribe)
-    items = await _extract_feed_items(
-        _audio_feed(),
-        max_chars=3000,
-        whisper_base_url="http://whisper",
-        skip_audio=lambda i: i["link"] == "https://pod.example/0",
-    )
-    assert calls == ["https://pod.example/1.mp3"]
-    assert len(items) == 2  # skipped entries are still returned for seen-filtering
-
-
 async def test_transcripts_and_failures_are_cached(monkeypatch):
     from signalsage.digest import fetcher
 
@@ -153,12 +138,52 @@ async def test_transcripts_and_failures_are_cached(monkeypatch):
     fetcher._TRANSCRIPT_FAILURES.clear()
     calls: list[str] = []
 
-    async def fake_download(url, base, timeout):
+    async def fake_download(url, transcriber):
         calls.append(url)
         return None if "bad" in url else "hello"
 
     monkeypatch.setattr(fetcher, "_download_and_transcribe", fake_download)
+    transcriber = AsyncMock()
     for _ in range(3):
-        assert await fetcher._transcribe_audio("https://x/good.mp3", "http://w") == "hello"
-        assert await fetcher._transcribe_audio("https://x/bad.mp3", "http://w") is None
+        assert await fetcher._transcribe_audio("https://x/good.mp3", transcriber) == "hello"
+        assert await fetcher._transcribe_audio("https://x/bad.mp3", transcriber) is None
     assert calls == ["https://x/good.mp3", "https://x/bad.mp3"]
+
+
+@respx.mock
+async def test_download_hands_file_and_mime_to_transcriber(monkeypatch):
+    from signalsage.digest import fetcher
+
+    monkeypatch.setattr(fetcher, "_resolve_is_public_host", AsyncMock(return_value=True))
+    respx.get("https://pod.example/ep1.m4a").mock(
+        return_value=httpx.Response(
+            200, content=b"AUDIO", headers={"content-type": "application/octet-stream"}
+        )
+    )
+    seen = {}
+
+    async def transcriber(path, mime):
+        seen["mime"] = mime
+        seen["bytes"] = pathlib.Path(path).read_bytes()
+        return "  the transcript  "
+
+    out = await fetcher._download_and_transcribe("https://pod.example/ep1.m4a", transcriber)
+    assert out == "the transcript"
+    assert seen == {"mime": "audio/aac", "bytes": b"AUDIO"}  # mapped from the extension
+
+
+@respx.mock
+async def test_oversized_audio_is_skipped(monkeypatch):
+    from signalsage.digest import fetcher
+
+    monkeypatch.setattr(fetcher, "_resolve_is_public_host", AsyncMock(return_value=True))
+    respx.get("https://pod.example/long.mp3").mock(
+        return_value=httpx.Response(
+            200, content=b"x", headers={"content-length": str(fetcher._MAX_AUDIO_BYTES + 1)}
+        )
+    )
+    transcriber = AsyncMock()
+    assert (
+        await fetcher._download_and_transcribe("https://pod.example/long.mp3", transcriber) is None
+    )
+    transcriber.assert_not_awaited()
