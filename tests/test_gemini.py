@@ -35,7 +35,9 @@ async def test_request_shape_and_json_schema():
         "required": ["reason"],
     }
 
-    out = await _llm().complete("sys", "usr", max_tokens=99, json_mode=True, json_schema=schema)
+    out = await _llm(thinking_budget=0).complete(
+        "sys", "usr", max_tokens=99, json_mode=True, json_schema=schema
+    )
 
     assert out == '{"relevant": true}'
     req = route.calls.last.request
@@ -53,10 +55,10 @@ async def test_request_shape_and_json_schema():
 
 
 @respx.mock
-async def test_plain_text_omits_json_and_thinking_when_disabled():
+async def test_plain_text_omits_json_and_thinking_by_default():
     route = respx.post(URL).mock(return_value=_ok("hello"))
 
-    assert await _llm(thinking_budget=None).complete("s", "u") == "hello"
+    assert await _llm().complete("s", "u") == "hello"
 
     cfg = json.loads(route.calls.last.request.content)["generationConfig"]
     assert "responseMimeType" not in cfg

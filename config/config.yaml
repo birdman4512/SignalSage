@@ -151,7 +151,7 @@ digest:
   gemini_api_key: "${GEMINI_API_KEY}"
   gemini_model: "${GEMINI_MODEL:-gemini-flash-lite-latest}"
   gemini_min_interval: 6            # seconds between calls (6s ≈ 10 requests/min)
-  gemini_thinking_budget: 0         # 0 = no thinking; null to omit for models that reject it
+  gemini_thinking_budget: null      # omit (gemini-3.x rejects it); 0 disables thinking on gemini-2.5
   gemini_timeout: 120
 
   # Anthropic Claude — paid API. Only used when llm_provider = "anthropic"

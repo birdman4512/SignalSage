@@ -83,7 +83,7 @@ class GeminiLLM(BaseLLM):
         timeout: int = 120,
         temperature: float = 0,
         min_interval: float = 6.0,
-        thinking_budget: int | None = 0,
+        thinking_budget: int | None = None,
         http_client: httpx.AsyncClient | None = None,
     ) -> None:
         self.api_key = api_key
@@ -102,8 +102,9 @@ class GeminiLLM(BaseLLM):
     def _payload(self, system: str, user: str, max_tokens: int, json_mode: bool, json_schema):
         config: dict = {"maxOutputTokens": max_tokens, "temperature": self.temperature}
         if self.thinking_budget is not None:
-            # Thinking tokens count against maxOutputTokens; the digest's short
-            # JSON replies get truncated if the model is allowed to think.
+            # Only sent when configured: gemini-2.5 models accept a budget (0 =
+            # off), but gemini-3.x rejects thinkingBudget with a 400. Flash-Lite
+            # models don't think by default, so omitting it is the safe default.
             config["thinkingConfig"] = {"thinkingBudget": int(self.thinking_budget)}
         if json_mode:
             config["responseMimeType"] = "application/json"
