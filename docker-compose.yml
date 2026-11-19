@@ -2,6 +2,7 @@
 # Pick the digest LLM backend with a compose profile — exactly one of:
 #
 #   ollama  → local Ollama container (default, free, runs on your hardware)
+#   gemini  → Google Gemini API free tier (needs GEMINI_API_KEY; tiny host is fine)
 #   codex   → bot image with the Codex CLI baked in (bills your Codex sub)
 #   claude  → bot image with the Claude Code CLI baked in (bills your Claude sub)
 #
@@ -76,6 +77,16 @@ services:
     depends_on:
       ollama:
         condition: service_healthy
+
+  # ── Bot + Google Gemini API (no local model; needs GEMINI_API_KEY) ──────
+  signalsage-gemini:
+    <<: *bot-base
+    profiles: ["gemini"]
+    environment:
+      LLM_PROVIDER: gemini
+    volumes:
+      - ./config:/app/config:ro
+      - ./data:/app/data
 
   # ── Bot with the Codex CLI baked in (digest.llm_provider: cli) ──────────
   signalsage-codex:

@@ -57,10 +57,12 @@ def validate_config(config: dict) -> dict:
     digest = config.get("digest", {}) or {}
     if digest:
         provider = str(digest.get("llm_provider", "ollama")).lower()
-        if provider not in {"ollama", "anthropic", "cli"}:
-            raise ConfigError("digest.llm_provider must be ollama, anthropic, or cli")
+        if provider not in {"ollama", "anthropic", "gemini", "cli"}:
+            raise ConfigError("digest.llm_provider must be ollama, anthropic, gemini, or cli")
         if provider == "anthropic" and not digest.get("anthropic_api_key"):
             raise ConfigError("digest.anthropic_api_key is required for the anthropic backend")
+        if provider == "gemini" and not digest.get("gemini_api_key"):
+            raise ConfigError("digest.gemini_api_key is required for the gemini backend")
         timezone = str(digest.get("timezone", "UTC"))
         try:
             ZoneInfo(timezone)

@@ -38,6 +38,8 @@ docker compose logs -f
 
 The default remains `gemma2:2b`. Ollama uses a fixed 4,096-token context, explicit temperature zero, one generation at a time, and short article responses. Oversized inputs fail instead of silently growing memory usage. Tune `article_chars` and `max_prompt_chars` together with `ollama_num_ctx` if needed.
 
+To run without a local model, use the free Gemini API: set `GEMINI_API_KEY` (from [Google AI Studio](https://aistudio.google.com/apikey)) and `COMPOSE_PROFILES=gemini` in `.env`. Calls are spaced `gemini_min_interval` seconds apart (default 6) to stay under the free per-minute quota. A per-minute 429 is retried; an exhausted daily quota fails that run with a clear error. Free-tier quotas change often, and Google may use free-tier prompts to improve its products.
+
 Anthropic and CLI backends remain available through the existing configuration. Ollama is the default for lean unattended operation. Model changes should be tested against saved articles on the actual deployment hardware.
 
 ## Personalize

@@ -126,10 +126,11 @@ digest:
     weekend_end: "17:00"
     quiet_days: ["sun"]      # quiet all day; collection still runs, Monday catches up
 
-  # LLM backend: "ollama" (local, free), "anthropic" (paid API), or "cli"
+  # LLM backend: "ollama" (local, free), "gemini" (Google API, free tier),
+  # "anthropic" (paid API), or "cli"
   # ("cli" shells out to the Claude Code / Codex CLI in headless mode — bills
   #  against your CLI subscription). Under docker-compose this is selected for
-  #  you by COMPOSE_PROFILES (ollama|codex|claude); the codex/claude profiles
+  #  you by COMPOSE_PROFILES (ollama|gemini|codex|claude); the codex/claude profiles
   #  bake the CLI into the bot image and mount your host credentials.
   llm_provider: "${LLM_PROVIDER:-ollama}"
 
@@ -143,6 +144,15 @@ digest:
   ollama_timeout: 600
   temperature: 0
   ollama_think: null               # set false for a thinking model that supports it
+
+  # Google Gemini — free tier via https://aistudio.google.com/apikey.
+  # Only used when llm_provider = "gemini". Free quotas are per model and change
+  # often; Google may use free-tier prompts to improve its products.
+  gemini_api_key: "${GEMINI_API_KEY}"
+  gemini_model: "${GEMINI_MODEL:-gemini-flash-lite-latest}"
+  gemini_min_interval: 6            # seconds between calls (6s ≈ 10 requests/min)
+  gemini_thinking_budget: 0         # 0 = no thinking; null to omit for models that reject it
+  gemini_timeout: 120
 
   # Anthropic Claude — paid API. Only used when llm_provider = "anthropic"
   anthropic_model: "claude-haiku-4-5-20251001"
