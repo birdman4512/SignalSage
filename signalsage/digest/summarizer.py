@@ -141,7 +141,6 @@ class DigestSummarizer:
         llm: BaseLLM,
         max_chars: int = 6000,
         max_total_chars: int = 8000,
-        interest_topics: list[str] | None = None,
         ioc_assessment_cache_ttl: int = 3600,
         ioc_assessment_capacity: int = 30,
         ioc_assessment_refill_per_sec: float = 0.5,
@@ -151,7 +150,6 @@ class DigestSummarizer:
         self.llm = llm
         self.max_chars = max_chars
         self.max_total_chars = max_total_chars
-        self.interest_topics = interest_topics or []
         # >1 = several articles per model call (large-context backends only).
         self.batch_size = max(1, int(batch_size))
         self.batch_chars = int(batch_chars)
@@ -168,7 +166,6 @@ class DigestSummarizer:
                 PROMPT_VERSION,
                 type(self.llm).__name__,
                 getattr(self.llm, "model", ""),
-                getattr(self.llm, "extra_args", []),
                 self.max_chars,
                 self.max_total_chars,
                 # Batch mode uses a different prompt, so its summaries are cached apart.

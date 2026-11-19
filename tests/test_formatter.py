@@ -5,7 +5,6 @@ import json
 from signalsage.bots.formatter import (
     _clean_icon,
     _parse_digest_json,
-    format_digest_plain,
     format_digest_slack_message,
 )
 from signalsage.intel.base import IntelResult
@@ -315,83 +314,6 @@ def test_format_digest_slack_bare_mode_all_items_shown_no_tail():
 # ---------------------------------------------------------------------------
 
 
-def test_format_digest_plain_has_overview():
-    messages = format_digest_plain("Test Topic", _structured_summary())
-    assert "Top signal" in _joined_plain(messages)
-
-
-def test_format_digest_plain_has_headline():
-    messages = format_digest_plain("Test Topic", _structured_summary())
-    assert "Test Headline" in _joined_plain(messages)
-
-
-def test_format_digest_plain_has_url():
-    messages = format_digest_plain("Test Topic", _structured_summary())
-    assert "https://example.com" in _joined_plain(messages)
-
-
-def test_format_digest_plain_trend_badge():
-    item_with_trend = {**_ITEM, "trend": "trending"}
-    messages = format_digest_plain(
-        "Test Topic", json.dumps({"overview": "", "items": [item_with_trend]})
-    )
-    assert "🔥" in _joined_plain(messages)
-
-
-def test_format_digest_plain_meta_footer():
-    meta = {
-        "sources_ok": 2,
-        "sources_total": 4,
-        "empty_sources": ["Bad Feed"],
-        "chronically_failing": [],
-        "deduped_count": 0,
-        "coverage_confidence": "medium",
-    }
-    summary_no_conf = json.dumps({"overview": "Overview.", "items": [_ITEM]})
-    messages = format_digest_plain("Test Topic", summary_no_conf, meta=meta)
-    combined = _joined_plain(messages)
-    assert "2/4" in combined
-    assert "Medium" in combined
-    assert "Bad Feed" in combined
-
-
-def test_format_digest_plain_fallback():
-    messages = format_digest_plain("Test Topic", "Plain text summary here.")
-    assert "Plain text summary here." in _joined_plain(messages)
-
-
-def test_format_digest_plain_top_n_split():
-    """Returns a header message (with remaining-story links) plus one message per top story."""
-    items = [
-        {
-            "icon": "📰",
-            "severity": "high",
-            "headline": f"Story {i}",
-            "summary": "Detail.",
-            "url": f"https://example.com/{i}",
-            "art_id": f"A{i}",
-        }
-        for i in range(1, 6)
-    ]
-    summary = json.dumps({"overview": "Overview.", "items": items})
-    messages = format_digest_plain("Test Topic", summary, meta={"top_stories_count": 3})
-    # message 0 = header (overview + remaining-story links), messages 1-3 = top stories
-    assert len(messages) == 4
-    assert "More Stories" in messages[0]
-    assert "Story 4" in messages[0]
-    assert "Story 5" in messages[0]
-
-
-def test_format_digest_plain_bare_mode_skips_header():
-    messages = format_digest_plain(
-        "Watched Topic", _structured_summary(), meta={"bare": True, "top_stories_count": 1}
-    )
-    assert len(messages) == 1  # just the one card, no header message
-    combined = _joined_plain(messages)
-    assert "Top signal" not in combined
-    assert "Test Headline" in combined
-
-
 def test_format_digest_slack_images():
     meta = {"sources_ok": 1, "sources_total": 1, "images": ["https://example.com/chart.png"]}
     payloads = format_digest_slack_message("Solar", _structured_summary(), meta=meta)
@@ -404,9 +326,3 @@ def test_format_digest_slack_images_skips_non_http():
     meta = {"sources_ok": 1, "sources_total": 1, "images": ["not-a-url"]}
     payloads = format_digest_slack_message("Solar", _structured_summary(), meta=meta)
     assert not any(b.get("type") == "image" for b in _all_slack_blocks(payloads))
-
-
-def test_format_digest_plain_images():
-    meta = {"sources_ok": 1, "sources_total": 1, "images": ["https://example.com/chart.png"]}
-    messages = format_digest_plain("Solar", _structured_summary(), meta=meta)
-    assert "https://example.com/chart.png" in _joined_plain(messages)

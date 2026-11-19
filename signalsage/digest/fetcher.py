@@ -15,7 +15,6 @@ from collections.abc import Callable
 from pathlib import Path
 from urllib.parse import urlparse
 
-import feedparser
 import httpx
 from bs4 import BeautifulSoup
 from cachetools import TTLCache
@@ -57,7 +56,7 @@ def _user_agent(url: str) -> str:
 _MAX_AUDIO_BYTES = 80 * 1024 * 1024  # 80 MB
 
 # Cap how many redirect hops the audio downloader will follow. A compromised feed
-# can redirect from a benign-looking URL to internal infrastructure (Ollama on the
+# can redirect from a benign-looking URL to internal infrastructure (services on the
 # internal Docker network, cloud metadata services, etc.) — limit + revalidate.
 _MAX_AUDIO_REDIRECTS = 3
 
@@ -344,34 +343,6 @@ async def _extract_feed_items(
     return items
 
 
-def _item_to_block(item: dict) -> str:
-    """Render a single {title, link, summary} item as a 'Title:/URL:' text block."""
-    text = f"Title: {item.get('title', '')}"
-    if item.get("link"):
-        text += f"\nURL: {item['link']}"
-    if item.get("summary"):
-        text += f"\n{item['summary']}"
-    return text
-
-
-async def _extract_feed_content(
-    feed_data: dict,
-    max_chars: int,
-    lookback_seconds: int | None = None,
-    whisper_base_url: str | None = None,
-) -> str:
-    """Extract text content from a parsed feedparser feed, optionally filtered by age."""
-    items = await _extract_feed_items(feed_data, max_chars, lookback_seconds, whisper_base_url)
-    if not items:
-        return ""
-
-    parts = [_item_to_block(item) for item in items]
-    linked = sum(1 for p in parts if "\nURL: " in p)
-    logger.info("Feed: %d entries included, %d have URLs", len(parts), linked)
-    combined = "\n\n---\n\n".join(parts)
-    return combined[:max_chars]
-
-
 _SOFT_404_PATTERNS = (
     "404",
     "page not found",
@@ -532,31 +503,6 @@ def _extract_json_feed_items(raw: str, lookback_seconds: int | None = None) -> l
     return items
 
 
-def _extract_json_feed(raw: str, max_chars: int, lookback_seconds: int | None = None) -> str:
-    """
-    Extract digest content from JSON feeds.
-
-    Handles the CISA KEV format ({"vulnerabilities": [...]}) and generic
-    arrays-of-objects that have title/name + description/summary fields.
-    """
-    items = _extract_json_feed_items(raw, lookback_seconds)
-    if not items:
-        return ""
-
-    parts: list[str] = []
-    for item in items:
-        parts.append(_item_to_block(item))
-        if len("".join(parts)) >= max_chars:
-            break
-
-    if not parts:
-        return ""
-
-    combined = "\n\n---\n\n".join(parts)
-    logger.info("JSON feed: extracted %d item(s)", len(parts))
-    return combined[:max_chars]
-
-
 async def _fetch_raw(url: str, timeout: int) -> tuple[str, str, str] | None:
     """Fetch *url* and return (raw_content, content_type, final_url), or None on failure."""
     try:
@@ -584,210 +530,3 @@ async def _fetch_raw(url: str, timeout: int) -> tuple[str, str, str] | None:
     except Exception as exc:
         logger.warning("Error fetching %s: %s", url, exc)
     return None
-
-
-async def fetch_source(
-    url: str,
-    max_chars: int = 3000,
-    timeout: int = 15,
-    lookback_seconds: int | None = None,
-    whisper_base_url: str | None = None,
-) -> tuple[str, str]:
-    """
-    Fetch content from a URL.
-
-    Returns:
-        tuple: (text_content, canonical_url)
-    """
-    fetched = await _fetch_raw(url, timeout)
-    if fetched is None:
-        return "", url
-    raw_content, content_type, final_url = fetched
-
-    # Determine if it's a feed
-    if _is_feed_url(url, content_type) or "xml" in content_type.lower():
-        try:
-            # Use feedparser (it works on strings too)
-            # feedparser and lxml are CPU-bound; run them off the event loop so a
-            # large feed can't stall the Slack/Discord heartbeats.
-            feed_data = await asyncio.to_thread(feedparser.parse, raw_content)
-            if feed_data.get("entries"):
-                content = await _extract_feed_content(
-                    feed_data, max_chars, lookback_seconds, whisper_base_url
-                )
-                return content, final_url
-        except Exception as exc:
-            logger.warning("Feedparser failed for %s: %s", url, exc)
-
-    # JSON feed — try CISA KEV format and generic array-of-objects
-    if "json" in content_type.lower() or url.lower().split("?")[0].endswith(".json"):
-        content = _extract_json_feed(raw_content, max_chars, lookback_seconds)
-        if content:
-            return content, final_url
-
-    # Fall back to HTML extraction — prefix with Title:/URL: so the summarizer
-    # can stamp an [A<N>] label and inject URLs for items from this page.
-    content, page_title = await asyncio.to_thread(_extract_web_content, raw_content, max_chars)
-    if content:
-        if page_title:
-            content = f"Title: {page_title}\nURL: {final_url}\n{content}"
-        else:
-            content = f"{content}\nURL: {final_url}"
-    return content, final_url
-
-
-async def fetch_source_items(
-    url: str,
-    timeout: int = 15,
-    lookback_seconds: int | None = None,
-    whisper_base_url: str | None = None,
-    max_chars: int = 3000,
-    skip_audio: Callable[[dict], bool] | None = None,
-) -> tuple[list[dict], str]:
-    """
-    Fetch a URL and return discrete items rather than a joined text blob.
-
-    Feeds (RSS/Atom/JSON) yield one item per entry. Plain HTML pages have no
-    reliable per-article structure, so the whole page is treated as a single
-    item — watch-mode dedup falls back to hashing its content in that case.
-
-    Returns:
-        tuple: (items, canonical_url) where each item is
-               {title, link, summary, published_ts}
-    """
-    fetched = await _fetch_raw(url, timeout)
-    if fetched is None:
-        return [], url
-    raw_content, content_type, final_url = fetched
-
-    if _is_feed_url(url, content_type) or "xml" in content_type.lower():
-        try:
-            # feedparser and lxml are CPU-bound; run them off the event loop so a
-            # large feed can't stall the Slack/Discord heartbeats.
-            feed_data = await asyncio.to_thread(feedparser.parse, raw_content)
-            if feed_data.get("entries"):
-                items = await _extract_feed_items(
-                    feed_data, max_chars, lookback_seconds, whisper_base_url, skip_audio
-                )
-                return items, final_url
-        except Exception as exc:
-            logger.warning("Feedparser failed for %s: %s", url, exc)
-
-    if "json" in content_type.lower() or url.lower().split("?")[0].endswith(".json"):
-        items = _extract_json_feed_items(raw_content, lookback_seconds)
-        if items:
-            return items, final_url
-
-    content, page_title = await asyncio.to_thread(_extract_web_content, raw_content, max_chars)
-    if not content:
-        return [], final_url
-    return [
-        {"title": page_title, "link": final_url, "summary": content, "published_ts": None}
-    ], final_url
-
-
-async def fetch_topic(
-    sources: list[dict],
-    max_chars: int = 3000,
-    timeout: int = 15,
-    lookback_seconds: int | None = None,
-    whisper_base_url: str | None = None,
-) -> list[dict]:
-    """
-    Fetch all sources for a topic concurrently.
-
-    Args:
-        sources: list of dicts with 'name' and 'url' keys
-        max_chars: max characters per source
-        timeout: HTTP timeout in seconds
-        whisper_base_url: base URL of Whisper service for podcast transcription (optional)
-
-    Returns:
-        list of dicts: {name, url, content}
-    """
-
-    async def _fetch_one(source: dict) -> dict:
-        name = source.get("name", "Unknown")
-        url = source.get("url", "")
-        image_url = source.get("image_url") or None
-        if not url:
-            return {"name": name, "url": url, "content": "", "image_url": image_url}
-        content, canonical_url = await fetch_source(
-            url, max_chars, timeout, lookback_seconds, whisper_base_url
-        )
-        return {
-            "name": name,
-            "url": canonical_url or url,
-            "content": content,
-            "image_url": image_url,
-        }
-
-    tasks = [_fetch_one(s) for s in sources]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
-
-    output: list[dict] = []
-    for source, result in zip(sources, results):
-        if isinstance(result, Exception):
-            logger.warning("Failed to fetch %s: %s", source.get("url", ""), result)
-            output.append(
-                {
-                    "name": source.get("name", ""),
-                    "url": source.get("url", ""),
-                    "content": "",
-                    "image_url": source.get("image_url") or None,
-                }
-            )
-        else:
-            output.append(result)  # type: ignore[arg-type]
-
-    return output
-
-
-async def fetch_topic_items(
-    sources: list[dict],
-    timeout: int = 15,
-    lookback_seconds: int | None = None,
-    whisper_base_url: str | None = None,
-    max_chars: int = 3000,
-    skip_audio: Callable[[dict], bool] | None = None,
-) -> list[dict]:
-    """
-    Fetch all sources for a topic concurrently, returning discrete items instead
-    of joined text blobs. Used by watch-mode polling for per-item keyword
-    filtering and dedup. *skip_audio* is forwarded to ``_extract_feed_items``.
-
-    Returns:
-        list of dicts: {source_name, source_url, title, link, summary, published_ts}
-    """
-
-    async def _fetch_one(source: dict) -> list[dict]:
-        name = source.get("name", "Unknown")
-        url = source.get("url", "")
-        if not url:
-            return []
-        items, canonical_url = await fetch_source_items(
-            url, timeout, lookback_seconds, whisper_base_url, max_chars, skip_audio
-        )
-        return [
-            {
-                "source_name": name,
-                "source_url": canonical_url or url,
-                "title": item.get("title", ""),
-                "link": item.get("link", ""),
-                "summary": item.get("summary", ""),
-                "published_ts": item.get("published_ts"),
-            }
-            for item in items
-        ]
-
-    tasks = [_fetch_one(s) for s in sources]
-    results = await asyncio.gather(*tasks, return_exceptions=True)
-
-    output: list[dict] = []
-    for source, result in zip(sources, results):
-        if isinstance(result, Exception):
-            logger.warning("Failed to fetch %s: %s", source.get("url", ""), result)
-            continue
-        output.extend(result)  # type: ignore[arg-type]
-
-    return output

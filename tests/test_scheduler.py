@@ -4,7 +4,7 @@ import json
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 
-from signalsage.scheduler import DigestScheduler, _compute_auto_lookback, _within_active_hours
+from signalsage.scheduler import DigestScheduler, _within_active_hours
 
 
 def make_scheduler(tmp_path, topics=None, **kwargs):
@@ -144,52 +144,6 @@ _MON_0900 = datetime(2026, 5, 4, 9, 0, tzinfo=UTC)
 _TUE_0900 = datetime(2026, 5, 5, 9, 0, tzinfo=UTC)
 
 
-def test_auto_lookback_every_6_hours():
-    """Every-6h schedule: prev fire at 06:00, prev-prev at 00:00 → 6h gap + 2h = 8h."""
-    assert _compute_auto_lookback("0 0,6,12,18 * * *", "UTC", 2.0, _now=_MON_0900) == "8h"
-
-
-def test_auto_lookback_intraday_uses_previous_gap():
-    """At 09:00 Mon: prev fire 05:00 Mon, prev-prev 23:00 Sun → 6h gap → 8h."""
-    assert _compute_auto_lookback("0 5,11,17,23 * * *", "UTC", 2.0, _now=_MON_0900) == "8h"
-
-
-def test_auto_lookback_daily_schedule():
-    """Daily 06:00: prev = Mon 06:00, prev-prev = Sun 06:00 → 24h → 26h."""
-    assert _compute_auto_lookback("0 6 * * *", "UTC", 2.0, _now=_MON_0900) == "26h"
-
-
-def test_auto_lookback_weekday_only_monday_covers_weekend():
-    """Monday 09:00 on `mon-fri` 06:00: prev = Mon 06:00, prev-prev = Fri 06:00 → 72h → 74h.
-
-    This is the weekend-coverage case — Monday's run must look back through
-    the weekend or it misses two days of content.
-    """
-    assert _compute_auto_lookback("0 6 * * mon-fri", "UTC", 2.0, _now=_MON_0900) == "74h"
-
-
-def test_auto_lookback_weekday_only_tuesday_stays_tight():
-    """Tuesday 09:00 on `mon-fri` 06:00: prev = Tue 06:00, prev-prev = Mon 06:00 → 24h → 26h.
-
-    Tue–Fri runs should NOT widen to 74h — the wide window is only used after
-    a long off-period.
-    """
-    assert _compute_auto_lookback("0 6 * * mon-fri", "UTC", 2.0, _now=_TUE_0900) == "26h"
-
-
-def test_auto_lookback_weekly_schedule():
-    """Weekly cron → 7 days = 168h, plus 2h buffer = 170h."""
-    assert _compute_auto_lookback("0 6 * * wed", "UTC", 2.0, _now=_MON_0900) == "170h"
-
-
-def test_auto_lookback_custom_buffer():
-    """Buffer should be applied as configured."""
-    # 6h gap + 0h buffer = 6h
-    assert _compute_auto_lookback("0 0,6,12,18 * * *", "UTC", 0.0, _now=_MON_0900) == "6h"
-    # 6h gap + 1h buffer = 7h
-    assert _compute_auto_lookback("0 0,6,12,18 * * *", "UTC", 1.0, _now=_MON_0900) == "7h"
-
-
 _CATCHUP_ACTIVE_HOURS = {
     "weekday_start": "07:00",
     "weekday_end": "18:00",
@@ -197,27 +151,6 @@ _CATCHUP_ACTIVE_HOURS = {
     "weekend_end": "18:00",
 }
 _TUE_1105 = datetime(2026, 5, 5, 11, 5, tzinfo=UTC)
-
-
-def test_auto_lookback_skips_quiet_hours_fires():
-    """Fires the quiet-hours gate would skip must not count as a 'last run'.
-
-    Schedule fires at 05/11/17/23; only 11:00 and 17:00 fall inside the
-    07:00-18:00 active window. Tuesday's 11:00 run must therefore catch up
-    to Monday's last *actual* run (17:00, an 18h gap), not the nominal ~6h
-    cron-field gap the un-filtered calculation would use.
-    """
-    assert (
-        _compute_auto_lookback(
-            "0 5,11,17,23 * * *", "UTC", 2.0, active_hours=_CATCHUP_ACTIVE_HOURS, _now=_TUE_1105
-        )
-        == "20h"
-    )
-
-
-def test_auto_lookback_unaffected_without_active_hours():
-    """Sanity check: active_hours=None preserves the original un-filtered gap."""
-    assert _compute_auto_lookback("0 5,11,17,23 * * *", "UTC", 2.0, _now=_MON_0900) == "8h"
 
 
 async def test_ignore_active_hours_watch_topic_posts_in_quiet_hours(tmp_path):

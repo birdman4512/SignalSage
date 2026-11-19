@@ -1,23 +1,13 @@
-# ─────────────────────────────────────────────────────────────────────────────
-# Pick the digest LLM backend with a compose profile — exactly one of:
+# SignalSage: one bot container. The digest model is Google Gemini (set
+# GEMINI_API_KEY in .env); without a key the bot runs IOC enrichment only.
 #
-#   ollama  → local Ollama container (default, free, runs on your hardware)
-#   gemini  → Google Gemini API free tier (needs GEMINI_API_KEY; tiny host is fine)
-#   codex   → bot image with the Codex CLI baked in (bills your Codex sub)
-#   claude  → bot image with the Claude Code CLI baked in (bills your Claude sub)
-#
-# Set it once in .env:           COMPOSE_PROFILES=ollama
-#   then:                        docker compose up -d --build
-# …or pass it per command:       docker compose --profile codex up -d --build
-#
-# Only the selected bot variant starts (they all share container_name "signalsage",
-# so Docker refuses to run two at once). ALWAYS `docker compose down` before
-# switching profiles. The codex/claude profiles also require CLI_AUTH_DIR in .env.
-# ─────────────────────────────────────────────────────────────────────────────
+#   docker compose up -d --build                     # start / update
+#   docker compose --profile podcasts up -d --build  # also start Whisper
+#   docker compose logs -f
 
 networks:
-  # Internal network — containers can reach each other by service name.
-  # No host access; nothing binds to a host port unless explicitly mapped below.
+  # Internal network: containers reach each other by service name (whisper).
+  # Nothing binds to a host port.
   internal:
     driver: bridge
     internal: true   # blocks outbound internet from this network
@@ -25,154 +15,44 @@ networks:
       config:
         - subnet: 10.10.50.0/24
 
-  # External network — used only by signalsage and ollama to reach the internet.
+  # External network: outbound internet for Slack, Discord, feeds, intel APIs, Gemini.
   external:
     driver: bridge
     ipam:
       config:
         - subnet: 10.10.51.0/24
 
-# Shared base for every bot variant. Each profile-specific service below merges
-# this in with <<: *bot and then layers on its build args / env / mounts.
-x-bot-base: &bot-base
-  build:
-    context: .
-  container_name: signalsage
-  restart: unless-stopped
-  env_file: .env
-  networks:
-    - internal   # talks to ollama / whisper
-    - external   # reaches Slack, Discord, threat intel APIs (+ Anthropic/OpenAI for CLI)
-  # Explicit DNS servers instead of inheriting the host's resolv.conf at
-  # container-creation time — Docker never refreshes that snapshot, so if the
-  # host's active resolver later changes (e.g. Tailscale MagicDNS toggled off),
-  # a long-running container is left pointed at a dead upstream and every
-  # outbound lookup (Discord gateway, RSS feeds, intel providers) starts
-  # failing until it's recreated.
-  # Defaults to public resolvers, but some networks (observed: a home
-  # router/ISP silently dropping outbound UDP/53 to third-party resolvers
-  # while allowing TCP/443 to the same IPs) need DNS_SERVER_1/2 set in .env
-  # to the LAN resolver that's actually reachable — check what the host's own
-  # /etc/resolv.conf uses if lookups fail after a fresh container recreate.
-  dns:
-    - ${DNS_SERVER_1:-1.1.1.1}
-    - ${DNS_SERVER_2:-8.8.8.8}
-  logging:
-    driver: json-file
-    options:
-      max-size: "10m"
-      max-file: "3"
-
 services:
-  # ── Bot + local Ollama LLM ──────────────────────────────────────────────
-  signalsage-ollama:
-    <<: *bot-base
-    profiles: ["ollama"]
-    environment:
-      LLM_PROVIDER: ollama
-      OLLAMA_BASE_URL: http://ollama:11434
-    volumes:
-      - ./config:/app/config:ro
-      - ./data:/app/data
-    depends_on:
-      ollama:
-        condition: service_healthy
-
-  # ── Bot + Google Gemini API (no local model; needs GEMINI_API_KEY) ──────
-  signalsage-gemini:
-    <<: *bot-base
-    profiles: ["gemini"]
-    environment:
-      LLM_PROVIDER: gemini
-    volumes:
-      - ./config:/app/config:ro
-      - ./data:/app/data
-
-  # ── Bot with the Codex CLI baked in (digest.llm_provider: cli) ──────────
-  signalsage-codex:
-    <<: *bot-base
-    profiles: ["codex"]
+  signalsage:
     build:
       context: .
-      args:
-        INSTALL_CLI_LLM: "true"
-    # Run as root so the CLI can read/refresh the mounted host credentials
-    # regardless of who owns them on the host.
-    user: "0:0"
-    environment:
-      LLM_PROVIDER: cli
-      CLI_COMMAND: codex
-      CODEX_HOME: /root/.codex
-    volumes:
-      - ./config:/app/config:ro
-      - ./data:/app/data
-      # Host dir that CONTAINS your .codex folder (set CLI_AUTH_DIR in .env).
-      - ${CLI_AUTH_DIR:-./data}/.codex:/root/.codex
-
-  # ── Bot with the Claude Code CLI baked in (digest.llm_provider: cli) ─────
-  signalsage-claude:
-    <<: *bot-base
-    profiles: ["claude"]
-    build:
-      context: .
-      args:
-        INSTALL_CLI_LLM: "true"
-    user: "0:0"
-    environment:
-      LLM_PROVIDER: cli
-      CLI_COMMAND: claude
-      CLAUDE_CONFIG_DIR: /root/.claude
-    volumes:
-      - ./config:/app/config:ro
-      - ./data:/app/data
-      # Host dir that CONTAINS your .claude folder (set CLI_AUTH_DIR in .env).
-      - ${CLI_AUTH_DIR:-./data}/.claude:/root/.claude
-
-  # ── Local Ollama LLM (only with --profile ollama) ───────────────────────
-  # Starts the server then auto-pulls OLLAMA_MODEL on first run.
-  # On subsequent starts the model is already on the volume — pull is a no-op.
-  # No host port binding — not accessible from outside Docker.
-  ollama:
-    image: ollama/ollama:latest
-    container_name: ollama
-    profiles: ["ollama"]
+    container_name: signalsage
     restart: unless-stopped
     env_file: .env
-    volumes:
-      - ollama_data:/root/.ollama
-      - ./scripts/ollama-start.sh:/ollama-start.sh:ro
     networks:
-      - internal   # reachable by signalsage
-      - external   # needed to download models from ollama.com
-    entrypoint: ["/bin/bash", "/ollama-start.sh"]
-    # Memory-lean settings for small CPU-only hosts. One request and one model
-    # at a time (the bot serialises its calls anyway, and parallel slots each
-    # reserve a full-size KV cache). Flash attention enables a q8_0 KV cache,
-    # roughly halving the context-window memory versus the f16 default.
-    environment:
-      OLLAMA_NUM_PARALLEL: "1"
-      OLLAMA_MAX_LOADED_MODELS: "1"
-      OLLAMA_FLASH_ATTENTION: "1"
-      OLLAMA_KV_CACHE_TYPE: q8_0
-    healthcheck:
-      test: ["CMD-SHELL", "bash -c 'echo >/dev/tcp/localhost/11434' 2>/dev/null && echo ok"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
-      start_period: 15s
-    # Uncomment for GPU support (NVIDIA):
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: 1
-    #           capabilities: [gpu]
+      - internal   # talks to whisper
+      - external   # reaches the internet
+    volumes:
+      - ./config:/app/config:ro
+      - ./data:/app/data
+    # Explicit DNS servers instead of inheriting the host's resolv.conf at
+    # container-creation time: Docker never refreshes that snapshot, so if the
+    # host's resolver later changes, a long-running container is left pointed
+    # at a dead upstream. Some networks drop outbound UDP/53 to public
+    # resolvers; set DNS_SERVER_1/2 in .env to the reachable LAN resolver then.
+    dns:
+      - ${DNS_SERVER_1:-1.1.1.1}
+      - ${DNS_SERVER_2:-8.8.8.8}
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
-  # ── Whisper speech-to-text (podcast transcription) ────────────────────
-  # Opt in with COMPOSE_PROFILES=ollama,podcasts and WHISPER_ENABLED=true.
-  # OpenAI-compatible transcription API. Needs external access on first
-  # start to download the model (~150 MB), cached on a volume afterwards.
+  # ── Whisper speech-to-text (optional podcast transcription) ─────────────
+  # Opt in with --profile podcasts (or COMPOSE_PROFILES=podcasts in .env) and
+  # WHISPER_ENABLED=true. OpenAI-compatible transcription API; downloads its
+  # model (~150 MB) on first start, cached on a volume afterwards.
   whisper:
     profiles: ["podcasts"]
     image: fedirz/faster-whisper-server:latest-cpu
@@ -185,13 +65,10 @@ services:
     networks:
       - internal   # reachable by signalsage
       - external   # needed on first start to download the model
-    # Capped so transcription can't starve Ollama/the bot on low-RAM hosts.
-    # 2 GB is the measured floor, not a guess: a ~40 min episode peaks at
-    # ~1.3 GB, and at 1 GB the container is OOM-killed mid-transcription.
-    # Two CPUs roughly halve the ~20 min a 40 min episode takes on one.
+    # 2 GB is the measured floor: a ~40 min episode peaks at ~1.3 GB, and at
+    # 1 GB the container is OOM-killed mid-transcription.
     cpus: "2.0"
     mem_limit: 2g
 
 volumes:
-  ollama_data:
   whisper_data:

@@ -7,7 +7,7 @@ import pytest
 import respx
 
 from signalsage.bootstrap import build_llm
-from signalsage.config import ConfigError, validate_config
+from signalsage.config import validate_config
 from signalsage.llm.base import LLMRateLimitError
 from signalsage.llm.gemini import GeminiLLM
 
@@ -131,20 +131,16 @@ async def test_bad_key_message():
         await _llm().complete("s", "u")
 
 
-def test_build_llm_selects_gemini():
+def test_build_llm_builds_gemini():
     llm = build_llm(
-        {
-            "llm_provider": "gemini",
-            "gemini_api_key": "k",
-            "gemini_model": "models/m",
-            "gemini_thinking_budget": None,
-        }
+        {"gemini_api_key": "k", "gemini_model": "models/m", "gemini_thinking_budget": None}
     )
     assert isinstance(llm, GeminiLLM)
     assert llm.model == "m"
     assert llm.thinking_budget is None
 
 
-def test_config_requires_gemini_key():
-    with pytest.raises(ConfigError, match="gemini_api_key"):
-        validate_config({"digest": {"llm_provider": "gemini"}})
+def test_no_key_means_no_llm_and_config_still_valid():
+    # Without a key the bot still runs IOC enrichment; digests are disabled.
+    assert build_llm({"gemini_api_key": ""}) is None
+    assert validate_config({"digest": {}}) == {"digest": {}}

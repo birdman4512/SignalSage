@@ -40,7 +40,9 @@ fi
 
 log "Deploying $(git rev-parse --short HEAD) -> $short"
 git merge --ff-only --quiet "origin/$BRANCH"
-# Uses COMPOSE_PROFILES from .env. No `down`: the bot is replaced in place.
+# No `down`: the bot is replaced in place. Prune old images and build cache so
+# a small VM disk doesn't fill up over many deploys.
 docker compose up -d --build --remove-orphans
 docker image prune -f >/dev/null
+docker builder prune -f --filter until=168h >/dev/null
 log "Deployed $(git log -1 --format='%h %s')"

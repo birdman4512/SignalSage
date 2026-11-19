@@ -4,9 +4,7 @@ import json
 import time
 
 from signalsage.digest.fetcher import (
-    _extract_feed_content,
     _extract_feed_items,
-    _extract_json_feed,
     _extract_json_feed_items,
     clean_title,
 )
@@ -74,18 +72,6 @@ async def test_extract_feed_items_filters_old_entries():
     assert titles == ["New"]
 
 
-async def test_extract_feed_content_matches_items_joined():
-    """The text-blob wrapper should stay consistent with the item-level extraction."""
-    feed_data = {
-        "entries": [{"title": "Story One", "link": "https://a.com/1", "summary": "Body one"}]
-    }
-    items = await _extract_feed_items(feed_data, max_chars=3000)
-    text = await _extract_feed_content(feed_data, max_chars=3000)
-    assert items[0]["title"] in text
-    assert items[0]["link"] in text
-    assert items[0]["summary"] in text
-
-
 # ---------------------------------------------------------------------------
 # _extract_json_feed_items
 # ---------------------------------------------------------------------------
@@ -120,14 +106,6 @@ def test_extract_json_feed_items_generic_array():
 
 def test_extract_json_feed_items_invalid_json_returns_empty():
     assert _extract_json_feed_items("not json") == []
-
-
-def test_extract_json_feed_matches_items_joined():
-    raw = json.dumps([{"title": "Item A", "description": "desc A", "url": "https://x.com/a"}])
-    items = _extract_json_feed_items(raw)
-    text = _extract_json_feed(raw, max_chars=3000)
-    assert items[0]["title"] in text
-    assert items[0]["link"] in text
 
 
 # ---------------------------------------------------------------------------

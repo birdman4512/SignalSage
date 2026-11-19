@@ -26,9 +26,6 @@ class BaseLLM(ABC):
     ) -> str:
         """Return the model's text response.
 
-        If json_mode is True, the backend should constrain output to valid JSON
-        where it supports doing so (e.g. Ollama's structured-output format).
-        json_schema optionally carries a full JSON schema for backends that can
-        enforce one (Ollama structured outputs); others may ignore it and rely
-        on the prompt.
+        If json_mode is True, the backend should constrain output to valid JSON.
+        json_schema optionally carries a JSON schema for the backend to enforce.
         """

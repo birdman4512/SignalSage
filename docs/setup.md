@@ -173,75 +173,29 @@ Supported indicator types: IPv4, IPv6, domains, URLs, MD5/SHA1/SHA256/SHA512 has
 
 ---
 
-## 5. LLM Setup (daily digest summarisation)
+## 5. Gemini (digest summaries)
 
-The digest uses a local LLM by default — **no API cost, runs on your own hardware**.
+Digest summaries, borderline relevance checks and IOC assessments use Google's
+Gemini API. The free tier is enough for this bot.
 
-### Recommended models (low memory + CPU)
+1. Open **[aistudio.google.com/apikey](https://aistudio.google.com/apikey)** and click **Create API key**.
+2. Choose **Create API key in new project**. The project must have **no billing
+   account linked**: a key in a billed project is on the paid (prepay) tier and
+   fails with `402 ... prepayment credits are depleted`.
+3. Put it in `.env`:
+   ```
+   GEMINI_API_KEY=...
+   GEMINI_MODEL=gemini-flash-lite-latest
+   ```
 
-| Model | RAM | Notes |
-|---|---|---|
-| `gemma2:2b` | ~1.6 GB | **Best lean choice.** Google model, excellent English summarisation. |
-| `llama3.2:3b` | ~2.0 GB | Meta's latest small model, well-rounded. |
-| `qwen2.5:1.5b` | ~1.0 GB | Absolute minimum. Acceptable quality for simple summaries. |
-| `phi3.5:mini` | ~2.3 GB | Microsoft model, strong instruction following. |
-
-**Recommendation: start with `gemma2:2b`.**
-
-### 5.1 Install Ollama
-
-Download from **[ollama.com/download](https://ollama.com/download)** and install.
-Ollama runs as a background service automatically after installation.
-
-### 5.2 Pull your chosen model
-
-```bash
-ollama pull gemma2:2b
-```
-
-Verify it works:
-```bash
-ollama run gemma2:2b "Summarise this in one sentence: Researchers discovered a new ransomware strain targeting healthcare."
-```
-
-### 5.3 Configure SignalSage to use it
-
-In `.env`:
-```
-LLM_PROVIDER=ollama
-OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_MODEL=gemma2:2b
-```
-
-### 5.4 Alternative: paid Claude API
-
-If you prefer Anthropic Claude instead:
-```
-LLM_PROVIDER=anthropic
-ANTHROPIC_API_KEY=sk-ant-...
-```
-
-The default model is `claude-haiku-4-5-20251001` (usage is billed by the configured API provider).
-
-### 5.5 Docker Compose with bundled Ollama
-
-To run Ollama inside Docker alongside SignalSage:
-
-```bash
-# Pull your model first (one-time)
-docker-compose --profile ollama up -d ollama
-docker exec ollama ollama pull gemma2:2b
-
-# Then in .env, change the URL to the Docker service name:
-# OLLAMA_BASE_URL=http://ollama:11434
-
-# Start everything
-docker-compose --profile ollama up -d
-```
+Without a key the bot still enriches IOCs; it just posts no digests. Free-tier
+quotas are per model and change often (check your project in AI Studio), and
+Google may use free-tier prompts to improve its products. The bot batches up to
+8 articles per call and spaces calls 6 s apart to stay inside them.
 
 ---
 
-## 7. Threat Intel API Keys
+## 6. Threat Intel API Keys
 
 All threat-intel providers are optional. The bot runs with whichever keys you provide; providers that *require* a key are skipped when the key is blank, and optional-key providers fall back to unauthenticated rate limits.
 
@@ -278,9 +232,9 @@ ABUSECH_API_KEY=...
 
 ---
 
-## 8. News digest configuration
+## 7. News digest configuration
 
-Collection runs every 15 minutes, including quiet hours. Articles are persisted in SQLite before selection and summarization. Four news topics publish at 09:00 and 16:00 Brisbane time; specialist topics retain their schedules.
+Collection runs every 15 minutes, including quiet hours. Articles are persisted in SQLite before selection and summarization. The general news topics publish at 08:00, 12:00 and 16:00 Brisbane time; specialist topics keep their own schedules.
 
 Configure personal interests under `digest.profile` and topic include/exclude keywords in `config/digests/`. Use weekday names in cron expressions: `mon-fri` avoids ambiguity because APScheduler's numeric weekdays start at Monday=0.
 
@@ -295,25 +249,25 @@ sources:
     url: "https://www.cisa.gov/cybersecurity-advisories/all.xml"
 ```
 
-Each story is posted as its own Slack/Discord message: a short summary with its source link, reason for selection and content-basis label. React 👍 (useful) or 👎 (less) on a story to feed source rankings; removing the reaction withdraws the vote. Failed generations remain eligible; failed posts are queued and retried from the last acknowledged message. Empty digests are not posted.
+Each run posts one message per topic: numbered stories, each with a headline link, source and short summary, then a few headline-only extras. React with a story's number to rate it useful; removing the reaction withdraws the vote. Failed generations remain eligible; failed posts are queued and retried from the last acknowledged message. Empty digests are not posted.
 
 Use `!digest status` for collection/delivery counts and `!digest feedback <article-id> useful|less` to adjust future source rankings. Keyword commands apply to all topics. `!digest top <N>` overrides per-topic counts for the current session.
 
-To transcribe shortlisted podcasts, set `WHISPER_ENABLED=true` and add `podcasts` to `COMPOSE_PROFILES`. Both transcription and its container are disabled by default.
+To transcribe shortlisted podcasts, set `WHISPER_ENABLED=true` and start Whisper with `docker compose --profile podcasts up -d`. Both are off by default; Whisper needs about 2 GB of RAM.
 
 A topic's `lookback` is now an initial-import bound only. It never drops persisted pending articles; later polls inspect every available feed entry. Keep the writable `data/` volume when upgrading.
 
-See [README](../README.md) for the profile schema, retry guarantees, migration details, urgent alert rules and offline/model evaluation commands.
+See [README](../README.md) for the profile schema, retry guarantees and urgent alert rules.
 
 ---
 
-## 9. Run
+## 8. Run
 
 ### Option A — Docker (recommended for production)
 
 ```bash
-docker-compose up -d --build
-docker-compose logs -f signalsage
+docker compose up -d --build
+docker compose logs -f signalsage
 ```
 
 ### Option B — Python directly (good for development/testing)
@@ -329,7 +283,7 @@ python -m signalsage.main
 
 ---
 
-## 10. Verify it's working
+## 9. Verify it's working
 
 **IOC enrichment:** Post an IP address in one of your monitored channels:
 ```
@@ -337,11 +291,11 @@ Checking this: 185.220.101.45
 ```
 SignalSage should reply within a few seconds with threat intel results.
 
-**Digest (trigger immediately without waiting for the cron):** Run `!digest` in any monitored channel to trigger all topics on-demand, or `!digest <tag>` for a specific topic (e.g. `!digest cyber`). Check `docker-compose logs -f` to see summarisation progress.
+**Digest (trigger immediately without waiting for the cron):** Run `!digest` in any monitored channel to trigger all topics on-demand, or `!digest <tag>` for a specific topic (e.g. `!digest cyber`). Check `docker compose logs -f` to see summarisation progress.
 
 ---
 
-## 11. Troubleshooting
+## 10. Troubleshooting
 
 **Slack bot doesn't respond to messages**
 - Check that you invited the bot to the channel: `/invite @SignalSage`
@@ -354,13 +308,11 @@ SignalSage should reply within a few seconds with threat intel results.
 - Check the bot has been invited to the server and has permission to read and send messages in the channel
 - Channel IDs in `monitor_channels` must be integers (not strings): `- 1234567890123456789` not `- "1234567890123456789"`
 
-**"Cannot connect to Ollama"**
-- Verify Ollama is running: `curl http://localhost:11434/api/tags`
-- Check `OLLAMA_BASE_URL` in `.env` — use `http://localhost:11434` for local, `http://ollama:11434` for Docker Compose
-
-**"Model not found" from Ollama**
-- Pull the model first: `ollama pull gemma2:2b`
-- Check `OLLAMA_MODEL` in `.env` matches exactly
+**Digests don't post / Gemini errors in the logs**
+- `402 ... prepayment credits are depleted`: the key is in a billed project. Create a new key in a project with no billing (see section 5).
+- `Gemini free-tier quota exhausted`: the daily quota for that model is used up. Stories post as quoted excerpts until it resets; reduce topics/schedules or try another `GEMINI_MODEL`.
+- `400 INVALID_ARGUMENT`: if you set `digest.gemini_thinking_budget`, remove it; Gemini 3 models reject it.
+- `Digest summarizer not started`: `GEMINI_API_KEY` is empty.
 
 **IOC not detected**
 - Private IPs (192.168.x.x, 10.x.x.x) are intentionally filtered
