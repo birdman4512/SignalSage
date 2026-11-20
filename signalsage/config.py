@@ -112,6 +112,14 @@ def validate_digests(watchlist: dict, timezone: str = "UTC") -> dict:
             url = source.get("url", "") if isinstance(source, dict) else ""
             if not str(url).startswith(("http://", "https://")):
                 raise ConfigError(f"{path}.sources[{source_index}].url must be HTTP(S)")
+            pattern = source.get("link_pattern")
+            if pattern is not None:
+                try:
+                    re.compile(str(pattern))
+                except re.error as exc:
+                    raise ConfigError(
+                        f"{path}.sources[{source_index}].link_pattern is invalid: {exc}"
+                    ) from exc
         schedule = topic.get("schedule")
         if schedule and not topic.get("watch_mode"):
             try:

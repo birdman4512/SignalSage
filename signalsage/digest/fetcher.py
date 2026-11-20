@@ -13,7 +13,7 @@ import tempfile
 import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 import httpx
 from bs4 import BeautifulSoup
@@ -157,6 +157,53 @@ def clean_title(title: str) -> str:
     else:
         title = html.unescape(title)
     return _WHITESPACE_RE.sub(" ", title).strip()
+
+
+# A date written into a URL or headline: 20240415, 2024-04-15, 2023.03.27.
+_TEXT_DATE_RE = re.compile(
+    r"(?<!\d)(20\d\d)[-./_]?(0[1-9]|1[0-2])[-./_]?(0[1-9]|[12]\d|3[01])(?!\d)"
+)
+
+
+def _date_from_text(*values: str) -> float | None:
+    """Midnight UTC of the first date found in *values*, else None."""
+    for value in values:
+        for match in _TEXT_DATE_RE.finditer(value or ""):
+            try:
+                day = datetime.date(int(match[1]), int(match[2]), int(match[3]))
+            except ValueError:
+                continue
+            return float(calendar.timegm(day.timetuple()))
+    return None
+
+
+def _extract_page_links(html_text: str, base_url: str, pattern: str) -> list[dict]:
+    """Turn an index page's links into feed items, for sites without RSS.
+
+    Every link whose absolute URL matches *pattern* becomes one item, titled
+    with its link text. A date in the URL or link text becomes its publish
+    time, so the first-install lookback skips old entries; undated links are
+    imported on the first run.
+    """
+    regex = re.compile(pattern)
+    soup = BeautifulSoup(html_text, "lxml")
+    items: list[dict] = []
+    seen: set[str] = set()
+    for anchor in soup.find_all("a", href=True):
+        url = urljoin(base_url, str(anchor["href"]).strip())
+        title = clean_title(anchor.get_text(" ", strip=True))
+        if not title or url in seen or not regex.search(url):
+            continue
+        seen.add(url)
+        items.append(
+            {
+                "title": title,
+                "link": url,
+                "summary": title,
+                "published_ts": _date_from_text(url, title),
+            }
+        )
+    return items
 
 
 def _strip_html(html: str) -> str:

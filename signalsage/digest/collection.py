@@ -12,6 +12,7 @@ from . import reddit
 from .fetcher import (
     _extract_feed_items,
     _extract_json_feed_items,
+    _extract_page_links,
     _extract_web_content,
     _fetch_raw,
     _is_feed_url,
@@ -117,6 +118,13 @@ async def _collect_source(source: dict) -> tuple[list[dict], str | None]:
             for item in items:
                 item["link"] = urljoin(final_url, item.get("link", "")) if item.get("link") else ""
             return items, None
+        if source.get("link_pattern"):
+            links = await asyncio.to_thread(
+                _extract_page_links, raw, final_url, str(source["link_pattern"])
+            )
+            if not links:
+                return [], "No links matched link_pattern"
+            return links, None
         content, title = await asyncio.to_thread(_extract_web_content, raw, 12000)
         if not content:
             return [], "No readable page content"
