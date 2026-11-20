@@ -25,6 +25,15 @@ def test_keywords_accept_common_inflections():
     assert not contains("claudette", "claude")
 
 
+def test_keywords_match_inside_chinese_and_japanese_text():
+    assert contains("微软修复已被在野利用的零日漏洞", "零日")
+    assert contains("Chrome 0day漏洞紧急补丁", "0day")
+    assert contains("ゼロデイ脆弱性の悪用を確認", "ゼロデイ")
+    assert contains("Обнаружена уязвимость нулевого дня", "нулевого дня")
+    assert not contains("нулевого днях", "нулевого дн")
+    assert not contains("app0day release", "0day")
+
+
 def test_exclusion_and_trust_cannot_promote_irrelevant_article():
     profile = {
         "topics": {"ransomware": 3},

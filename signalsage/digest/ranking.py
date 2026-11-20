@@ -27,6 +27,10 @@ def canonical_url(value: str) -> str:
 
 
 _INFLECTION = r"(?:s|es|ed|d|ing|er|ers|ation|ations)?"
+# A word character that is not Chinese or Japanese. Those scripts don't put
+# spaces between words, so a neighbouring CJK character is not a "word" for
+# boundary purposes: 零日 matches inside 零日漏洞, and "0day" inside "0day漏洞".
+_WORD = r"[^\W\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]"
 
 
 def contains(text: str, phrase: str) -> bool:
@@ -35,10 +39,15 @@ def contains(text: str, phrase: str) -> bool:
     "apt" must not match "adaptation", but "llm" should match "LLMs" and
     "exploit" should match "exploited"/"exploitation" — keywords are written
     as base forms, while headlines use whatever form reads naturally.
+    Chinese and Japanese phrases match anywhere, since those scripts have no
+    word spacing.
     """
     phrase = phrase.strip()
     return bool(
-        phrase and re.search(r"(?<!\w)" + re.escape(phrase) + _INFLECTION + r"(?!\w)", text, re.I)
+        phrase
+        and re.search(
+            f"(?<!{_WORD})" + re.escape(phrase) + _INFLECTION + f"(?!{_WORD})", text, re.I
+        )
     )
 
 
