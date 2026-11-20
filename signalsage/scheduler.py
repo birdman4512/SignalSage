@@ -2,7 +2,7 @@
 
 import logging
 from collections.abc import Callable
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from datetime import time as dtime
 from zoneinfo import ZoneInfo
 
@@ -34,90 +34,6 @@ def _parse_cron(schedule: str, timezone: str) -> CronTrigger:
         day_of_week=parts[4],
         timezone=timezone,
     )
-
-
-def _compute_auto_lookback(
-    schedule: str,
-    timezone: str,
-    buffer_hours: float,
-    active_hours: dict | None = None,
-    _now: datetime | None = None,
-) -> str:
-    """Return a lookback string equal to the elapsed time between the two most
-    recent scheduled fires of *schedule* that actually ran, plus
-    *buffer_hours* of overhang.
-
-    Computing the gap *per run* means weekday-only schedules naturally widen
-    the lookback after a long off-period (e.g. Monday's run on a `mon-fri`
-    cron looks back ~74h to cover Fri→Mon) while Tue–Fri runs stay tight
-    (~26h). ``_now`` is only used by tests.
-
-    When *active_hours* is set, fire times the quiet-hours gate would have
-    skipped are excluded from the gap calculation — they never produced a
-    post, so counting them would under-estimate how much content has piled
-    up since the last run that actually happened. This is what makes the
-    first run after quiet hours "catch up": e.g. a schedule with fires
-    outside the active window at 23:00/05:00 and inside it at 11:00/17:00
-    computes today's 11:00 run's gap back to yesterday's 17:00 run (the last
-    one that actually posted), not the nominal 6h between adjacent cron
-    fields.
-
-    Falls back to the smallest *future* gap (also active-hours filtered) when
-    there is no recent past fire in the lookback window (e.g. a newly-added
-    topic that hasn't fired yet).
-    """
-    trigger = _parse_cron(schedule, timezone)
-    now = _now or datetime.now(UTC)
-    tzinfo = ZoneInfo(timezone)
-
-    def _allowed(dt: datetime) -> bool:
-        if not active_hours:
-            return True
-        return _active_hours_allow(dt.astimezone(tzinfo), active_hours)
-
-    # Walk forward from 14d ago, keeping only the two most recent fires <= now
-    # that would actually run (i.e. inside active_hours). 14d covers
-    # weekly/biweekly digest cadences. 20k iterations is a safety cap for
-    # pathological schedules (e.g. every-minute crons that have no business
-    # being a digest topic but shouldn't crash the bot if added).
-    start = now - timedelta(days=14)
-    last_two: list[datetime] = []
-    prev: datetime | None = None
-    for _ in range(20_000):
-        nxt = trigger.get_next_fire_time(prev, start if prev is None else prev)
-        if nxt is None or nxt > now:
-            break
-        prev = nxt
-        if _allowed(nxt):
-            last_two.append(nxt)
-            if len(last_two) > 2:
-                last_two.pop(0)
-
-    if len(last_two) == 2:
-        gap_seconds = (last_two[1] - last_two[0]).total_seconds()
-        hours = max(1, int(round((gap_seconds + buffer_hours * 3600) / 3600)))
-        return f"{hours}h"
-
-    # No past fires (or only one) in the 14d window — fall back to smallest
-    # forward gap so a newly-added topic still gets a sensible default. Walk
-    # further than 6 raw fires since active-hours filtering may skip several
-    # before finding two that count.
-    fires: list[datetime] = []
-    prev = None
-    for _ in range(200):
-        nxt = trigger.get_next_fire_time(prev, now if prev is None else prev)
-        if nxt is None:
-            break
-        prev = nxt
-        if _allowed(nxt):
-            fires.append(nxt)
-        if len(fires) >= 6:
-            break
-    if len(fires) < 2:
-        return "25h"
-    min_gap = min((fires[i + 1] - fires[i]).total_seconds() for i in range(len(fires) - 1))
-    hours = max(1, int(round((min_gap + buffer_hours * 3600) / 3600)))
-    return f"{hours}h"
 
 
 def _parse_hhmm(value: str) -> dtime:
@@ -169,7 +85,7 @@ class DigestScheduler:
         notifiers: list[Callable],
         default_schedule: str = "0 9,16 * * *",
         timezone: str = "UTC",
-        whisper_base_url: str | None = None,
+        transcriber: Callable | None = None,
         data_dir: str = "data",
         top_stories_count: int = 5,
         lookback_buffer_hours: float = 2,
@@ -203,7 +119,7 @@ class DigestScheduler:
             self._watch_keywords,
             profile=profile,
             processor=processor,
-            whisper_base_url=whisper_base_url,
+            transcriber=transcriber,
             settings=pipeline_settings,
         )
         self._topics = []

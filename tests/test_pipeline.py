@@ -229,7 +229,8 @@ async def test_shortlisted_cve_enrichment_reuses_existing_ioc_processor(tmp_path
 
 
 async def test_podcasts_only_transcribed_after_selection(tmp_path, monkeypatch):
-    pipeline, _ = make_pipeline(tmp_path, whisper_base_url="http://whisper")
+    transcriber = AsyncMock()
+    pipeline, _ = make_pipeline(tmp_path, transcriber=transcriber)
     transcript = AsyncMock(return_value="A podcast transcript discussing CVE patches.")
     monkeypatch.setattr("signalsage.digest.pipeline._transcribe_audio", transcript)
     ingest(pipeline, {**ARTICLE, "audio_url": "https://source.test/audio.mp3"})
@@ -244,7 +245,7 @@ async def test_podcasts_only_transcribed_after_selection(tmp_path, monkeypatch):
         },
     )
     await pipeline.publish(TOPIC, 5)
-    transcript.assert_awaited_once_with("https://source.test/audio.mp3", "http://whisper")
+    transcript.assert_awaited_once_with("https://source.test/audio.mp3", transcriber)
 
 
 async def test_fallback_summary_is_labelled_excerpt(tmp_path):

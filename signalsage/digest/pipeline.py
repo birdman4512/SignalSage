@@ -33,7 +33,7 @@ class DigestPipeline:
         keywords,
         profile=None,
         processor=None,
-        whisper_base_url=None,
+        transcriber=None,
         settings=None,
     ):
         self.summarizer = summarizer
@@ -42,7 +42,8 @@ class DigestPipeline:
         self.keywords = keywords
         self.profile = profile or {}
         self.processor = processor
-        self.whisper_base_url = whisper_base_url
+        # async (path, mime) -> transcript, e.g. GeminiLLM.transcribe; None = off.
+        self.transcriber = transcriber
         self.settings = settings or {}
         # Topics whose queued posts are delivered even outside active hours.
         self.always_deliver: set[str] = set()
@@ -137,8 +138,8 @@ class DigestPipeline:
             body, kind = published, "show transcript"
         elif article.get("whole_page"):
             kind = "source page"
-        elif article.get("audio_url") and self.whisper_base_url and not published_url:
-            transcript = await _transcribe_audio(article["audio_url"], self.whisper_base_url)
+        elif article.get("audio_url") and self.transcriber and not published_url:
+            transcript = await _transcribe_audio(article["audio_url"], self.transcriber)
             if transcript:
                 body, kind = transcript, "podcast transcript"
         elif article.get("link") and self.settings.get("fetch_article_text", True):

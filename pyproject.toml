@@ -10,23 +10,14 @@ readme = "README.md"
 requires-python = ">=3.14"
 license = "MIT"
 authors = [{ name = "SignalSage contributors" }]
-dependencies = [
-  "slack-bolt==1.30.0",
-  "discord.py==2.7.1",
-  "httpx==0.28.1",
-  "beautifulsoup4==4.15.0",
-  "anthropic==1.13.0",
-  "apscheduler==3.11.3",
-  "pyyaml==6.0.3",
-  "python-dotenv==1.2.4",
-  "feedparser==6.0.14",
-  "tldextract==5.4.0",
-  "cachetools==7.2.1",
-  "lxml==6.1.3",
-]
+dynamic = ["dependencies"]
 
 [project.scripts]
 signalsage = "signalsage.main:run"
+
+[tool.setuptools.dynamic]
+# Single source of truth: requirements.txt (pinned), locked in requirements.lock.
+dependencies = { file = ["requirements.txt"] }
 
 [tool.setuptools.packages.find]
 include = ["signalsage*"]

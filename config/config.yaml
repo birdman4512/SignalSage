@@ -83,6 +83,7 @@ digest:
   bootstrap_days: 7                # initial install only; checkpoints survive restarts
   max_article_age_days: 8          # never post stories collected/published longer ago than this
   transcript_wait_days: 4          # hold an episode this long for its published transcript (source transcript_url)
+  transcribe_podcasts: true        # Gemini transcribes shortlisted episodes (<= ~1 h of audio)
   # Reddit Data API (optional). Needs an approved app: Reddit requires a request
   # and explicit approval under its Responsible Builder Policy. With both
   # client_id and client_secret set, subreddit sources use the API (~100 req/min);
@@ -92,21 +93,15 @@ digest:
     client_secret: "${REDDIT_CLIENT_SECRET:-}"
     username: "${REDDIT_USERNAME:-}"    # your Reddit username, for the required User-Agent
   retention_days: 90
-  article_chars: 6000              # body budget for ONE shortlisted article
-  max_prompt_chars: 8000
-  # The two budgets above suit Ollama's fixed 4,096-token context. With an API
-  # backend (gemini/anthropic) raise them, e.g. article_chars: 24000 and
-  # max_prompt_chars: 30000, so summaries read the whole article.
-  # Articles per model call. Unset = 8 for gemini (fewer requests against the
-  # free daily quota), 1 for every other backend. Keep 1 for Ollama.
-  # llm_batch_size: 8
+  article_chars: 24000             # body budget for ONE shortlisted article
+  max_prompt_chars: 30000          # per-article prompt budget (text + enrichment)
+  llm_batch_size: 8                # articles per model call (free tier limits requests/day)
   llm_batch_chars: 100000          # max article text per batched call
   fetch_article_text: true
   enrich_cves: true                # reuse existing IOC providers for article CVEs
   top_stories_count: 5
   headline_count: 5                # extra headline-only links per post (no LLM cost); topics can override
   seed_vote_reactions: ${SEED_VOTE_REACTIONS:-true}  # bot pre-adds 👍/👎 to each story; false = users add their own
-  interest_topics: []              # legacy shorthand; profile.topics is preferred
   profile:
     minimum_score: 2.5
     topics: {}                    # e.g. {"ransomware": 3, "local LLM": 3}
@@ -133,49 +128,14 @@ digest:
     weekend_end: "17:00"
     quiet_days: ["sun"]      # quiet all day; collection still runs, Monday catches up
 
-  # LLM backend: "ollama" (local, free), "gemini" (Google API, free tier),
-  # "anthropic" (paid API), or "cli"
-  # ("cli" shells out to the Claude Code / Codex CLI in headless mode — bills
-  #  against your CLI subscription). Under docker-compose this is selected for
-  #  you by COMPOSE_PROFILES (ollama|gemini|codex|claude); the codex/claude profiles
-  #  bake the CLI into the bot image and mount your host credentials.
-  llm_provider: "${LLM_PROVIDER:-ollama}"
-
-  # Ollama — local LLM, no API cost. Runs on your own hardware.
-  # Compare models with python -m signalsage.digest.evaluate before switching.
-  # Use http://ollama:11434 when running via docker-compose --profile ollama
-  # Use http://localhost:11434 when running Ollama separately
-  ollama_base_url: "${OLLAMA_BASE_URL:-http://localhost:11434}"
-  ollama_model: "${OLLAMA_MODEL:-gemma2:2b}"
-  ollama_num_ctx: 4096              # fixed budget; oversized prompts are rejected
-  ollama_timeout: 600
-  temperature: 0
-  ollama_think: null               # set false for a thinking model that supports it
-
-  # Google Gemini — free tier via https://aistudio.google.com/apikey.
-  # Only used when llm_provider = "gemini". Free quotas are per model and change
-  # often; Google may use free-tier prompts to improve its products.
-  gemini_api_key: "${GEMINI_API_KEY}"
+  # Google Gemini — the digest and IOC-assessment model. Free key:
+  # https://aistudio.google.com/apikey (create it in a project WITHOUT billing,
+  # or it is on the paid tier). Without a key the bot still enriches IOCs but
+  # posts no digests. Free quotas are per model and change often; Google may
+  # use free-tier prompts to improve its products.
+  gemini_api_key: "${GEMINI_API_KEY:-}"
   gemini_model: "${GEMINI_MODEL:-gemini-flash-lite-latest}"
   gemini_min_interval: 6            # seconds between calls (6s ≈ 10 requests/min)
   gemini_thinking_budget: null      # omit (gemini-3.x rejects it); 0 disables thinking on gemini-2.5
   gemini_timeout: 120
-
-  # Anthropic Claude — paid API. Only used when llm_provider = "anthropic"
-  anthropic_model: "claude-haiku-4-5-20251001"
-  anthropic_api_key: "${ANTHROPIC_API_KEY}"
-
-  # CLI backend — only used when llm_provider = "cli".
-  # cli_command: "claude" (Claude Code) or "codex" (Codex CLI), or a full path.
-  cli_command: "${CLI_COMMAND:-claude}"
-  cli_extra_args: []        # extra flags, e.g. ["--model", "claude-opus-4-8"]
-  cli_timeout: 600          # seconds to wait for the CLI to return
-
-# ── Whisper podcast transcription (optional) ──────────────────────────────
-# When enabled, podcast RSS enclosures (audio/*) are downloaded and transcribed
-# before being passed to the LLM for summarisation.
-# Requires the whisper service in docker-compose.yml.
-whisper:
-  enabled: ${WHISPER_ENABLED:-false}
-  base_url: "http://whisper:8000"
-  # max_audio_mb and transcription_timeout are enforced in fetcher.py constants
+  temperature: 0

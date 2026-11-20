@@ -69,11 +69,10 @@ async def main() -> None:
     # ------------------------------------------------------------------ #
     digest_cfg = cfg.get("digest", {})
     summarizer = None
-    llm_provider = (digest_cfg.get("llm_provider") or "ollama").lower()
     try:
         llm = build_llm(digest_cfg)
     except Exception as exc:
-        logger.error("Failed to initialize LLM (%s): %s", llm_provider, exc)
+        logger.error("Failed to initialize the Gemini LLM: %s", exc)
         llm = None
 
     if llm:
@@ -81,19 +80,15 @@ async def main() -> None:
 
         summarizer = DigestSummarizer(
             llm=llm,
-            max_chars=digest_cfg.get("article_chars", 6000),
-            max_total_chars=digest_cfg.get("max_prompt_chars", 8000),
-            interest_topics=digest_cfg.get("interest_topics") or [],
-            # Several articles per call only for large-context API backends; a
-            # small local model keeps one article per call.
-            batch_size=int(
-                digest_cfg.get("llm_batch_size") or (8 if llm_provider == "gemini" else 1)
-            ),
+            max_chars=digest_cfg.get("article_chars", 24000),
+            max_total_chars=digest_cfg.get("max_prompt_chars", 30000),
+            # Several articles per call: the free tier limits requests per day.
+            batch_size=int(digest_cfg.get("llm_batch_size", 8)),
             batch_chars=int(digest_cfg.get("llm_batch_chars", 100_000)),
         )
-        logger.info("Digest summarizer ready (provider: %s)", llm_provider)
+        logger.info("Digest summarizer ready (Gemini model: %s)", getattr(llm, "model", "?"))
     else:
-        logger.warning("Digest summarizer not started — no LLM available")
+        logger.warning("Digest summarizer not started — set GEMINI_API_KEY to enable it")
 
     # ------------------------------------------------------------------ #
     # Bot initialization                                                   #
@@ -152,13 +147,11 @@ async def main() -> None:
     if summarizer and notifiers:
         from signalsage.scheduler import DigestScheduler
 
-        whisper_cfg = cfg.get("whisper", {})
-        whisper_base_url: str | None = None
-        if whisper_cfg.get("enabled"):
-            whisper_base_url = whisper_cfg.get("base_url") or "http://whisper:8000"
-            logger.info("Whisper transcription enabled at %s", whisper_base_url)
-        else:
-            logger.info("Whisper transcription disabled")
+        # Shortlisted podcast episodes are transcribed by Gemini (audio input).
+        transcriber = None
+        if digest_cfg.get("transcribe_podcasts", True):
+            transcriber = getattr(summarizer.llm, "transcribe", None)
+        logger.info("Podcast transcription %s", "enabled (Gemini)" if transcriber else "disabled")
 
         try:
             scheduler = DigestScheduler(
@@ -167,16 +160,13 @@ async def main() -> None:
                 notifiers=notifiers,
                 default_schedule=digest_cfg.get("default_schedule", "0 6 * * *"),
                 timezone=digest_cfg.get("timezone", "UTC"),
-                whisper_base_url=whisper_base_url,
+                transcriber=transcriber,
                 data_dir=digest_cfg.get("data_dir", "data"),
                 top_stories_count=int(digest_cfg.get("top_stories_count", 10)),
                 lookback_buffer_hours=float(digest_cfg.get("lookback_buffer_hours", 2)),
                 watch_default_poll_minutes=int(digest_cfg.get("watch_default_poll_minutes", 15)),
                 active_hours=digest_cfg.get("active_hours"),
-                profile={
-                    "topics": dict.fromkeys(digest_cfg.get("interest_topics") or [], 3),
-                    **(digest_cfg.get("profile") or {}),
-                },
+                profile=digest_cfg.get("profile") or {},
                 processor=processor,
                 pipeline_settings=digest_cfg,
             )

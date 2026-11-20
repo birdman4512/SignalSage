@@ -168,3 +168,11 @@ async def test_reddit_results_are_reused_for_an_hour(monkeypatch):
     await collection.collect_source(reddit)
     await collection.collect_source(reddit)
     assert fetch.await_count == 4
+
+
+def test_google_news_is_spaced_and_cached():
+    from signalsage.digest import collection
+
+    url = "https://news.google.com/rss/search?q=CERT-UA"
+    assert collection._host_setting(url, collection._HOST_MIN_INTERVAL) == ("news.google.com", 5.0)
+    assert collection._host_setting(url, collection._HOST_REFRESH_SECONDS)[1] == 1800.0
