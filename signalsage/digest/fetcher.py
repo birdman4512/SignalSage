@@ -206,6 +206,22 @@ def _extract_page_links(html_text: str, base_url: str, pattern: str) -> list[dic
     return items
 
 
+_URL_RE = re.compile(r"https?://\S+")
+# Western sentences end with punctuation then a space; Chinese/Japanese don't space.
+_SENTENCE_END_RE = re.compile(r"(?<=[.!?])\s|(?<=[。！？])")
+
+
+def title_from_text(text: str, limit: int = 100) -> str:
+    """A headline for an untitled entry (a Bluesky or Mastodon post): its first
+    sentence, or its opening words cut at *limit* characters, without URLs."""
+    text = _WHITESPACE_RE.sub(" ", _URL_RE.sub(" ", text or "")).strip()
+    sentence = _SENTENCE_END_RE.split(text, maxsplit=1)[0]
+    if len(sentence) <= limit:
+        return sentence
+    cut = sentence[:limit].rsplit(" ", 1)[0] if " " in sentence[:limit] else sentence[:limit]
+    return cut.rstrip(" ,;:-") + "…"
+
+
 def _strip_html(html: str) -> str:
     """Strip HTML tags and collapse whitespace."""
     soup = BeautifulSoup(html, "lxml")
@@ -352,6 +368,8 @@ async def _extract_feed_items(
         if summary:
             # Full-content entries can be large HTML; parse off the event loop.
             summary = await asyncio.to_thread(_strip_html, summary)
+        if not title and summary:
+            title = title_from_text(summary)
 
         audio_url = _get_audio_enclosure(entry)
 

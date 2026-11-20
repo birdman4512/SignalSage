@@ -12,6 +12,7 @@ from signalsage.digest.fetcher import (
     _extract_feed_items,
     _extract_json_feed_items,
     clean_title,
+    title_from_text,
 )
 
 # ---------------------------------------------------------------------------
@@ -52,6 +53,28 @@ async def test_extract_feed_items_cleans_titles():
     feed_data = {"entries": [{"title": "A <b>bold</b>\nclaim", "link": "https://a.com/1"}]}
     items = await _extract_feed_items(feed_data, max_chars=3000)
     assert items[0]["title"] == "A bold claim"
+
+
+async def test_untitled_entries_take_a_title_from_their_text():
+    # Bluesky RSS items have no <title>, only the post text.
+    post = (
+        'Some people right now: "support a billionaire" re: export controls '
+        "https://static.example.com/x.gif?hh=213"
+    )
+    feed_data = {"entries": [{"link": "https://bsky.app/profile/a/post/1", "summary": post}]}
+    items = await _extract_feed_items(feed_data, max_chars=3000)
+    assert items[0]["title"] == 'Some people right now: "support a billionaire" re: export controls'
+
+
+def test_title_from_text_prefers_first_sentence_then_cuts_at_a_word():
+    assert title_from_text("Volt Typhoon is back. More in thread https://x.y/z") == (
+        "Volt Typhoon is back."
+    )
+    long = "word " * 40
+    title = title_from_text(long, limit=30)
+    assert title.endswith("…") and len(title) <= 31 and "  " not in title
+    assert title_from_text("美国情报机构网络攻击。详情见报告") == "美国情报机构网络攻击。"
+    assert title_from_text("https://only.a/link") == ""
 
 
 async def test_extract_feed_items_preserves_all_15_entries():
