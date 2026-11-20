@@ -75,7 +75,11 @@ YAML keywords seed the persistent keyword store once; later edits use commands:
 !version                        version, commit and uptime of the running bot
 ```
 
-For an immediate alert topic, set `watch_mode: true` and `alert_keywords`; a story must pass both relevance selection and an alert keyword. Quiet hours still apply unless `ignore_active_hours: true`. See [the topic template](config/digests/template.yaml.example).
+### Urgent stories
+
+`digest.urgent` routes urgent stories from **every** topic to one channel (default `#general`) as soon as they're collected, while the rest wait for their digests. A story qualifies if it's from the last 24 hours, passes its topic's relevance selection, and contains an alert keyword: the global `digest.urgent.alert_keywords` plus the topic's own `alert_keywords` (e.g. Solar & Propagation adds severe geomagnetic storms and X-class flares). Digests skip anything already sent there. `max_per_day` (default 10, rolling 24 hours) caps the volume; beyond it, stories wait for their digest. A topic opts out with `urgent: false`. Quiet hours apply.
+
+For a separate alert topic with its own feeds and poll interval, set `watch_mode: true` and `alert_keywords`; quiet hours apply unless `ignore_active_hours: true` (SEQ Weather Alerts posts around the clock). See [the topic template](config/digests/template.yaml.example).
 
 ## Podcasts
 

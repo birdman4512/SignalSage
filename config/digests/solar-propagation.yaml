@@ -5,6 +5,16 @@ schedule: "0 17 * * 3"          # 5:00pm Thursdays (APScheduler: Mon=0, Thu=3) â
 lookback: "7d"
 digest_channel: "#radio"
 top_stories_count: 4
+# Sent to the urgent channel (digest.urgent) straight away. Routine forecasts
+# mention "R1-R2 radio blackouts" and minor storms constantly, so only severe
+# or extreme storms (G4/G5) and X-class flares count.
+alert_keywords:
+  - "severe geomagnetic storm"
+  - "extreme geomagnetic storm"
+  - "G4 (Severe)"
+  - "G5 (Extreme)"
+  - "X-class flare"
+  - "X-class solar flare"
 sources:
   - name: "Solar Terrestrial Activity Report"
     url: "https://solen.info/solar/index.html"

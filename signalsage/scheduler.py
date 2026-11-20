@@ -1,6 +1,7 @@
 """APScheduler-based digest scheduler — one job registered per topic."""
 
 import logging
+import time
 from collections.abc import Callable
 from datetime import UTC, datetime
 from datetime import time as dtime
@@ -180,6 +181,49 @@ class DigestScheduler:
             except Exception:
                 logger.exception("Collection failed for %s; checkpoint retained", topic["name"])
         await self.store.acall("prune", int(self.pipeline.settings.get("retention_days", 90)))
+        await self._urgent_pass()
+
+    async def _urgent_pass(self):
+        """Post any topic's urgent stories to ``digest.urgent.channel`` straight away.
+
+        A story qualifies when it passes its topic's normal relevance selection
+        AND contains an alert keyword (``digest.urgent.alert_keywords`` plus the
+        topic's own ``alert_keywords``). Watch-mode topics run their own checks;
+        a topic opts out with ``urgent: false``. At most ``max_per_day`` stories
+        in any 24 hours; beyond that they wait for their normal digest. Quiet
+        hours skip the pass, so overnight stories are checked in the morning.
+        """
+        cfg = self.pipeline.settings.get("urgent") or {}
+        channel = cfg.get("channel")
+        if not channel or not self._in_active_hours():
+            return
+        base = list(cfg.get("alert_keywords") or [])
+        cap = int(cfg.get("max_per_day", 10))
+        destinations = [d for d, _, _ in self.pipeline.destinations({"digest_channel": channel})]
+        for topic in self._topics:
+            if topic.get("watch_mode") or topic.get("urgent") is False:
+                continue
+            terms = list(dict.fromkeys([*base, *(topic.get("alert_keywords") or [])]))
+            if not terms:
+                continue
+            since = time.time() - 86400
+            sent = max(
+                [await self.store.acall("urgent_count", d, since) for d in destinations] or [0]
+            )
+            if sent >= cap:
+                logger.info("Urgent cap of %d reached; the rest wait for their digests", cap)
+                return
+            try:
+                await self.pipeline.publish(
+                    topic,
+                    min(3, cap - sent),
+                    urgent=True,
+                    alert_terms=terms,
+                    channel=channel,
+                    delivery_allowed=self._in_active_hours,
+                )
+            except Exception:
+                logger.exception("Urgent check failed for %s", topic["name"])
 
     async def _retry_delivery(self):
         if self._in_active_hours() or self.pipeline.always_deliver:

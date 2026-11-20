@@ -110,6 +110,25 @@ digest:
     sources: {}                    # host -> bonus, e.g. {"abc.net.au": 0.5}
     exclude: ["sponsored"]
 
+  # Urgent route: after each collection, any topic's new story (last 24 h) that
+  # passes that topic's relevance selection AND contains an alert keyword is
+  # posted to `channel` straight away, and its digest skips it. Topics add
+  # their own `alert_keywords` or opt out with `urgent: false`. Beyond
+  # max_per_day (rolling 24 h), stories wait for their normal digest. Quiet
+  # hours apply. Remove the block to turn the route off.
+  urgent:
+    channel: "#general"
+    max_per_day: 10
+    alert_keywords:
+      - "actively exploited"
+      - "exploited in the wild"
+      - "under active attack"
+      - "zero-day"
+      - "0-day"
+      - "emergency patch"
+      - "emergency directive"
+      - "out-of-band"
+
   # Watch-mode topics (watch_mode: true in the topic file) poll their sources on
   # an interval instead of a cron schedule and post immediately when a new item
   # matches relevance rules AND explicit alert_keywords. This is the default poll interval for watch-mode

@@ -76,6 +76,16 @@ def validate_config(config: dict) -> dict:
         ):
             if key in digest:
                 _positive_number(digest[key], f"digest.{key}")
+        urgent = digest.get("urgent")
+        if urgent:
+            if not isinstance(urgent, dict):
+                raise ConfigError("digest.urgent must be a mapping")
+            if not str(urgent.get("channel") or "").strip():
+                raise ConfigError("digest.urgent.channel is required")
+            if "max_per_day" in urgent:
+                _positive_number(urgent["max_per_day"], "digest.urgent.max_per_day")
+            if not isinstance(urgent.get("alert_keywords") or [], list):
+                raise ConfigError("digest.urgent.alert_keywords must be a list")
     return config
 
 
