@@ -34,8 +34,8 @@ sources fail from the VM even though they work from home.
 ## Auto-deploy
 
 Cron runs [autodeploy.sh](autodeploy.sh) every 5 minutes. When `main` has a new
-commit that passed CI (`Lint & Test`), it fast-forwards `/opt/SignalSage`, runs
-`docker compose up -d --build`, and prunes old images and build cache. Nothing on
+commit that passed CI (`Lint & Test`), it fast-forwards `/opt/SignalSage`, builds
+the new image, replaces the container, and prunes old images and build cache. Nothing on
 GitHub needs access to the server.
 
 ```sh
@@ -52,9 +52,12 @@ echo '*/5 * * * * root /opt/SignalSage/deploy/autodeploy.sh >> /var/log/signalsa
 - Deploy now: `sudo /opt/SignalSage/deploy/autodeploy.sh`
 - Pause: comment out the cron line
 
-If a build fails after the fast-forward, the old container keeps running but
-the next cron run sees nothing new. Fix the cause, then run
-`sudo docker compose up -d --build` by hand.
+The new image is built while the old container keeps running. If the build
+fails, the checkout steps back to the running commit and that commit is skipped
+until `main` moves on; delete `/var/tmp/signalsage-autodeploy.failed` to retry it.
+If replacing the container fails (for example after a compose service is
+renamed while `container_name` stays the same), the script removes the old
+containers with `docker compose down --remove-orphans` and starts again.
 
 Keep server-only settings in the gitignored `.env`, `config/config.local.yaml`
 and `config/digests/*.local.yaml`. Editing tracked files on the server makes the
