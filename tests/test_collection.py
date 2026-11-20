@@ -3,6 +3,7 @@ import time
 from unittest.mock import AsyncMock
 
 import httpx
+import pytest
 import respx
 
 from signalsage.digest.collection import collect_source, fetch_article_text
@@ -185,3 +186,59 @@ def test_google_news_is_spaced_and_cached():
     url = "https://news.google.com/rss/search?q=CERT-UA"
     assert collection._host_setting(url, collection._HOST_MIN_INTERVAL) == ("news.google.com", 5.0)
     assert collection._host_setting(url, collection._HOST_REFRESH_SECONDS)[1] == 1800.0
+
+
+def test_link_pattern_turns_index_page_links_into_dated_stories():
+    from signalsage.digest.fetcher import _extract_page_links
+
+    page = """<html><body>
+      <a href="../head/zhaiyao/news20240415-FTTF.htm"> “伏特台风”报告 </a>
+      <a href="../head/zhaiyao/news20240415-FTTF.htm">duplicate</a>
+      <a href="/head/zhaiyao/news20261120-VPN.htm">VPN 预警报告</a>
+      <a href="/zxdt/report20261026.htm">not a report</a>
+      <a href="/head/zhaiyao/news20240708-x.htm"></a>
+    </body></html>"""
+    items = _extract_page_links(page, "https://www.cverc.org.cn/index/", r"/head/zhaiyao/news\d{8}")
+    assert [i["link"] for i in items] == [
+        "https://www.cverc.org.cn/head/zhaiyao/news20240415-FTTF.htm",
+        "https://www.cverc.org.cn/head/zhaiyao/news20261120-VPN.htm",
+    ]
+    assert items[0]["title"] == "“伏特台风”报告"
+    assert items[0]["published_ts"] == 1713139200.0  # 2024-04-15 UTC
+
+
+def test_page_dates_come_from_url_or_title():
+    from signalsage.digest.fetcher import _date_from_text
+
+    assert _date_from_text("https://x/report20230327dp.htm") == 1679875200.0
+    assert _date_from_text("https://x/a.htm", "Dark Power (2023.03.27)") == 1679875200.0
+    assert _date_from_text("https://x/id/123456789") is None
+    assert _date_from_text("https://x/20231399.htm") is None
+
+
+async def test_source_with_link_pattern_collects_links(monkeypatch):
+    from signalsage.digest import collection
+
+    page = '<a href="/r/news20261120-a.htm">Report A</a><a href="/other">x</a>'
+
+    async def fake_fetch(url, timeout):
+        return page, "text/html; charset=utf-8", url
+
+    monkeypatch.setattr(collection, "_fetch_raw", fake_fetch)
+    items, error = await collection._collect_source(
+        {"url": "https://example.com/", "link_pattern": r"/r/news\d{8}"}
+    )
+    assert error is None
+    assert [i["title"] for i in items] == ["Report A"]
+    items, error = await collection._collect_source(
+        {"url": "https://example.com/", "link_pattern": r"/nothing"}
+    )
+    assert items == [] and error == "No links matched link_pattern"
+
+
+def test_invalid_link_pattern_is_rejected():
+    from signalsage.config import ConfigError, validate_digests
+
+    topic = {"name": "T", "sources": [{"url": "https://x.test/", "link_pattern": "("}]}
+    with pytest.raises(ConfigError, match="link_pattern"):
+        validate_digests({"topics": [topic]})

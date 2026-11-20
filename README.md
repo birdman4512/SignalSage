@@ -87,6 +87,16 @@ When a podcast episode is shortlisted, the bot downloads its audio and Gemini tr
 
 A source can instead point at a show's published transcript with `transcript_url` (`{episode}` filled from `episode_pattern`). Security Now uses GRC's transcripts this way; the episode is held up to `digest.transcript_wait_days` (default 4) for it.
 
+## Sites without RSS
+
+A source that points at an ordinary page is read as one story (its text), which suits status pages like the solar reports. For a page that *lists* reports, add `link_pattern`, a regex: each link on the page whose URL matches becomes its own story, titled with its link text. A date in the URL or link text (`20240415`, `2024-04-15`) becomes its publish date, so the first import skips old ones. Undated links are all imported once.
+
+```yaml
+  - name: "CVERC reports"
+    url: "https://www.cverc.org.cn/"
+    link_pattern: "/head/zhaiyao/news\\d{8}"
+```
+
 ## Optional Reddit API
 
 Subreddit sources work without credentials through RSS, fetched a minute apart and refreshed hourly. With an approved Reddit API app (type *script*; Reddit requires explicit approval under its Responsible Builder Policy), set `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET` and `REDDIT_USERNAME` in `.env`. Existing `/r/<name>/.rss` URLs map to API listings automatically.

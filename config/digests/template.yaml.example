@@ -16,6 +16,11 @@ exclude_keywords: ["sponsored"]
 sources:
   - name: "My Source"
     url: "https://example.com/feed.xml"
+  # A site without RSS: each link on the page whose URL matches the regex
+  # becomes a story. Dates in the URL (20240415) skip old ones on first import.
+  # - name: "Report index"
+  #   url: "https://example.com/reports/"
+  #   link_pattern: "/reports/\\d{8}"
 
 # Collection is independent of the posting schedule and continues overnight.
 # Keywords use word boundaries. YAML lists seed initial values only; use
