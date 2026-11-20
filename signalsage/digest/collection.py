@@ -32,8 +32,10 @@ _MAX_ITEMS_PER_SOURCE = 100
 # hour — digests only publish twice a day, so hourly freshness costs nothing,
 # and it keeps each 15-minute collection to a few Reddit fetches rather than
 # ten minutes of waiting. Reddit OAuth credentials would lift this to ~100/min.
-_HOST_MIN_INTERVAL = {"reddit.com": 61.0}
-_HOST_REFRESH_SECONDS = {"reddit.com": 3600.0}
+# Google News search feeds answer bursts with 429, so they are spaced a few
+# seconds apart and refreshed every 30 minutes.
+_HOST_MIN_INTERVAL = {"reddit.com": 61.0, "news.google.com": 5.0}
+_HOST_REFRESH_SECONDS = {"reddit.com": 3600.0, "news.google.com": 1800.0}
 _host_locks: dict[str, asyncio.Lock] = {}
 _host_last: dict[str, float] = {}
 _result_cache: dict[str, tuple[float, list[dict], str | None]] = {}

@@ -158,3 +158,23 @@ async def test_pipeline_quotes_excerpts_when_quota_is_exhausted(tmp_path):
     assert len(items) == 3
     assert all(i["content_kind"].startswith("quoted excerpt") for i in items)
     assert items[0]["summary"].startswith("A patch is available")
+
+
+async def test_prompt_credits_named_source_and_writes_in_english():
+    llm = AsyncMock()
+    article = {
+        "id": "r1",
+        "title": "Основные результаты деятельности НКЦКИ",
+        "body": "НКЦКИ зафиксировал 120 атак на объекты КИИ.",
+        "source_name": "NKCKI (Russia)",
+    }
+    llm.complete.return_value = batch_reply(
+        item("r1", "NKCKI says it recorded 120 attacks.", "зафиксировал 120 атак")
+    )
+    out = await DigestSummarizer(llm, batch_size=8).summarize_batch([article])
+
+    assert out["r1"]["evidence"] == "зафиксировал 120 атак"
+    payload = json.loads(llm.complete.call_args.kwargs["user"])
+    assert payload["articles"][0]["source"] == "NKCKI (Russia)"
+    system = llm.complete.call_args.kwargs["system"]
+    assert "in English" in system and "TASS says" in system
