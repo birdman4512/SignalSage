@@ -13,7 +13,9 @@ sources:
     url: "https://www.ncsc.gov.uk/api/1/services/v1/blog-post-rss-feed.xml"
   - name: "SANS Internet Storm Center"
     url: "https://isc.sans.edu/rssfeed_full.xml"
-  - name: "ASD's ACSC Alerts"  # Australian Cyber Security Centre
-    url: "https://www.cyber.gov.au/rss/alerts"
-  - name: "ASD's ACSC Advisories"
-    url: "https://www.cyber.gov.au/rss/advisories"
+  # cyber.gov.au's own feeds (/rss/alerts, /rss/advisories) sit behind Akamai,
+  # which blocks cloud-provider IPs, so a cloud-hosted bot can't fetch them.
+  # ACSC/ASD alerts are covered through news coverage of them instead (joint
+  # ASD advisories also appear in the CISA feed above).
+  - name: "ACSC & ASD in the news"
+    url: "https://news.google.com/rss/search?q=%22Australian%20Cyber%20Security%20Centre%22%20OR%20%22Australian%20Signals%20Directorate%22%20OR%20ACSC%20when%3A7d&hl=en-AU&gl=AU&ceid=AU%3Aen"
