@@ -19,6 +19,9 @@ from .transcripts import fetch_transcript, select_passages, transcript_url
 
 logger = logging.getLogger(__name__)
 
+# The global urgent route only posts stories published (or first seen) this recently.
+URGENT_MAX_AGE_SECONDS = 86400
+
 
 class TranscriptPending(ValueError):
     """The show's published transcript isn't out yet; retry on a later run."""
@@ -281,7 +284,17 @@ class DigestPipeline:
         progress=None,
         urgent=False,
         delivery_allowed=None,
+        alert_terms=None,
+        channel=None,
     ):
+        """Select, summarize and queue *topic*'s best stories.
+
+        ``urgent`` keeps only stories matching an alert term (``alert_terms``,
+        else the topic's ``alert_keywords``). ``channel`` forces the destination,
+        which the global urgent route uses to post any topic's alerts to one
+        channel; those runs are marked so they can be counted and deduplicated.
+        """
+        urgent_route = channel is not None
         async with self._publish_lock:
             started = time.time()
             metrics: dict = {
@@ -293,9 +306,20 @@ class DigestPipeline:
                 "failed": 0,
                 "queued": 0,
             }
-            destinations = self.destinations(topic, override_channel)
+            if urgent_route:
+                destinations = self.destinations({**topic, "digest_channel": channel})
+            else:
+                destinations = self.destinations(topic, override_channel)
             if not destinations:
                 return
+            # A story already sent to the urgent channel isn't repeated by digests.
+            urgent_seen = []
+            if not urgent:
+                route_channel = (self.settings.get("urgent") or {}).get("channel")
+                if route_channel:
+                    for dest, _, _ in self.destinations({"digest_channel": route_channel}):
+                        if dest not in {d for d, _, _ in destinations}:
+                            urgent_seen.append(await self.store.acall("reservations", dest))
             include, exclude = self.keywords.get(topic["name"])
             sources_by_url = {s["url"]: s for s in topic.get("sources", []) if s.get("url")}
             profile = {**self.profile, **topic.get("profile", {})}
@@ -315,7 +339,9 @@ class DigestPipeline:
             }
             ranked = []
             for article in candidates:
-                if all(self.store.reserved(reservations[dest], article) for dest in reservations):
+                if all(
+                    self.store.reserved(reservations[dest], article) for dest in reservations
+                ) or any(self.store.reserved(seen, article) for seen in urgent_seen):
                     metrics["deduplicated"] += 1
                     continue
                 score, reasons, veto = score_article(
@@ -334,9 +360,13 @@ class DigestPipeline:
                     metrics["rejected"] += 1
                     continue
                 if urgent:
-                    alert_terms = topic.get("alert_keywords") or []
+                    terms = alert_terms if alert_terms is not None else topic.get("alert_keywords")
                     text = article["title"] + " " + article.get("summary", "")
-                    if not alert_terms or not any(contains(text, term) for term in alert_terms):
+                    if not terms or not any(contains(text, term) for term in terms):
+                        continue
+                    # Urgent means new: older matches wait for the normal digest.
+                    when = article.get("published_ts") or article.get("collected") or started
+                    if urgent_route and when < started - URGENT_MAX_AGE_SECONDS:
                         continue
                 article.update(relevance_score=score, reasons=reasons)
                 ranked.append(article)
@@ -496,6 +526,7 @@ class DigestPipeline:
                         # Every story in ONE message, numbered in this order.
                         "combined": True,
                         "bare": urgent,
+                        "urgent_route": urgent_route,
                         "preserve_order": True,
                         "articles": [a["id"] for a in articles],
                         "seed_votes": bool(self.settings.get("seed_vote_reactions", True)),
@@ -517,8 +548,12 @@ class DigestPipeline:
                 metrics["queued"] += len(articles)
                 metrics["headlines"] = len(extras)
             metrics["seconds"] = round(time.time() - started, 3)
-            await self.store.acall("record_run", topic["name"], started, metrics)
-            logger.info("Digest run %s: %s", topic["name"], metrics)
+            if urgent_route and not metrics["queued"]:
+                # Runs every collection for every topic: only alerts are news.
+                logger.debug("Urgent check %s: %s", topic["name"], metrics)
+            else:
+                await self.store.acall("record_run", topic["name"], started, metrics)
+                logger.info("Digest run %s: %s", topic["name"], metrics)
         await self.flush(allowed=delivery_allowed)
 
     def _record_message(self, platform: str, message: str, meta: dict, index: int) -> None:

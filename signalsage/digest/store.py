@@ -149,6 +149,7 @@ class ArticleStore:
             enrichment=json.loads(row["enrichment"] or "[]"),
             cached_summary=row["cached_summary"],
             summary_key=row["summary_key"],
+            collected=row["collected"],
         )
         return data
 
@@ -203,6 +204,17 @@ class ArticleStore:
                 )
             ]
         return ids, recent
+
+    def urgent_count(self, destination: str, since: float) -> int:
+        """Stories the global urgent route queued for *destination* since *since*."""
+        with self.connect() as db:
+            row = db.execute(
+                """SELECT COUNT(*) FROM deliveries d JOIN outbox o ON o.id=d.outbox
+                WHERE d.destination=? AND o.created>=?
+                AND json_extract(o.body, '$.meta.urgent_route')=1""",
+                (destination, since),
+            ).fetchone()
+        return int(row[0])
 
     @staticmethod
     def reserved(reservations: tuple[set[str], list[dict]], item: dict) -> bool:
